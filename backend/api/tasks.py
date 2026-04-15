@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 import hashlib
 import logging
 from typing import Callable
@@ -8,11 +9,12 @@ from celery import shared_task
 from celery.signals import heartbeat_sent, worker_ready
 from django.conf import settings
 from django.core.cache import caches
-from django.db import DatabaseError, transaction
+from django.db import transaction
 from django.utils import timezone
 
+from api.checks import get_replenishment_export_audit_schema_status
 from api.apps import build_log_extra, clear_request_log_context, set_request_log_context
-from api.models import AsyncJob
+from api.models import AsyncJob, AsyncJobArtifact
 from replenishment import workflow_store_db
 from replenishment.services import needs_list as needs_list_service
 
@@ -107,10 +109,79 @@ def _build_needs_list_export_artifact(job: AsyncJob) -> tuple[str, str, str, str
     max_bytes = int(getattr(settings, "DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES", 524288))
     if len(payload_bytes) > max_bytes:
         raise AsyncJobPermanentError(
-            f"Export artifact exceeded inline storage limit ({len(payload_bytes)} bytes)."
+            f"Export artifact exceeded durable database-backed storage limit ({len(payload_bytes)} bytes); "
+            "durable object storage required."
         )
     checksum = hashlib.sha256(payload_bytes).hexdigest()
     return filename, "text/csv", checksum, csv_payload
+
+
+def _durable_export_retention_seconds() -> int:
+    return max(
+        int(getattr(settings, "DMIS_DURABLE_EXPORT_RETENTION_SECONDS", 7776000)),
+        60,
+    )
+
+
+def _export_reason_code_for_job(job: AsyncJob) -> str:
+    if job.job_type == AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT:
+        return "DONATION_EXPORT"
+    if job.job_type == AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT:
+        return "PROCUREMENT_EXPORT"
+    raise AsyncJobPermanentError(f"Unsupported async job type: {job.job_type}.")
+
+
+def _resolve_needs_list_id_for_audit(job: AsyncJob) -> int:
+    from replenishment.models import NeedsList
+
+    source_resource_id = str(job.source_resource_id or "").strip()
+    if not source_resource_id:
+        raise AsyncJobPermanentError("Async job is missing a source needs list identifier.")
+
+    try:
+        if source_resource_id.isdigit():
+            needs_list = NeedsList.objects.only("needs_list_id").get(
+                needs_list_id=int(source_resource_id)
+            )
+        else:
+            needs_list = NeedsList.objects.only("needs_list_id").get(
+                needs_list_no=source_resource_id
+            )
+    except NeedsList.DoesNotExist as exc:
+        raise AsyncJobPermanentError(
+            f"Source needs list {source_resource_id} could not be resolved for export audit."
+        ) from exc
+
+    return int(needs_list.needs_list_id)
+
+
+def _create_export_audit_row(
+    job: AsyncJob,
+    *,
+    artifact: AsyncJobArtifact,
+) -> None:
+    from replenishment.models import NeedsListAudit
+
+    notes_text = f"artifact_id={artifact.artifact_id} file={job.artifact_filename or job.job_id}"
+    NeedsListAudit.objects.create(
+        needs_list_id=_resolve_needs_list_id_for_audit(job),
+        action_type="EXPORT_GENERATED",
+        field_name="artifact_sha256",
+        new_value=str(job.artifact_sha256 or ""),
+        reason_code=_export_reason_code_for_job(job),
+        notes_text=notes_text[:500],
+        actor_user_id=str(job.actor_user_id or job.actor_username or "SYSTEM"),
+        request_id=job.request_id,
+    )
+
+
+def _ensure_export_audit_schema_ready() -> None:
+    status, reason = get_replenishment_export_audit_schema_status()
+    if status == "failed":
+        raise AsyncJobPermanentError(
+            reason
+            or "Queued export durability prerequisites are not satisfied."
+        )
 
 
 def _mark_job_running(
@@ -186,24 +257,31 @@ def _mark_job_failed(job_id: str, *, error_message: str) -> AsyncJob:
         return job
 
 
-def _mark_job_succeeded(
+def _persist_job_artifact_and_mark_succeeded(
     job_id: str,
     *,
     artifact_filename: str,
     artifact_content_type: str,
     artifact_sha256: str,
     artifact_payload: str,
-) -> AsyncJob:
+) -> tuple[AsyncJob, AsyncJobArtifact]:
     with transaction.atomic():
         job = _load_job_for_update(job_id)
+        expires_at = timezone.now() + timedelta(seconds=_durable_export_retention_seconds())
+        artifact, _ = AsyncJobArtifact.objects.update_or_create(
+            job=job,
+            defaults={
+                "storage_backend": AsyncJobArtifact.StorageBackend.DB_TEXT,
+                "payload_text": artifact_payload,
+                "size_bytes": len(artifact_payload.encode("utf-8")),
+                "retention_expires_at": expires_at,
+            },
+        )
         job.mark_succeeded(
             artifact_filename=artifact_filename,
             artifact_content_type=artifact_content_type,
             artifact_sha256=artifact_sha256,
-            artifact_payload=artifact_payload,
-            artifact_ttl_seconds=int(
-                getattr(settings, "DMIS_ASYNC_ARTIFACT_TTL_SECONDS", 86400)
-            ),
+            artifact_expires_at=expires_at,
         )
         job.save(
             update_fields=[
@@ -218,7 +296,8 @@ def _mark_job_succeeded(
                 "expires_at",
             ]
         )
-        return job
+        _create_export_audit_row(job, artifact=artifact)
+        return job, artifact
 
 
 def _retry_delay_seconds(current_retry_count: int) -> int:
@@ -259,10 +338,11 @@ def run_async_job(self, job_id: str) -> str:
     _with_job_context(job, _run_logged)
 
     try:
+        _ensure_export_audit_schema_ready()
         artifact_filename, artifact_content_type, artifact_sha256, artifact_payload = (
             _build_needs_list_export_artifact(job)
         )
-        job = _mark_job_succeeded(
+        job, artifact = _persist_job_artifact_and_mark_succeeded(
             job_id,
             artifact_filename=artifact_filename,
             artifact_content_type=artifact_content_type,
@@ -276,6 +356,7 @@ def run_async_job(self, job_id: str) -> str:
                 extra=_job_log_extra(
                     job,
                     event="job.succeeded",
+                    artifact_id=artifact.artifact_id,
                     artifact_filename=artifact_filename,
                 ),
             )

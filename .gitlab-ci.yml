@@ -500,6 +500,7 @@ stages:
   - build  # no build stage. Maybe we could build the JS
   - test
   - upload
+  - pre_deploy
   - deploy
   - dast
 
@@ -573,6 +574,20 @@ publish-package:
       python3 -m artify -c nexus -r egov-$NEX_REPO -f maven -n $ARTIFACT_NAME
       -w ./ -h https://bizdevnex.egovja.com
     - mv $ARTIFACT_NAME dist/
+
+replenishment-export-audit-migration:
+  stage: pre_deploy
+  resource_group: replenishment-export-audit-migration
+  extends:
+    - .release_cond
+  script:
+    - python -m pip install -r backend/requirements.txt
+    - cd backend
+    - python manage.py apply_replenishment_sql_migration 20260414_dmis08_export_audit_request_id.sql --apply 2>&1 | tee migration_20260414_dmis08_export_audit_request_id.log
+  artifacts:
+    when: always
+    paths:
+      - backend/migration_20260414_dmis08_export_audit_request_id.log
 
 awx-deploy:
   stage: deploy

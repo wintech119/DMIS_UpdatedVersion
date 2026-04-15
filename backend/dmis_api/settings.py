@@ -393,6 +393,16 @@ def default_async_eager_for_runtime_env(*, runtime_env: str, testing: bool) -> b
     return runtime_env == "local-harness"
 
 
+def default_durable_export_retention_seconds_for_runtime_env(
+    *,
+    runtime_env: str,
+    testing: bool,
+) -> int:
+    if testing or runtime_env in {"test", "local-harness"}:
+        return 86400
+    return 7776000
+
+
 def _validate_redis_url(redis_url: str, *, runtime_env: str) -> None:
     parsed = urlparse(redis_url)
     if parsed.scheme not in _SUPPORTED_REDIS_URL_SCHEMES:
@@ -803,6 +813,7 @@ SECURE_REFERRER_POLICY = os.getenv(
 CSRF_TRUSTED_ORIGINS = _get_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", [])
 SECURE_PROXY_SSL_HEADER = _runtime_security_profile["required_proxy_ssl_header"]
 USE_X_FORWARDED_HOST = False
+TRUSTED_PROXIES = frozenset(_get_csv_env("DMIS_TRUSTED_PROXIES", []))
 
 if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
     # Keep local and CI tests aligned with Django's default test client behavior.
@@ -850,7 +861,30 @@ DMIS_WORKER_REQUIRED = worker_required_for_runtime_env(
     runtime_env=DMIS_RUNTIME_ENV,
     testing=TESTING,
 )
-DMIS_ASYNC_ARTIFACT_TTL_SECONDS = _get_int_env("DMIS_ASYNC_ARTIFACT_TTL_SECONDS", 86400) or 86400
+_default_durable_export_retention_seconds = default_durable_export_retention_seconds_for_runtime_env(
+    runtime_env=DMIS_RUNTIME_ENV,
+    testing=TESTING,
+)
+# Treat only None as "unset" so an explicit 0 remains visible to downstream
+# validation; api.tasks still enforces a 60-second minimum retention floor.
+_configured_async_artifact_ttl_seconds = _get_int_env(
+    "DMIS_ASYNC_ARTIFACT_TTL_SECONDS",
+    None,
+)
+DMIS_ASYNC_ARTIFACT_TTL_SECONDS = (
+    _default_durable_export_retention_seconds
+    if _configured_async_artifact_ttl_seconds is None
+    else _configured_async_artifact_ttl_seconds
+)
+_configured_durable_export_retention_seconds = _get_int_env(
+    "DMIS_DURABLE_EXPORT_RETENTION_SECONDS",
+    None,
+)
+DMIS_DURABLE_EXPORT_RETENTION_SECONDS = (
+    DMIS_ASYNC_ARTIFACT_TTL_SECONDS
+    if _configured_durable_export_retention_seconds is None
+    else _configured_durable_export_retention_seconds
+)
 DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES = (
     _get_int_env("DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES", 524288) or 524288
 )

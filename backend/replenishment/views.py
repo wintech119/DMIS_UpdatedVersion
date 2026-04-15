@@ -1,7 +1,9 @@
 ﻿import csv
 import io
 import hashlib
+import ipaddress
 import logging
+import time
 import re
 import math
 import json
@@ -15,7 +17,8 @@ from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, transaction
+from django.core.cache import cache
+from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.urls import reverse
@@ -24,6 +27,7 @@ from rest_framework.response import Response
 
 from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication
+from api.checks import get_replenishment_export_audit_schema_status
 from api.models import AsyncJob
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
@@ -271,6 +275,14 @@ _NEEDS_LIST_TASK_RULES = (
 
 class DuplicateConflictValidationError(ValueError):
     """Raised when duplicate-conflict validation input is malformed."""
+
+
+class PaginationValidationError(ValueError):
+    """Raised when pagination query parameters are invalid."""
+
+    def __init__(self, errors: Dict[str, str]):
+        self.errors = errors
+        super().__init__("Invalid pagination parameters.")
 
 
 workflow_store = workflow_store_db
@@ -708,6 +720,30 @@ def _should_enforce_tenant_scope(request) -> bool:
     return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
 
 
+def _accessible_read_warehouse_ids(request) -> set[int] | None:
+    if not _should_enforce_tenant_scope(request):
+        return None
+
+    context = _tenant_context(request)
+    # Read-all national/NEOC users should keep their cross-tenant visibility; a
+    # requested tenant can influence the active context without becoming a hard
+    # pre-hydration warehouse filter on list endpoints.
+    if context.can_read_all_tenants:
+        return None
+
+    if context.requested_tenant_id is not None and context.active_tenant_id is not None:
+        tenant_ids = {context.active_tenant_id}
+    else:
+        tenant_ids = set(context.membership_tenant_ids)
+        if not tenant_ids and context.active_tenant_id is not None:
+            tenant_ids.add(context.active_tenant_id)
+
+    if not tenant_ids:
+        return set()
+
+    return data_access.get_warehouse_ids_for_tenants(tenant_ids)
+
+
 def _tenant_scope_denied_response(
     request,
     *,
@@ -851,6 +887,14 @@ _ASYNC_EXPORT_JOB_TYPES = {
     "donation": AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
     "procurement": AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
 }
+_NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE = 5
+_NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS = 60
+_NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
+    _NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS + 5
+)
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS = 20
 
 
 def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
@@ -911,6 +955,194 @@ def _async_export_dedupe_key(
     return f"async-export:{hashlib.sha256(base.encode('utf-8')).hexdigest()}"
 
 
+def _request_client_ip(request) -> str:
+    remote_addr = _normalize_ip_address(request.META.get("REMOTE_ADDR"))
+    if not remote_addr:
+        return "-"
+
+    trusted_proxies = _trusted_proxy_ip_set()
+    if remote_addr not in trusted_proxies:
+        return remote_addr
+
+    forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", "") or "").strip()
+    if not forwarded_for:
+        return remote_addr
+
+    for raw_candidate in forwarded_for.split(","):
+        candidate = _normalize_ip_address(raw_candidate)
+        if candidate and candidate not in trusted_proxies:
+            return candidate
+    return remote_addr
+
+
+def _normalize_ip_address(value: object) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate or len(candidate) > 64:
+        return None
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        return None
+
+
+def _trusted_proxy_ip_set() -> set[str]:
+    trusted = set()
+    for raw_proxy in getattr(settings, "TRUSTED_PROXIES", ()) or ():
+        normalized_proxy = _normalize_ip_address(raw_proxy)
+        if normalized_proxy:
+            trusted.add(normalized_proxy)
+    return trusted
+
+
+def _needs_list_export_rate_limit_key(
+    *,
+    user_key: str,
+    client_ip: str,
+    tenant_id: int | None,
+) -> str:
+    return ":".join(
+        [
+            "needs-list-export-rate-limit",
+            str(tenant_id if tenant_id is not None else "global"),
+            user_key,
+            client_ip or "-",
+        ]
+    )
+
+
+def _acquire_needs_list_export_rate_limit_lock(lock_key: str) -> str | None:
+    for _ in range(_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS):
+        owner_token = str(uuid.uuid4())
+        if cache.add(
+            lock_key,
+            owner_token,
+            timeout=_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS,
+        ):
+            return owner_token
+        time.sleep(_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS)
+    return None
+
+
+def _release_needs_list_export_rate_limit_lock(
+    lock_key: str,
+    owner_token: str | None,
+) -> None:
+    if not owner_token:
+        return
+    if cache.get(lock_key) == owner_token:
+        cache.delete(lock_key)
+
+
+def _claim_needs_list_export_slot(
+    request,
+    *,
+    user_key: str,
+    client_ip: str,
+    tenant_id: int | None,
+    endpoint_tier: str,
+    active_event_phase: str | None,
+    actor_user_id: str | None,
+) -> tuple[bool, int]:
+    now = timezone.now().timestamp()
+    capacity = float(_NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE)
+    refill_window = float(_NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS)
+    refill_rate = capacity / refill_window
+    cache_key = _needs_list_export_rate_limit_key(
+        user_key=user_key,
+        client_ip=client_ip,
+        tenant_id=tenant_id,
+    )
+    lock_key = f"{cache_key}:lock"
+    cache_timeout = _NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS
+    lock_owner_token = _acquire_needs_list_export_rate_limit_lock(lock_key)
+    if not lock_owner_token:
+        logger.warning(
+            "request.throttled",
+            extra=build_log_extra(
+                request,
+                event="request.throttled",
+                status_code=429,
+                endpoint_tier=endpoint_tier,
+                active_event_phase=active_event_phase,
+                enforcement_key=cache_key,
+                actor_user_id=actor_user_id,
+                tenant_id=tenant_id,
+                client_ip=client_ip,
+                token_count=0.0,
+                retry_after=1,
+                throttle_reason="lock_timeout",
+            ),
+        )
+        return False, 1
+
+    try:
+        state = cache.get(cache_key) or {}
+        tokens = float(state.get("tokens", capacity))
+        last_refill = float(state.get("last_refill", now))
+        elapsed = max(now - last_refill, 0.0)
+        tokens = min(capacity, tokens + (elapsed * refill_rate))
+
+        if tokens < 1.0:
+            retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
+            cache.set(
+                cache_key,
+                {"tokens": tokens, "last_refill": now},
+                timeout=cache_timeout,
+            )
+            logger.warning(
+                "request.throttled",
+                extra=build_log_extra(
+                    request,
+                    event="request.throttled",
+                    status_code=429,
+                    endpoint_tier=endpoint_tier,
+                    active_event_phase=active_event_phase,
+                    enforcement_key=cache_key,
+                    actor_user_id=actor_user_id,
+                    tenant_id=tenant_id,
+                    client_ip=client_ip,
+                    token_count=round(tokens, 3),
+                    retry_after=retry_after,
+                    throttle_reason="token_bucket_exhausted",
+                ),
+            )
+            return False, retry_after
+
+        cache.set(
+            cache_key,
+            {"tokens": tokens - 1.0, "last_refill": now},
+            timeout=cache_timeout,
+        )
+        return True, 1
+    finally:
+        _release_needs_list_export_rate_limit_lock(lock_key, lock_owner_token)
+
+
+def _needs_list_export_rate_limited_response(
+    request,
+    *,
+    needs_list_id: str,
+    job_type: str,
+    tenant_id: int | None,
+    tenant_code: str | None,
+    actor_user_id: str | None,
+    actor_username: str | None,
+    retry_after: int,
+) -> Response:
+    response = Response(
+        {
+            "errors": {
+                "async": (
+                    "Too many queued export requests. Wait before requesting another export."
+                )
+            }
+        },
+        status=429,
+    )
+    response["Retry-After"] = str(retry_after)
+    return response
+
+
 def _queue_export_job_log_extra(
     request,
     *,
@@ -965,6 +1197,32 @@ def _enqueue_needs_list_export_job(
             status=400,
         )
 
+    audit_schema_status, audit_schema_reason = get_replenishment_export_audit_schema_status()
+    if audit_schema_status == "failed":
+        logger.error(
+            "job.queue_blocked",
+            extra=build_log_extra(
+                request,
+                event="job.queue_blocked",
+                needs_list_id=needs_list_id,
+                job_type=job_type,
+                dependency="export_audit_schema",
+                error_message=audit_schema_reason,
+            ),
+        )
+        return Response(
+            {
+                "errors": {
+                    "async": (
+                        "Queued export is unavailable until the replenishment export audit "
+                        "schema update is applied."
+                    )
+                },
+                "detail": audit_schema_reason,
+            },
+            status=503,
+        )
+
     tenant_context = _tenant_context(request)
     tenant_id = _record_tenant_id(record)
     tenant_code = tenant_context.active_tenant_code
@@ -972,12 +1230,48 @@ def _enqueue_needs_list_export_job(
     actor_username = _audit_username(request)
     request_id = get_request_id(request)
     data_version = _needs_list_snapshot_version(record, needs_list_id)
+    rate_limit_actor_key = str(actor_user_id or actor_username or "unknown").strip()
+    client_ip = _request_client_ip(request)
+    active_event_phase = str(
+        record.get("event_phase") or record.get("phase") or ""
+    ).strip().upper() or None
     dedupe_key = _async_export_dedupe_key(
         job_type=job_type,
         needs_list_id=needs_list_id,
         actor_user_id=actor_user_id,
         snapshot_version=data_version,
     )
+    existing_job = AsyncJob.objects.filter(active_dedupe_key=dedupe_key).first()
+    if existing_job is not None:
+        payload = {
+            "needs_list_id": needs_list_id,
+            "format": requested_format,
+            "data_version": data_version,
+            **_serialize_export_job(existing_job),
+            "deduplicated": True,
+        }
+        return Response(payload, status=202)
+
+    allowed, retry_after = _claim_needs_list_export_slot(
+        request,
+        user_key=rate_limit_actor_key,
+        client_ip=client_ip,
+        tenant_id=tenant_id,
+        endpoint_tier="file_export",
+        active_event_phase=active_event_phase,
+        actor_user_id=actor_user_id,
+    )
+    if not allowed:
+        return _needs_list_export_rate_limited_response(
+            request,
+            needs_list_id=needs_list_id,
+            job_type=job_type,
+            tenant_id=tenant_id,
+            tenant_code=tenant_code,
+            actor_user_id=actor_user_id,
+            actor_username=actor_username,
+            retry_after=retry_after,
+        )
 
     created = False
     try:
@@ -1390,7 +1684,7 @@ def _load_persisted_snapshot_for_scope(
         return cached
 
     try:
-        records = workflow_store.list_records()
+        records = workflow_store.list_records(allowed_warehouse_ids=[warehouse_id])
     except RuntimeError:
         return None
     except Exception as exc:
@@ -1927,7 +2221,12 @@ def _release_execution_reservations(
     )
 
 
-def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool = True) -> Dict[str, Any]:
+def _serialize_workflow_record(
+    record: Dict[str, Any],
+    include_overrides: bool = True,
+    *,
+    include_execution_payload: bool = True,
+) -> Dict[str, Any]:
     snapshot = (
         workflow_store.apply_overrides(record)
         if include_overrides
@@ -1991,7 +2290,8 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "tenant_id": _record_tenant_id(record, snapshot),
         }
     )
-    response.update(_execution_payload_for_record(record))
+    if include_execution_payload:
+        response.update(_execution_payload_for_record(record))
     return response
 
 
@@ -2170,7 +2470,10 @@ def _find_submitted_or_approved_overlap_conflicts(
     if not current_pairs:
         return []
 
-    existing_records = workflow_store.list_records(sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES))
+    existing_records = workflow_store.list_records(
+        sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES),
+        allowed_warehouse_ids=sorted({warehouse_id for warehouse_id, _ in current_pairs}),
+    )
     if not isinstance(existing_records, list):
         raise DuplicateConflictValidationError("Invalid existing needs list payload.")
     normalized_excluded_id = str(exclude_needs_list_id or "").strip()
@@ -2478,21 +2781,66 @@ def _parse_iso_datetime(value: object) -> Any | None:
 
 
 def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size: int = 10, max_page_size: int = 100) -> Dict[str, Any]:
-    page = _parse_positive_int(request.query_params.get("page"), "page", {}) or 1
-    page_size = _parse_positive_int(request.query_params.get("page_size"), "page_size", {}) or default_page_size
-    page_size = max(1, min(page_size, max_page_size))
-
+    page, page_size = _parse_pagination_params(
+        request,
+        default_page_size=default_page_size,
+        max_page_size=max_page_size,
+    )
     total_count = len(items)
     start = (page - 1) * page_size
     end = start + page_size
     page_items = items[start:end] if start < total_count else []
+
+    return _build_paginated_payload(
+        request,
+        items=page_items,
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _parse_pagination_params(
+    request,
+    *,
+    default_page_size: int = 10,
+    max_page_size: int = 100,
+) -> tuple[int, int]:
+    errors: Dict[str, str] = {}
+    raw_page = request.query_params.get("page")
+    raw_page_size = request.query_params.get("page_size")
+    page = (
+        _parse_positive_int(raw_page, "page", errors)
+        if raw_page not in (None, "")
+        else 1
+    )
+    page_size = (
+        _parse_positive_int(raw_page_size, "page_size", errors)
+        if raw_page_size not in (None, "")
+        else default_page_size
+    )
+    if errors:
+        raise PaginationValidationError(errors)
+    page_size = max(1, min(page_size, max_page_size))
+    return page or 1, page_size
+
+
+def _build_paginated_payload(
+    request,
+    *,
+    items: list[Dict[str, Any]],
+    total_count: int,
+    page: int,
+    page_size: int,
+    result_key: str = "results",
+) -> Dict[str, Any]:
 
     next_url = None
     prev_url = None
     query = request.query_params.copy()
     query["page_size"] = str(page_size)
 
-    if end < total_count:
+    if page * page_size < total_count:
         query["page"] = str(page + 1)
         next_url = request.build_absolute_uri(
             f"{request.path}?{query.urlencode()}"
@@ -2507,7 +2855,7 @@ def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size
         "count": total_count,
         "next": next_url,
         "previous": prev_url,
-        "results": page_items,
+        result_key: items,
     }
 
 
@@ -2558,49 +2906,43 @@ def needs_list_list(request):
     if errors:
         return Response({"errors": errors}, status=400)
 
-    records = workflow_store.list_records(statuses)
     actor = _normalize_actor(_actor_id(request))
+    if mine_only and not actor:
+        return Response({"needs_lists": [], "count": 0})
+    scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
+    record_ids = [
+        row.get("needs_list_id")
+        for row in workflow_store.list_record_headers(
+            statuses,
+            mine_actor=actor if mine_only else None,
+            event_id=event_id_filter,
+            warehouse_id=warehouse_id_filter,
+            phase=phase_filter,
+            exclude_statuses=_CLOSED_NEEDS_LIST_STATUSES if not include_closed else None,
+            allowed_warehouse_ids=scoped_warehouse_ids,
+        )
+    ]
+    scoped_base_queryset = (
+        NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
+        if scoped_warehouse_ids is not None
+        else NeedsList.objects.all()
+    )
+    records = workflow_store.get_records_by_ids(
+        record_ids,
+        base_queryset=scoped_base_queryset,
+        include_audit_logs=False,
+    )
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
     filtered_records: list[Dict[str, Any]] = []
     for record in records:
         if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
             continue
-        status_value = str(record.get("status") or "").upper()
-        if not include_closed and status_value in _CLOSED_NEEDS_LIST_STATUSES:
-            continue
-
-        if mine_only:
-            if not actor:
-                continue
-            if not _record_owned_by_actor(record, actor):
-                continue
-
-        if event_id_filter is not None:
-            record_event_id = _to_int_or_none(record.get("event_id"))
-            if record_event_id != event_id_filter:
-                continue
-
-        if warehouse_id_filter is not None:
-            record_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
-            record_warehouse_ids = {
-                _to_int_or_none(value)
-                for value in (record.get("warehouse_ids") or [])
-            }
-            if (
-                record_warehouse_id != warehouse_id_filter
-                and warehouse_id_filter not in record_warehouse_ids
-            ):
-                continue
-
-        if phase_filter and str(record.get("phase") or "").strip().upper() != phase_filter:
-            continue
-
         filtered_records.append(record)
 
     serialized = []
     for record in filtered_records:
-        row = _serialize_workflow_record(record)
+        row = _serialize_workflow_record(record, include_execution_payload=False)
         row["allowed_actions"] = _available_actions_for_record(request, record)
         serialized.append(row)
     if mine_only:
@@ -2666,57 +3008,70 @@ def needs_list_my_submissions(request):
 
     # Terminal statuses hidden by default unless explicitly requested via filter.
     _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
-
-    records = workflow_store.list_records(store_status_filters)
+    try:
+        page, page_size = _parse_pagination_params(request)
+    except PaginationValidationError as exc:
+        return Response({"errors": exc.errors}, status=400)
+    scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
+    headers, total_count = workflow_store.list_record_headers_page(
+        store_status_filters,
+        mine_actor=actor if mine_only else None,
+        owner_visibility_actor=None if mine_only else actor,
+        owner_visibility_statuses=_OWNER_ONLY_SUBMISSION_STATUSES,
+        event_id=event_id_filter,
+        warehouse_id=warehouse_id_filter,
+        exclude_statuses=None if ui_status_filters else _DEFAULT_EXCLUDED_STATUSES,
+        allowed_warehouse_ids=scoped_warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        method_filter=method_filter,
+        offset=(page - 1) * page_size,
+        limit=page_size,
+    )
+    page_ids = [row.get("needs_list_id") for row in headers]
+    scoped_base_queryset = (
+        NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
+        if scoped_warehouse_ids is not None
+        else NeedsList.objects.all()
+    )
+    page_records = workflow_store.get_records_by_ids(
+        page_ids,
+        base_queryset=scoped_base_queryset,
+        include_audit_logs=False,
+    )
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
+    records_by_id = {
+        str(record.get("needs_list_id")): record
+        for record in page_records
+    }
     summaries: list[Dict[str, Any]] = []
-    for record in records:
+    for header in headers:
+        record = records_by_id.get(str(header.get("needs_list_id")))
+        if not record:
+            continue
         if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
             continue
-        serialized = _serialize_workflow_record(record, include_overrides=True)
+        serialized = _serialize_workflow_record(
+            record,
+            include_overrides=True,
+            include_execution_payload=False,
+        )
         summary = _serialize_submission_summary(serialized)
         summary["allowed_actions"] = _available_actions_for_record(request, record)
-        summary_status = str(summary.get("status") or "").strip().upper()
-        if (
-            mine_only or _submission_status_requires_actor_scope(summary_status)
-        ) and not _record_owned_by_actor(record, actor):
-            continue
-        if ui_status_filters and summary_status not in ui_status_filters:
-            continue
-        # When no explicit status filter is applied, hide terminal statuses.
-        if not ui_status_filters and summary_status in _DEFAULT_EXCLUDED_STATUSES:
-            continue
-
-        if event_id_filter is not None and summary.get("event", {}).get("id") != event_id_filter:
-            continue
-        if warehouse_id_filter is not None and summary.get("warehouse", {}).get("id") != warehouse_id_filter:
-            continue
-        if method_filter is not None:
-            row_method = _normalize_horizon_key(summary.get("selected_method"))
-            if row_method != method_filter:
-                continue
-
-        summary_ts = _parse_iso_datetime(summary.get("last_updated_at"))
-        if date_from and (summary_ts is None or summary_ts < date_from):
-            continue
-        if date_to and (summary_ts is None or summary_ts > date_to):
-            continue
-
         summaries.append(summary)
 
-    reverse = sort_order == "desc"
-    if sort_by == "status":
-        summaries.sort(key=lambda row: str(row.get("status") or ""), reverse=reverse)
-    elif sort_by == "warehouse":
-        summaries.sort(
-            key=lambda row: str((row.get("warehouse") or {}).get("name") or ""),
-            reverse=reverse,
+    return Response(
+        _build_paginated_payload(
+            request,
+            items=summaries,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
         )
-    else:
-        summaries.sort(key=lambda row: _record_sort_timestamp({"updated_at": row.get("last_updated_at")}), reverse=reverse)
-
-    return Response(_paginate_results(request, summaries))
+    )
 
 
 @api_view(["GET"])
@@ -5886,13 +6241,64 @@ for view_func in (
 def procurement_list_create(request):
     """List procurement orders (GET) or create a new one (POST)."""
     if request.method == "GET":
-        filters = {}
-        for key in ("status", "warehouse_id", "event_id", "needs_list_id", "supplier_id"):
-            val = request.query_params.get(key)
-            if val:
-                filters[key] = val
-        procurements, count = procurement_service.list_procurements(filters or None)
-        return Response({"procurements": procurements, "count": count})
+        errors: Dict[str, str] = {}
+        filters: Dict[str, Any] = {}
+        allowed_statuses = {
+            str(status_code).strip().upper()
+            for status_code, _label in Procurement.STATUS_CHOICES
+        }
+        status_filter = str(request.query_params.get("status") or "").strip().upper()
+        if status_filter:
+            if status_filter not in allowed_statuses:
+                errors["status"] = (
+                    "Must be one of: " + ", ".join(sorted(allowed_statuses)) + "."
+                )
+            else:
+                filters["status"] = status_filter
+        for field_name in ("warehouse_id", "event_id", "supplier_id"):
+            raw_value = request.query_params.get(field_name)
+            if raw_value is None:
+                continue
+            parsed_value = _parse_positive_int(raw_value, field_name, errors)
+            if parsed_value is not None:
+                filters[field_name] = parsed_value
+        needs_list_id = str(request.query_params.get("needs_list_id") or "").strip()
+        if needs_list_id:
+            filters["needs_list_id"] = needs_list_id
+        include_items = _parse_optional_bool(
+            request.query_params.get("include_items"),
+            "include_items",
+            errors,
+        )
+        if errors:
+            return Response({"errors": errors}, status=400)
+        include_items = bool(include_items)
+        try:
+            page, page_size = _parse_pagination_params(
+                request,
+                default_page_size=100,
+                max_page_size=200,
+            )
+        except PaginationValidationError as exc:
+            return Response({"errors": exc.errors}, status=400)
+        scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
+        procurements, count = procurement_service.list_procurements(
+            filters or None,
+            allowed_warehouse_ids=scoped_warehouse_ids,
+            include_items=include_items,
+            offset=(page - 1) * page_size,
+            limit=page_size,
+        )
+        return Response(
+            _build_paginated_payload(
+                request,
+                items=procurements,
+                total_count=count,
+                page=page,
+                page_size=page_size,
+                result_key="procurements",
+            )
+        )
 
     # POST - create
     data = request.data

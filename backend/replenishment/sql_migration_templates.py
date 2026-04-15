@@ -14,6 +14,7 @@ SUPPORTED_SQL_TEMPLATE_NAMES = (
     "20260324_sprint08_audit_actions.sql",
     "20260324_sprint08_allocation_precision_fix.sql",
     "20260324_location_storage_policy.sql",
+    "20260414_dmis08_export_audit_request_id.sql",
 )
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"

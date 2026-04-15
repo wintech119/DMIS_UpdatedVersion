@@ -3,7 +3,7 @@ import os
 import re
 from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from django.conf import settings
 from django.db import DatabaseError, connection, transaction
@@ -94,6 +94,91 @@ def get_warehouse_names(warehouse_ids: List[int]) -> Tuple[Dict[int, str], List[
     for warehouse_id in unique_ids:
         warehouse_names.setdefault(warehouse_id, f"Warehouse {warehouse_id}")
     return warehouse_names, warnings
+
+
+def _to_int_or_none(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            return int(stripped)
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_warehouse_ids_for_tenants(tenant_ids: Iterable[int]) -> set[int]:
+    """Return the effective warehouse scope for the given tenant IDs."""
+    normalized_tenant_ids = sorted(
+        {
+            tenant_id
+            for raw_tenant_id in tenant_ids
+            if (tenant_id := _to_int_or_none(raw_tenant_id)) is not None
+        }
+    )
+    if not normalized_tenant_ids:
+        return set()
+
+    if _is_sqlite():
+        return set()
+
+    placeholders = ",".join(["%s"] * len(normalized_tenant_ids))
+    warehouse_ids: set[int] = set()
+    schema = _schema_name()
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT DISTINCT warehouse_id
+                FROM {schema}.tenant_warehouse
+                WHERE
+                    tenant_id IN ({placeholders})
+                    AND effective_date <= CURRENT_DATE
+                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                """,
+                normalized_tenant_ids,
+            )
+            warehouse_ids.update(
+                parsed
+                for raw_warehouse_id, in cursor.fetchall()
+                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
+            )
+    except DatabaseError as exc:
+        logger.exception(
+            "Tenant warehouse scope query failed for tenant_ids=%s: %s",
+            normalized_tenant_ids,
+            exc,
+        )
+        raise
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id
+                FROM {schema}.warehouse
+                WHERE tenant_id IN ({placeholders})
+                """,
+                normalized_tenant_ids,
+            )
+            warehouse_ids.update(
+                parsed
+                for raw_warehouse_id, in cursor.fetchall()
+                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
+            )
+    except DatabaseError as exc:
+        logger.exception(
+            "Direct warehouse ownership scope query failed for tenant_ids=%s: %s",
+            normalized_tenant_ids,
+            exc,
+        )
+        raise
+
+    return warehouse_ids
 
 
 def _is_sqlite() -> bool:

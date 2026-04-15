@@ -23,13 +23,21 @@
 - Use environment variables or the existing secret-management pattern for all credentials; never hardcode live secret values.
 - When debugging or sharing examples, only use masked values and never print full secret material in terminal output or agent responses.
 
+## Requirements-To-Design Gate
+- For requirements docs, feature specs, change notices, and other pre-implementation design work, use `../.agents/skills/requirements-to-design/SKILL.md`.
+- If the user wants to implement a module, feature set, or single feature from approved requirements, specs, or requirement deltas, do not begin backend implementation until that design handoff is complete.
+- Keep the detailed workflow in the skill; do not duplicate it here.
+
 ## Mandatory Architecture Review
-- For medium- and high-risk backend work, use the shared architecture reviewer at `../.agents/skills/system-architecture-review/SKILL.md` before finalizing a plan.
-- Run the same architecture review again before final output when implementation work touches architecture-sensitive backend areas.
+- For low-medium, medium, and high backend work, automatically use the shared architecture reviewer at `../.agents/skills/system-architecture-review/SKILL.md` to check alignment.
+- Treat backend implementation work as low-medium or higher unless it clearly falls under the low-risk exemptions below.
+- Run the architecture review before finalizing a plan.
+- Run the same architecture review again before final output after backend implementation.
 - Treat `../docs/adr/system_application_architecture.md` as the primary architecture source of truth.
 - Treat `../docs/security/SECURITY_ARCHITECTURE.md`, `../docs/security/THREAT_MODEL.md`, and `../docs/security/CONTROLS_MATRIX.md` as the primary security and control references.
 - Treat `../docs/implementation/production_readiness_checklist.md` as the release-gating reference.
 - Treat `../docs/implementation/production_hardening_and_flask_retirement_strategy.md` as supporting execution guidance, not the main architecture baseline.
+- Keep the detailed review workflow in the skill; do not duplicate it here.
 
 ### Mandatory backend review triggers
 - auth, RBAC, tenancy, impersonation, tokens, sessions, route protection, or privileged-role handling

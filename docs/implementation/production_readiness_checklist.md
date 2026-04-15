@@ -54,8 +54,8 @@ Use this checklist together with:
 
 ## 5. Data and Audit Integrity
 
-- [ ] critical workflow artifacts are durably stored
-- [ ] interim inline async artifacts have a documented TTL, download path, and follow-up owner for durable object storage
+- [x] critical workflow artifacts are durably stored for queued needs-list donation and procurement CSV exports via PostgreSQL-backed `async_job_artifact` rows; larger object-storage-backed artifact classes remain follow-up
+- [x] queued needs-list async exports have a documented retention window, authenticated download path, cleanup command, and explicit follow-up toward object storage lifecycle automation
 - [ ] audit logging exists for privileged and state-changing operations
 - [ ] request or trace correlation can link frontend, API, and worker activity, at minimum through `X-Request-ID` / correlated API logs
 - [ ] recovery expectations for critical records and artifacts are documented for restart/rollback, DB failure, Redis failure, and invalid runtime posture

@@ -1,8 +1,12 @@
 import sys
 import types
-from datetime import timedelta
+from datetime import datetime, timedelta
+from decimal import Decimal
+from io import StringIO
 from importlib import import_module
 from types import SimpleNamespace
+from django.apps import apps as django_apps
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import path
 from django.db import DatabaseError
@@ -16,9 +20,11 @@ from unittest.mock import patch
 from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
-from api.models import AsyncJob
+from api.models import AsyncJob, AsyncJobArtifact
 from api.permissions import NeedsListPermission
+from api.tenancy import TenantContext, TenantMembership
 from dmis_api import settings as dmis_settings
+from replenishment.models import NeedsList, NeedsListAudit
 from replenishment import views as replenishment_views
 
 
@@ -99,6 +105,7 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=True,
         DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch("api.views._database_readiness_check", return_value=("ok", None))
@@ -107,6 +114,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -119,6 +127,7 @@ class HealthEndpointTests(TestCase):
                 "database": {"required": True, "status": "ok"},
                 "redis": {"required": True, "status": "ok"},
                 "queue": {"required": True, "status": "ok"},
+                "export_audit_schema": {"required": True, "status": "ok"},
             },
         )
         self._assert_correlated_response(response)
@@ -128,6 +137,10 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=False,
         DMIS_WORKER_REQUIRED=False,
         DMIS_ASYNC_EAGER=True,
+    )
+    @patch(
+        "api.views._export_audit_schema_readiness_check",
+        return_value=("skipped", "Queued export audit schema is optional while async jobs run eagerly."),
     )
     @patch(
         "api.views._queue_readiness_check",
@@ -143,6 +156,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -164,6 +178,11 @@ class HealthEndpointTests(TestCase):
                     "status": "skipped",
                     "reason": "Async jobs run inline in local-harness when eager execution is enabled.",
                 },
+                "export_audit_schema": {
+                    "required": False,
+                    "status": "skipped",
+                    "reason": "Queued export audit schema is optional while async jobs run eagerly.",
+                },
             },
         )
         self._assert_correlated_response(response)
@@ -174,6 +193,7 @@ class HealthEndpointTests(TestCase):
         DMIS_WORKER_REQUIRED=True,
     )
     @patch("api.views.readiness_logger.warning")
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch(
@@ -185,6 +205,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
         mock_warning,
     ) -> None:
         response = self.client.get(
@@ -204,6 +225,7 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=True,
         DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch(
@@ -215,6 +237,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -224,6 +247,7 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["checks"]["database"]["status"], "failed")
         self.assertEqual(body["checks"]["redis"]["status"], "ok")
         self.assertEqual(body["checks"]["queue"]["status"], "ok")
+        self.assertEqual(body["checks"]["export_audit_schema"]["status"], "ok")
         self._assert_correlated_response(response)
 
     @override_settings(
@@ -231,6 +255,7 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=True,
         DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._redis_readiness_check",
@@ -242,6 +267,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -251,6 +277,7 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["checks"]["redis"]["status"], "failed")
         self.assertIn("REDIS_URL", body["checks"]["redis"]["reason"])
         self.assertEqual(body["checks"]["queue"]["status"], "ok")
+        self.assertEqual(body["checks"]["export_audit_schema"]["status"], "ok")
         self._assert_correlated_response(response)
 
     @override_settings(
@@ -258,6 +285,7 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=True,
         DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._redis_readiness_check",
@@ -269,6 +297,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -277,6 +306,7 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["status"], "not_ready")
         self.assertEqual(body["checks"]["redis"]["status"], "failed")
         self.assertEqual(body["checks"]["queue"]["status"], "ok")
+        self.assertEqual(body["checks"]["export_audit_schema"]["status"], "ok")
         self._assert_correlated_response(response)
 
     @override_settings(
@@ -284,6 +314,7 @@ class HealthEndpointTests(TestCase):
         DMIS_REDIS_REQUIRED=True,
         DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._export_audit_schema_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._queue_readiness_check",
         return_value=("failed", "No active worker heartbeat detected."),
@@ -295,6 +326,7 @@ class HealthEndpointTests(TestCase):
         _mock_database_check,
         _mock_redis_check,
         _mock_queue_check,
+        _mock_export_audit_schema_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -303,6 +335,37 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["status"], "not_ready")
         self.assertEqual(body["checks"]["queue"]["status"], "failed")
         self.assertEqual(body["checks"]["queue"]["reason"], "No active worker heartbeat detected.")
+        self.assertEqual(body["checks"]["export_audit_schema"]["status"], "ok")
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
+    )
+    @patch(
+        "api.views._export_audit_schema_readiness_check",
+        return_value=(
+            "failed",
+            "Queued export durability requires needs_list_audit.request_id to exist; apply the replenishment export audit schema update.",
+        ),
+    )
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_export_audit_schema_is_missing(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+        _mock_queue_check,
+        _mock_export_audit_schema_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["checks"]["export_audit_schema"]["status"], "failed")
+        self.assertIn("request_id", body["checks"]["export_audit_schema"]["reason"])
         self._assert_correlated_response(response)
 
 
@@ -730,6 +793,28 @@ class RuntimeDependencyCheckTests(SimpleTestCase):
         self.assertIn("Redis-backed async queueing is mandatory", messages[1].msg)
 
 
+class ExportAuditSchemaCheckTests(SimpleTestCase):
+    @override_settings(
+        TESTING=False,
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_ASYNC_EAGER=False,
+        DMIS_WORKER_REQUIRED=True,
+    )
+    @patch(
+        "api.checks.get_replenishment_export_audit_schema_status",
+        return_value=(
+            "failed",
+            "Queued export durability requires needs_list_audit.request_id to exist; apply the replenishment export audit schema update.",
+        ),
+    )
+    def test_export_audit_schema_check_reports_missing_schema(self, _mock_schema_status) -> None:
+        messages = api_checks.check_dmis_replenishment_export_audit_schema(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E006")
+        self.assertIn("request_id", messages[0].msg)
+
+
 class AsyncJobApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
@@ -771,6 +856,52 @@ class AsyncJobApiTests(TestCase):
         self.assertEqual(body["status"], AsyncJob.Status.QUEUED)
         self.assertEqual(body["status_url"], f"/api/v1/jobs/{job.job_id}")
         self.assertFalse(body["artifact_ready"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-1B", "warehouse_id": 10},
+    )
+    def test_async_job_status_omits_download_for_expired_artifact(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        expired_at = timezone.now() - timedelta(minutes=1)
+        job = AsyncJob.objects.create(
+            job_id="job-status-expired",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-1B",
+            artifact_filename="donation_needs_NL-ASYNC-1B.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="expiredstatus123",
+            expires_at=expired_at,
+        )
+        AsyncJobArtifact.objects.create(
+            job=job,
+            payload_text="item_id,item_name\n1,Water\n",
+            size_bytes=len("item_id,item_name\n1,Water\n".encode("utf-8")),
+            retention_expires_at=expired_at,
+        )
+
+        response = self.client.get("/api/v1/jobs/job-status-expired")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["artifact_ready"])
+        self.assertNotIn("download_url", body)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -891,7 +1022,7 @@ class AsyncJobApiTests(TestCase):
         _mock_get_record,
         _mock_scope,
     ) -> None:
-        AsyncJob.objects.create(
+        job = AsyncJob.objects.create(
             job_id="job-download-1",
             job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
             status=AsyncJob.Status.SUCCEEDED,
@@ -900,8 +1031,13 @@ class AsyncJobApiTests(TestCase):
             artifact_filename="procurement_needs_NL-ASYNC-3.csv",
             artifact_content_type="text/csv",
             artifact_sha256="abc123",
-            artifact_payload="item_id,item_name\n1,Generator\n",
             expires_at=timezone.now() + timedelta(hours=1),
+        )
+        AsyncJobArtifact.objects.create(
+            job=job,
+            payload_text="item_id,item_name\n1,Generator\n",
+            size_bytes=len("item_id,item_name\n1,Generator\n".encode("utf-8")),
+            retention_expires_at=job.expires_at,
         )
 
         response = self.client.get("/api/v1/jobs/job-download-1/download")
@@ -989,6 +1125,216 @@ class AsyncJobApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json(), {"detail": "Forbidden."})
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4B", "warehouse_id": 10},
+    )
+    def test_async_job_download_returns_gone_for_expired_durable_artifact(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        expired_at = timezone.now() - timedelta(minutes=5)
+        job = AsyncJob.objects.create(
+            job_id="job-download-expired",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4B",
+            artifact_filename="procurement_needs_NL-ASYNC-4B.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="expired123",
+            expires_at=expired_at,
+        )
+        AsyncJobArtifact.objects.create(
+            job=job,
+            payload_text="item_id,item_name\n2,Tent\n",
+            size_bytes=len("item_id,item_name\n2,Tent\n".encode("utf-8")),
+            retention_expires_at=expired_at,
+        )
+
+        response = self.client.get("/api/v1/jobs/job-download-expired/download")
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(
+            response.json(),
+            {
+                "job_id": "job-download-expired",
+                "status": AsyncJob.Status.SUCCEEDED,
+                "detail": "The job artifact has expired.",
+            },
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4B-EQ", "warehouse_id": 10},
+    )
+    def test_async_job_download_returns_gone_when_expiry_equals_now(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        expires_at = timezone.now()
+        job = AsyncJob.objects.create(
+            job_id="job-download-expired-eq",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4B-EQ",
+            artifact_filename="procurement_needs_NL-ASYNC-4B-EQ.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="expired-eq-123",
+            expires_at=expires_at,
+        )
+        AsyncJobArtifact.objects.create(
+            job=job,
+            payload_text="item_id,item_name\n2,Tent\n",
+            size_bytes=len("item_id,item_name\n2,Tent\n".encode("utf-8")),
+            retention_expires_at=expires_at,
+        )
+
+        with patch("api.views.timezone.now", return_value=expires_at):
+            response = self.client.get("/api/v1/jobs/job-download-expired-eq/download")
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(
+            response.json(),
+            {
+                "job_id": "job-download-expired-eq",
+                "status": AsyncJob.Status.SUCCEEDED,
+                "detail": "The job artifact has expired.",
+            },
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.views.api_logger.error")
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4C", "warehouse_id": 10},
+    )
+    def test_async_job_download_reports_storage_inconsistency_for_missing_payload(
+        self,
+        _mock_get_record,
+        _mock_scope,
+        mock_error,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-download-missing",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4C",
+            artifact_filename="procurement_needs_NL-ASYNC-4C.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="missing123",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.get("/api/v1/jobs/job-download-missing/download")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json(),
+            {
+                "job_id": "job-download-missing",
+                "status": AsyncJob.Status.SUCCEEDED,
+                "detail": "The job artifact is unavailable due to a storage inconsistency.",
+            },
+        )
+        mock_error.assert_called_once()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4D", "warehouse_id": 10},
+    )
+    def test_async_job_download_denies_cross_tenant_access(
+        self,
+        _mock_get_record,
+    ) -> None:
+        job = AsyncJob.objects.create(
+            job_id="job-download-idor",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4D",
+            artifact_filename="procurement_needs_NL-ASYNC-4D.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="idor123",
+            artifact_payload="item_id,item_name\n1,Generator\n",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=2,
+            active_tenant_code="AGENCY_B",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=2,
+                    tenant_code="AGENCY_B",
+                    tenant_name="Agency B",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context), patch(
+            "api.tenancy.resolve_warehouse_tenant_id",
+            return_value=1,
+        ):
+            response = self.client.get(f"/api/v1/jobs/{job.job_id}/download")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.json().get("errors", {}))
+
 
 class AsyncJobTaskTests(TestCase):
     @staticmethod
@@ -1035,24 +1381,40 @@ class AsyncJobTaskTests(TestCase):
         }
 
     def _load_api_tasks(self):
-        try:
+        sys.modules.pop("api.tasks", None)
+        with patch.dict(sys.modules, self._fake_celery_modules()):
             return import_module("api.tasks")
-        except ModuleNotFoundError as exc:
-            if exc.name != "celery":
-                raise
-            sys.modules.pop("api.tasks", None)
-            with patch.dict(sys.modules, self._fake_celery_modules()):
-                return import_module("api.tasks")
+
+    def _create_needs_list(self, *, needs_list_no: str = "NL-TASK-1") -> NeedsList:
+        return NeedsList.objects.create(
+            needs_list_no=needs_list_no,
+            event_id=1,
+            warehouse_id=1,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            data_freshness_level="HIGH",
+            status_code="APPROVED",
+            total_gap_qty=Decimal("5.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
 
     def _create_job(self, *, job_id: str) -> AsyncJob:
+        needs_list = self._create_needs_list()
         return AsyncJob.objects.create(
             job_id=job_id,
             job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
             status=AsyncJob.Status.QUEUED,
             source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
-            source_resource_id="NL-TASK-1",
+            source_resource_id=str(needs_list.needs_list_id),
             active_dedupe_key=f"dedupe-{job_id}",
             max_retries=3,
+            actor_user_id="task-user",
+            actor_username="task.user",
+            request_id="req-task-1",
         )
 
     def test_run_async_job_marks_job_succeeded_and_persists_artifact(self) -> None:
@@ -1061,24 +1423,51 @@ class AsyncJobTaskTests(TestCase):
         job = self._create_job(job_id="task-success-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-1")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch(
-            "api.tasks._build_needs_list_export_artifact",
+        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+            api_tasks,
+            "_build_needs_list_export_artifact",
             return_value=(
                 "donation_needs_NL-TASK-1.csv",
                 "text/csv",
                 "sha-123",
                 "item_id,item_name\n1,Water\n",
             ),
-        ), patch.object(api_tasks.run_async_job, "request", request_context):
+        ), patch.object(api_tasks.run_async_job, "request", request_context), patch(
+            "api.tasks.job_logger.info"
+        ) as mock_info:
             status = api_tasks.run_async_job.run(job.job_id)
 
         job.refresh_from_db()
+        artifact = AsyncJobArtifact.objects.get(job=job)
+        audit = NeedsListAudit.objects.get(
+            needs_list_id=int(job.source_resource_id),
+            action_type="EXPORT_GENERATED",
+        )
+        success_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_info.call_args_list
+            if call.args and call.args[0] == "job.succeeded"
+        ]
+
         self.assertEqual(status, AsyncJob.Status.SUCCEEDED)
         self.assertEqual(job.status, AsyncJob.Status.SUCCEEDED)
         self.assertEqual(job.artifact_filename, "donation_needs_NL-TASK-1.csv")
         self.assertEqual(job.artifact_content_type, "text/csv")
         self.assertEqual(job.artifact_sha256, "sha-123")
-        self.assertEqual(job.artifact_payload, "item_id,item_name\n1,Water\n")
+        self.assertIsNone(job.artifact_payload)
+        self.assertEqual(artifact.payload_text, "item_id,item_name\n1,Water\n")
+        self.assertEqual(artifact.size_bytes, len("item_id,item_name\n1,Water\n".encode("utf-8")))
+        self.assertEqual(audit.field_name, "artifact_sha256")
+        self.assertEqual(audit.new_value, "sha-123")
+        self.assertEqual(audit.reason_code, "DONATION_EXPORT")
+        self.assertEqual(audit.actor_user_id, "task-user")
+        self.assertEqual(audit.request_id, "req-task-1")
+        self.assertEqual(
+            audit.notes_text,
+            f"artifact_id={artifact.artifact_id} file=donation_needs_NL-TASK-1.csv",
+        )
+        self.assertEqual(len(success_logs), 1)
+        self.assertEqual(success_logs[0].get("artifact_id"), artifact.artifact_id)
         self.assertIsNone(job.active_dedupe_key)
 
     def test_run_async_job_marks_job_failed_for_permanent_errors(self) -> None:
@@ -1087,8 +1476,9 @@ class AsyncJobTaskTests(TestCase):
         job = self._create_job(job_id="task-failed-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-2")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch(
-            "api.tasks._build_needs_list_export_artifact",
+        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+            api_tasks,
+            "_build_needs_list_export_artifact",
             side_effect=api_tasks.AsyncJobPermanentError("source needs list missing"),
         ), patch.object(api_tasks.run_async_job, "request", request_context):
             status = api_tasks.run_async_job.run(job.job_id)
@@ -1100,14 +1490,37 @@ class AsyncJobTaskTests(TestCase):
         self.assertIsNone(job.active_dedupe_key)
         self.assertFalse(job.artifact_ready)
 
+    def test_run_async_job_fails_when_export_audit_schema_is_missing(self) -> None:
+        api_tasks = self._load_api_tasks()
+
+        job = self._create_job(job_id="task-schema-missing-1")
+        request_context = SimpleNamespace(retries=0, id="celery-task-schema-missing")
+
+        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+            api_tasks,
+            "get_replenishment_export_audit_schema_status",
+            return_value=(
+                "failed",
+                "Queued export durability requires needs_list_audit.request_id to exist; apply the replenishment export audit schema update.",
+            ),
+        ), patch.object(api_tasks.run_async_job, "request", request_context):
+            status = api_tasks.run_async_job.run(job.job_id)
+
+        job.refresh_from_db()
+        self.assertEqual(status, AsyncJob.Status.FAILED)
+        self.assertEqual(job.status, AsyncJob.Status.FAILED)
+        self.assertIn("request_id", job.error_message)
+        self.assertFalse(AsyncJobArtifact.objects.filter(job=job).exists())
+
     def test_run_async_job_marks_retrying_before_requesting_retry(self) -> None:
         api_tasks = self._load_api_tasks()
 
         job = self._create_job(job_id="task-retry-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-3")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch(
-            "api.tasks._build_needs_list_export_artifact",
+        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+            api_tasks,
+            "_build_needs_list_export_artifact",
             side_effect=RuntimeError("database temporarily unavailable"),
         ), patch.object(api_tasks.run_async_job, "request", request_context), patch.object(
             api_tasks.run_async_job,
@@ -1136,8 +1549,9 @@ class AsyncJobTaskTests(TestCase):
         job.save(update_fields=["status", "celery_task_id", "started_at"])
         request_context = SimpleNamespace(retries=0, id="celery-task-new")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch(
-            "api.tasks._build_needs_list_export_artifact",
+        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+            api_tasks,
+            "_build_needs_list_export_artifact",
             return_value=(
                 "donation_needs_NL-TASK-1.csv",
                 "text/csv",
@@ -1158,6 +1572,241 @@ class AsyncJobTaskTests(TestCase):
             mock_warning.call_args.kwargs["extra"]["previous_celery_task_id"],
             "celery-task-old",
         )
+
+
+class AsyncJobArtifactMigrationTests(TestCase):
+    def test_backfill_migration_copies_non_expired_inline_artifacts(self) -> None:
+        migration_module = import_module("api.migrations.0002_async_job_artifact")
+        retained_job = AsyncJob.objects.create(
+            job_id="migration-inline-retained",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_filename="donation.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="retain123",
+            artifact_payload="item_id,item_name\n1,Water\n",
+            expires_at=timezone.now() + timedelta(hours=2),
+        )
+        expired_job = AsyncJob.objects.create(
+            job_id="migration-inline-expired",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="2",
+            artifact_filename="donation-expired.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="expired123",
+            artifact_payload="item_id,item_name\n2,Tent\n",
+            expires_at=timezone.now() - timedelta(hours=2),
+        )
+
+        migration_module.backfill_durable_async_job_artifacts(django_apps, None)
+
+        retained_artifact = AsyncJobArtifact.objects.get(job=retained_job)
+        self.assertEqual(retained_artifact.payload_text, "item_id,item_name\n1,Water\n")
+        self.assertEqual(retained_artifact.retention_expires_at, retained_job.expires_at)
+        retained_job.refresh_from_db()
+        self.assertEqual(retained_job.artifact_payload, "item_id,item_name\n1,Water\n")
+        self.assertFalse(AsyncJobArtifact.objects.filter(job=expired_job).exists())
+
+    def test_backfill_migration_fails_for_jobs_without_retention_expiry(self) -> None:
+        migration_module = import_module("api.migrations.0002_async_job_artifact")
+        retained_job = AsyncJob.objects.create(
+            job_id="migration-inline-no-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="3",
+            artifact_filename="donation-null-expiry.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="retain-null-expiry",
+            artifact_payload="item_id,item_name\n5,Water Purification Tablet\n",
+            expires_at=None,
+        )
+
+        with self.assertRaisesMessage(RuntimeError, "explicit retention policy"):
+            migration_module.backfill_durable_async_job_artifacts(django_apps, None)
+
+        self.assertFalse(AsyncJobArtifact.objects.filter(job=retained_job).exists())
+
+
+class AsyncJobArtifactCleanupCommandTests(TestCase):
+    def _create_job(
+        self,
+        *,
+        job_id: str,
+        expires_at,
+        artifact_payload: str | None = None,
+        durable_payload: str | None = None,
+    ) -> AsyncJob:
+        job = AsyncJob.objects.create(
+            job_id=job_id,
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_filename=f"{job_id}.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256=f"sha-{job_id}",
+            artifact_payload=artifact_payload,
+            expires_at=expires_at,
+        )
+        if durable_payload is not None:
+            AsyncJobArtifact.objects.create(
+                job=job,
+                payload_text=durable_payload,
+                size_bytes=len(durable_payload.encode("utf-8")),
+                retention_expires_at=expires_at,
+            )
+        return job
+
+    def test_purge_expired_async_job_artifacts_dry_run_keeps_data(self) -> None:
+        expired_job = self._create_job(
+            job_id="expired-job",
+            expires_at=timezone.now() - timedelta(hours=1),
+            artifact_payload="item_id,item_name\n1,Water\n",
+            durable_payload="item_id,item_name\n1,Water\n",
+        )
+        fresh_job = self._create_job(
+            job_id="fresh-job",
+            expires_at=timezone.now() + timedelta(hours=1),
+            artifact_payload="item_id,item_name\n2,Tent\n",
+            durable_payload="item_id,item_name\n2,Tent\n",
+        )
+        output = StringIO()
+
+        call_command("purge_expired_async_job_artifacts", stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("expired durable artifacts: 1", text)
+        self.assertIn("expired legacy inline payloads: 1", text)
+        self.assertTrue(AsyncJobArtifact.objects.filter(job=expired_job).exists())
+        expired_job.refresh_from_db()
+        self.assertEqual(expired_job.artifact_payload, "item_id,item_name\n1,Water\n")
+        self.assertTrue(AsyncJobArtifact.objects.filter(job=fresh_job).exists())
+
+    def test_purge_expired_async_job_artifacts_apply_removes_expired_payloads_only(self) -> None:
+        expires_at = timezone.now() - timedelta(hours=1)
+        expired_job = self._create_job(
+            job_id="expired-job-apply",
+            expires_at=expires_at,
+            artifact_payload="item_id,item_name\n3,Blanket\n",
+            durable_payload="item_id,item_name\n3,Blanket\n",
+        )
+        fresh_job = self._create_job(
+            job_id="fresh-job-apply",
+            expires_at=timezone.now() + timedelta(hours=1),
+            artifact_payload="item_id,item_name\n4,Generator\n",
+            durable_payload="item_id,item_name\n4,Generator\n",
+        )
+        output = StringIO()
+
+        call_command("purge_expired_async_job_artifacts", apply=True, stdout=output)
+
+        expired_job.refresh_from_db()
+        fresh_job.refresh_from_db()
+        self.assertFalse(AsyncJobArtifact.objects.filter(job=expired_job).exists())
+        self.assertIsNone(expired_job.artifact_payload)
+        self.assertEqual(expired_job.artifact_filename, "expired-job-apply.csv")
+        self.assertEqual(expired_job.artifact_sha256, "sha-expired-job-apply")
+        self.assertEqual(expired_job.expires_at, expires_at)
+        self.assertTrue(AsyncJobArtifact.objects.filter(job=fresh_job).exists())
+        self.assertEqual(fresh_job.artifact_payload, "item_id,item_name\n4,Generator\n")
+        self.assertIn("were purged", output.getvalue())
+
+    def test_purge_expired_async_job_artifacts_apply_batches_when_requested(self) -> None:
+        expired_jobs = [
+            self._create_job(
+                job_id=f"expired-job-batch-{index}",
+                expires_at=timezone.now() - timedelta(hours=1),
+                artifact_payload=f"item_id,item_name\n{index},Water\n",
+                durable_payload=f"item_id,item_name\n{index},Water\n",
+            )
+            for index in (1, 2)
+        ]
+        output = StringIO()
+
+        call_command(
+            "purge_expired_async_job_artifacts",
+            apply=True,
+            batch_size=1,
+            stdout=output,
+        )
+
+        for job in expired_jobs:
+            job.refresh_from_db()
+            self.assertFalse(AsyncJobArtifact.objects.filter(job=job).exists())
+            self.assertIsNone(job.artifact_payload)
+        self.assertIn("were purged", output.getvalue())
+
+
+class AsyncJobModelTests(SimpleTestCase):
+    def test_artifact_payload_text_prefers_durable_artifact_when_present(self) -> None:
+        durable_artifact = type("DurableArtifactStub", (), {"payload_text": ""})()
+        job = AsyncJob(
+            job_id="async-job-durable-artifact-canonical",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_payload="legacy-inline-payload",
+        )
+
+        with patch.object(AsyncJob, "durable_artifact_or_none", return_value=durable_artifact):
+            self.assertEqual(job.artifact_payload_text, "")
+
+    def test_mark_succeeded_requires_timezone_aware_expiry(self) -> None:
+        job = AsyncJob(
+            job_id="async-job-aware-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+        )
+
+        with self.assertRaisesMessage(ValueError, "timezone-aware"):
+            job.mark_succeeded(
+                artifact_filename="report.csv",
+                artifact_content_type="text/csv",
+                artifact_sha256="sha-aware-expiry",
+                artifact_expires_at=datetime.utcnow(),
+            )
+
+    def test_mark_succeeded_rejects_expired_expiry(self) -> None:
+        now = timezone.now()
+        job = AsyncJob(
+            job_id="async-job-expired-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+        )
+
+        with patch("api.models.timezone.now", return_value=now):
+            with self.assertRaisesMessage(ValueError, "must be in the future"):
+                job.mark_succeeded(
+                    artifact_filename="report.csv",
+                    artifact_content_type="text/csv",
+                    artifact_sha256="sha-expired-expiry",
+                    artifact_expires_at=now,
+                )
+
+    def test_artifact_ready_false_when_expiry_equals_now(self) -> None:
+        now = timezone.now()
+        job = AsyncJob(
+            job_id="async-job-expired-at-boundary",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_payload="item_id,item_name\n1,Water\n",
+            expires_at=now,
+        )
+
+        with patch("api.models.timezone.now", return_value=now):
+            self.assertFalse(job.artifact_ready)
 
 
 class RequestContextMiddlewareTests(SimpleTestCase):

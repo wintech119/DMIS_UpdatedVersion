@@ -316,6 +316,7 @@ class NeedsListAudit(models.Model):
         ('ALLOCATION_RELEASED', 'Allocation Released'),
         ('DISPATCHED', 'Dispatched'),
         ('COMMENT_ADDED', 'Comment Added'),
+        ('EXPORT_GENERATED', 'Export Generated'),
     ]
 
     audit_id = models.AutoField(primary_key=True)
@@ -338,6 +339,7 @@ class NeedsListAudit(models.Model):
     reason_code = models.CharField(max_length=50, null=True, blank=True)
     notes_text = models.CharField(max_length=500, null=True, blank=True)
     actor_user_id = models.CharField(max_length=20)
+    request_id = models.CharField(max_length=128, null=True, blank=True, db_index=True)
     action_dtime = models.DateTimeField(auto_now_add=True)
 
     class Meta:
