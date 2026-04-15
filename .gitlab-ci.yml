@@ -577,12 +577,17 @@ publish-package:
 
 replenishment-export-audit-migration:
   stage: pre_deploy
+  resource_group: replenishment-export-audit-migration
   extends:
     - .release_cond
   script:
     - python -m pip install -r backend/requirements.txt
     - cd backend
-    - python manage.py apply_replenishment_sql_migration 20260414_dmis08_export_audit_request_id.sql --apply
+    - python manage.py apply_replenishment_sql_migration 20260414_dmis08_export_audit_request_id.sql --apply 2>&1 | tee migration_20260414_dmis08_export_audit_request_id.log
+  artifacts:
+    when: always
+    paths:
+      - backend/migration_20260414_dmis08_export_audit_request_id.log
 
 awx-deploy:
   stage: deploy

@@ -90,7 +90,7 @@ class AsyncJob(models.Model):
     def artifact_ready(self) -> bool:
         if self.status != self.Status.SUCCEEDED:
             return False
-        if self.expires_at and timezone.now() > self.expires_at:
+        if self.expires_at and timezone.now() >= self.expires_at:
             return False
         return bool(self.artifact_payload_text)
 

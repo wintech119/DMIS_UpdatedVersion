@@ -739,8 +739,7 @@ def _accessible_read_warehouse_ids(request) -> set[int] | None:
     if not tenant_ids:
         return set()
 
-    scoped_warehouse_ids = data_access.get_warehouse_ids_for_tenants(tenant_ids)
-    return scoped_warehouse_ids or None
+    return data_access.get_warehouse_ids_for_tenants(tenant_ids)
 
 
 def _tenant_scope_denied_response(
@@ -948,46 +947,83 @@ def _async_export_dedupe_key(
     return f"async-export:{hashlib.sha256(base.encode('utf-8')).hexdigest()}"
 
 
+def _request_client_ip(request) -> str:
+    forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", "") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return str(request.META.get("REMOTE_ADDR", "") or "-").strip() or "-"
+
+
 def _needs_list_export_rate_limit_key(
     *,
-    actor_key: str,
+    user_key: str,
+    client_ip: str,
     tenant_id: int | None,
-    window_id: int,
 ) -> str:
     return ":".join(
         [
             "needs-list-export-rate-limit",
             str(tenant_id if tenant_id is not None else "global"),
-            actor_key,
-            str(window_id),
+            user_key,
+            client_ip or "-",
         ]
     )
 
 
 def _claim_needs_list_export_slot(
+    request,
     *,
-    actor_key: str,
+    user_key: str,
+    client_ip: str,
     tenant_id: int | None,
+    endpoint_tier: str,
+    active_event_phase: str | None,
 ) -> tuple[bool, int]:
-    epoch_seconds = int(timezone.now().timestamp())
-    window_seconds = _NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS
-    retry_after = max(window_seconds - (epoch_seconds % window_seconds), 1)
-    window_id = epoch_seconds // window_seconds
+    now = timezone.now().timestamp()
+    capacity = float(_NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE)
+    refill_window = float(_NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS)
+    refill_rate = capacity / refill_window
     cache_key = _needs_list_export_rate_limit_key(
-        actor_key=actor_key,
+        user_key=user_key,
+        client_ip=client_ip,
         tenant_id=tenant_id,
-        window_id=window_id,
     )
+    state = cache.get(cache_key) or {}
+    tokens = float(state.get("tokens", capacity))
+    last_refill = float(state.get("last_refill", now))
+    elapsed = max(now - last_refill, 0.0)
+    tokens = min(capacity, tokens + (elapsed * refill_rate))
+    cache_timeout = int(refill_window) + 1
 
-    if cache.add(cache_key, 1, timeout=retry_after + 1):
-        return True, retry_after
+    if tokens < 1.0:
+        retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
+        cache.set(
+            cache_key,
+            {"tokens": tokens, "last_refill": now},
+            timeout=cache_timeout,
+        )
+        logger.warning(
+            "request.throttled",
+            extra=build_log_extra(
+                request,
+                event="request.throttled",
+                status_code=429,
+                endpoint_tier=endpoint_tier,
+                active_event_phase=active_event_phase,
+                enforcement_key=cache_key,
+                client_ip=client_ip,
+                token_count=round(tokens, 3),
+                retry_after=retry_after,
+            ),
+        )
+        return False, retry_after
 
-    try:
-        count = cache.incr(cache_key)
-    except ValueError:
-        cache.set(cache_key, 1, timeout=retry_after + 1)
-        count = 1
-    return count <= _NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE, retry_after
+    cache.set(
+        cache_key,
+        {"tokens": tokens - 1.0, "last_refill": now},
+        timeout=cache_timeout,
+    )
+    return True, 1
 
 
 def _needs_list_export_rate_limited_response(
@@ -1001,20 +1037,6 @@ def _needs_list_export_rate_limited_response(
     actor_username: str | None,
     retry_after: int,
 ) -> Response:
-    logger.warning(
-        "job.queue_throttled",
-        extra=build_log_extra(
-            request,
-            event="job.queue_throttled",
-            needs_list_id=needs_list_id,
-            job_type=job_type,
-            tenant_id=tenant_id,
-            tenant_code=tenant_code,
-            actor_user_id=actor_user_id,
-            actor_username=actor_username,
-            retry_after=retry_after,
-        ),
-    )
     response = Response(
         {
             "errors": {
@@ -1117,9 +1139,17 @@ def _enqueue_needs_list_export_job(
     request_id = get_request_id(request)
     data_version = _needs_list_snapshot_version(record, needs_list_id)
     rate_limit_actor_key = str(actor_user_id or actor_username or "unknown").strip()
+    client_ip = _request_client_ip(request)
+    active_event_phase = str(
+        record.get("event_phase") or record.get("phase") or ""
+    ).strip().upper() or None
     allowed, retry_after = _claim_needs_list_export_slot(
-        actor_key=rate_limit_actor_key,
+        request,
+        user_key=rate_limit_actor_key,
+        client_ip=client_ip,
         tenant_id=tenant_id,
+        endpoint_tier="file_export",
+        active_event_phase=active_event_phase,
     )
     if not allowed:
         return _needs_list_export_rate_limited_response(

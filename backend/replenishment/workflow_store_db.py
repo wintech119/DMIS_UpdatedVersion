@@ -217,14 +217,30 @@ def _workflow_selected_method_sql() -> str:
     metadata_table_name = _workflow_metadata_table_name()
     needs_list_table_name = connection.ops.quote_name(NeedsList._meta.db_table)
     if connection.vendor == "postgresql":
-        selected_method_expr = "UPPER(COALESCE(metadata_json ->> 'selected_method', ''))"
+        metadata_expr = (
+            f"SELECT UPPER(COALESCE(metadata_json ->> 'selected_method', '')) "
+            f"FROM {metadata_table_name} "
+            f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
+        )
+        legacy_expr = (
+            "UPPER(COALESCE("
+            f"CASE WHEN TRIM(COALESCE({needs_list_table_name}.notes_text, '')) LIKE '{{%' "
+            f"THEN ({needs_list_table_name}.notes_text::jsonb ->> 'selected_method') "
+            "ELSE NULL END, ''))"
+        )
     else:
-        selected_method_expr = "UPPER(COALESCE(json_extract(metadata_json, '$.selected_method'), ''))"
-    return (
-        f"SELECT {selected_method_expr} "
-        f"FROM {metadata_table_name} "
-        f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
-    )
+        metadata_expr = (
+            f"SELECT UPPER(COALESCE(json_extract(metadata_json, '$.selected_method'), '')) "
+            f"FROM {metadata_table_name} "
+            f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
+        )
+        legacy_expr = (
+            "UPPER(COALESCE("
+            f"CASE WHEN json_valid(COALESCE({needs_list_table_name}.notes_text, '')) "
+            f"THEN json_extract({needs_list_table_name}.notes_text, '$.selected_method') "
+            "ELSE NULL END, ''))"
+        )
+    return f"COALESCE(NULLIF(({metadata_expr}), ''), {legacy_expr})"
 
 
 def _ensure_workflow_metadata_table() -> None:

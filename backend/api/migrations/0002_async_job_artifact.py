@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import django.db.models.deletion
-from django.db import migrations, models
+from django.db import migrations, models, transaction
 from django.utils import timezone
 
 
@@ -35,11 +35,13 @@ def backfill_durable_async_job_artifacts(apps, schema_editor) -> None:
             )
         )
         if len(artifacts) >= BATCH_SIZE:
-            AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)
+            with transaction.atomic():
+                AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)
             artifacts.clear()
 
     if artifacts:
-        AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)
+        with transaction.atomic():
+            AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)
 
 
 def noop_reverse(apps, schema_editor) -> None:
@@ -84,5 +86,6 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             backfill_durable_async_job_artifacts,
             noop_reverse,
+            atomic=False,
         ),
     ]

@@ -1747,7 +1747,7 @@ class NeedsListWorkflowApiTests(TestCase):
 
     @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
     @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value=set())
-    def test_accessible_read_warehouse_ids_treats_empty_scope_as_unbounded(
+    def test_accessible_read_warehouse_ids_treats_empty_scope_as_deny_all(
         self,
         mock_get_warehouse_ids_for_tenants,
     ) -> None:
@@ -1775,7 +1775,7 @@ class NeedsListWorkflowApiTests(TestCase):
         )
 
         with patch("replenishment.views._tenant_context", return_value=context):
-            self.assertIsNone(views._accessible_read_warehouse_ids(request))
+            self.assertEqual(views._accessible_read_warehouse_ids(request), set())
 
         mock_get_warehouse_ids_for_tenants.assert_called_once_with({1})
 
@@ -7004,6 +7004,60 @@ class WorkflowStoreDbSerializationTests(TestCase):
         mock_event_names.assert_called_once_with([1])
         mock_item_names.assert_called_once_with([9, 17])
 
+    @patch("replenishment.workflow_store_db.data_access.get_event_names")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
+    def test_list_record_headers_page_method_filter_falls_back_to_legacy_notes_text(
+        self,
+        mock_warehouse_names,
+        mock_event_names,
+    ) -> None:
+        mock_warehouse_names.return_value = ({2: "ODPEM MARCUS GARVEY WAREHOUSE (MG)"}, [])
+        mock_event_names.return_value = ({1: "HURRICANE MELISSA"}, [])
+
+        matching = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-010",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=25,
+            notes_text='{"selected_method":"B"}',
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-011",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=30,
+            notes_text='{"selected_method":"A"}',
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        headers, total_count = workflow_store_db.list_record_headers_page(
+            method_filter="B",
+            offset=0,
+            limit=10,
+        )
+
+        self.assertEqual(total_count, 1)
+        self.assertEqual(len(headers), 1)
+        self.assertEqual(headers[0]["needs_list_id"], str(matching.needs_list_id))
+        self.assertEqual(headers[0]["selected_method"], "B")
+
 
 class StockStateFileLockTests(SimpleTestCase):
     # These are intentional white-box tests that assert internal lock helpers
@@ -7266,10 +7320,8 @@ class ProcurementPermissionApiTests(TestCase):
         TENANT_SCOPE_ENFORCEMENT=True,
     )
     @patch("replenishment.views.procurement_service.list_procurements", return_value=([], 0))
-    @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value={11})
     def test_procurement_list_uses_active_tenant_scope_when_requested_tenant_is_out_of_scope(
         self,
-        _mock_get_warehouse_ids_for_tenants,
         mock_list_procurements,
     ) -> None:
         context = TenantContext(
@@ -7291,7 +7343,10 @@ class ProcurementPermissionApiTests(TestCase):
             can_act_cross_tenant=False,
         )
 
-        with patch("replenishment.views._tenant_context", return_value=context):
+        with patch("replenishment.views._tenant_context", return_value=context), patch(
+            "replenishment.views.data_access.get_warehouse_ids_for_tenants",
+            return_value={11},
+        ):
             response = self.client.get("/api/v1/replenishment/procurement/?tenant_id=2")
 
         self.assertEqual(response.status_code, 200)

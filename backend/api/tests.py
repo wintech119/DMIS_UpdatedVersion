@@ -1646,6 +1646,21 @@ class AsyncJobModelTests(SimpleTestCase):
                 artifact_expires_at=datetime.utcnow(),
             )
 
+    def test_artifact_ready_false_when_expiry_equals_now(self) -> None:
+        now = timezone.now()
+        job = AsyncJob(
+            job_id="async-job-expired-at-boundary",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_payload="item_id,item_name\n1,Water\n",
+            expires_at=now,
+        )
+
+        with patch("api.models.timezone.now", return_value=now):
+            self.assertFalse(job.artifact_ready)
+
 
 class RequestContextMiddlewareTests(SimpleTestCase):
     def setUp(self) -> None:
