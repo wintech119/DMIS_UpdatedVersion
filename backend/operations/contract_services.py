@@ -281,6 +281,53 @@ def _idempotency_cache_key(
     )
 
 
+def _idempotency_cache_state(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    resource_id: int,
+    idempotency_key: str | None,
+) -> tuple[str, str, dict[str, Any] | None]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    cache_key = _idempotency_cache_key(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=resource_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(cache_key)
+    if not isinstance(cached_result, dict):
+        cached_result = None
+    return normalized_idempotency_key, cache_key, cached_result
+
+
+def peek_idempotent_response(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    resource_id: int,
+    idempotency_key: str | None,
+) -> dict[str, Any] | None:
+    _, _, cached_result = _idempotency_cache_state(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=resource_id,
+        idempotency_key=idempotency_key,
+    )
+    return cached_result
+
+
+def _cache_idempotent_response_after_commit(cache_key: str, payload: dict[str, Any]) -> None:
+    def _store() -> None:
+        cache.set(cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
+
+    transaction.on_commit(_store)
+
+
 def _tracking_no(prefix: str, numeric_id: int) -> str:
     return f"{prefix}{int(numeric_id):05d}"
 
@@ -4401,16 +4448,14 @@ def submit_request(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    _, idempotency_cache_key, cached_result = _idempotency_cache_state(
         endpoint="request_submit",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefrqst_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
+    if cached_result is not None:
         return cached_result
     legacy_service.submit_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context)
     request = _legacy_helper("_load_request")(reliefrqst_id)
@@ -4449,7 +4494,7 @@ def submit_request(
         actor_id=actor_id,
         tenant_context=tenant_context,
     )
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -4544,16 +4589,14 @@ def submit_eligibility_decision(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    _, idempotency_cache_key, cached_result = _idempotency_cache_state(
         endpoint="eligibility_decision",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefrqst_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
+    if cached_result is not None:
         return cached_result
     normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may decide requests.")
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
@@ -4678,7 +4721,7 @@ def submit_eligibility_decision(
         "decided_by_role_code": eligibility_decision.decided_by_role_code,
         "decided_at": legacy_service._as_iso(eligibility_decision.decided_at),
     }
-    cache.set(idempotency_cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, payload)
     return payload
 
 
@@ -5073,7 +5116,7 @@ def abandon_package_draft(
     result["request_status"] = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
     result["reason"] = reason_text or None
     result["previous_status_code"] = previous_status_code
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -5331,7 +5374,7 @@ def save_package(
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
         if idempotency_cache_key is not None:
-            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+            _cache_idempotent_response_after_commit(idempotency_cache_key, result)
         return result
     # For draft saves, only persist an explicit user-selected default warehouse.
     # Per-item selection is first-class and must not fabricate a package-level
@@ -5518,7 +5561,7 @@ def save_package(
         "lock": _package_lock_payload(int(package.reliefpkg_id)),
         }
     if idempotency_cache_key is not None:
-        cache.set(idempotency_cache_key, final_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _cache_idempotent_response_after_commit(idempotency_cache_key, final_result)
     return final_result
 
 
@@ -5561,7 +5604,7 @@ def approve_override(
                 override_note=str(payload.get("override_note") or "").strip(),
                 submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
             )
-            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+            _cache_idempotent_response_after_commit(idempotency_cache_key, result)
             return result
         request = _load_request(reliefrqst_id)
         package = _current_package_for_request(reliefrqst_id)
@@ -5576,7 +5619,7 @@ def approve_override(
             supervisor_role_codes=actor_roles,
             override_submitter_user_id=allocator_user_id,
         )
-        cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _cache_idempotent_response_after_commit(idempotency_cache_key, result)
         return result
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
@@ -5678,7 +5721,7 @@ def approve_override(
                 tenant_id=request_record.beneficiary_tenant_id,
                 queue_code=QUEUE_CODE_DISPATCH,
             )
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -5798,7 +5841,7 @@ def dispatch_consolidation_leg(
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -5940,7 +5983,7 @@ def receive_consolidation_leg(
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -6103,7 +6146,7 @@ def pickup_release(
         "status": "RECEIVED",
         "package": _package_summary_payload(package, package_record),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -6178,7 +6221,7 @@ def request_partial_release(
             package_record,
         ),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -6524,7 +6567,7 @@ def approve_partial_release(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
-    cache.set(idempotency_cache_key, split_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, split_result)
     return split_result
 
 
@@ -6656,7 +6699,7 @@ def cancel_package(
         "package": _package_summary_payload(package, package_record),
         "request": _request_summary_payload(request, request_record),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -6866,7 +6909,7 @@ def submit_dispatch(
         "dispatch": _dispatch_payload(package, dispatch),
         "waybill": get_waybill(reliefpkg_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 
@@ -6997,7 +7040,7 @@ def confirm_receipt(
         "package_tracking_no": package.tracking_no,
         "receipt": receipt_artifact,
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(idempotency_cache_key, result)
     return result
 
 

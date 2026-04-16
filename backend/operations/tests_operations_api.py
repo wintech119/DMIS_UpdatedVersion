@@ -996,6 +996,47 @@ class OperationsApiTests(SimpleTestCase):
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["SYSTEM_ADMINISTRATOR"], []))
+    @patch("operations.views.operations_service.submit_request")
+    @patch(
+        "operations.views.operations_service.peek_idempotent_response",
+        return_value={"reliefrqst_id": 70, "status_label": "Awaiting Approval"},
+    )
+    def test_request_submit_returns_cached_idempotent_response_before_rate_limit(
+        self,
+        mock_peek_response,
+        mock_submit_request,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ) as mock_rate_limit_response:
+            response = self.client.post(
+                "/api/v1/operations/requests/70/submit",
+                {},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="submit-70",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"reliefrqst_id": 70, "status_label": "Awaiting Approval"})
+        mock_rate_limit_response.assert_not_called()
+        mock_submit_request.assert_not_called()
+        self.assertEqual(mock_peek_response.call_args.kwargs["endpoint"], "request_submit")
+        self.assertEqual(mock_peek_response.call_args.kwargs["resource_id"], 70)
+        self.assertEqual(mock_peek_response.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_peek_response.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_peek_response.call_args.kwargs["idempotency_key"], "submit-70")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["ODPEM_DG"], []))
     @patch("operations.views.operations_service.submit_eligibility_decision")
     def test_eligibility_decision_returns_429_when_rate_limited(
@@ -1027,6 +1068,47 @@ class OperationsApiTests(SimpleTestCase):
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["ODPEM_DG"], []))
+    @patch("operations.views.operations_service.submit_eligibility_decision")
+    @patch(
+        "operations.views.operations_service.peek_idempotent_response",
+        return_value={"reliefrqst_id": 80, "status_label": "Submitted"},
+    )
+    def test_eligibility_decision_returns_cached_idempotent_response_before_rate_limit(
+        self,
+        mock_peek_response,
+        mock_submit_eligibility_decision,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ) as mock_rate_limit_response:
+            response = self.client.post(
+                "/api/v1/operations/eligibility/80/decision",
+                {"decision": "APPROVED"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="eligibility-80",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"reliefrqst_id": 80, "status_label": "Submitted"})
+        mock_rate_limit_response.assert_not_called()
+        mock_submit_eligibility_decision.assert_not_called()
+        self.assertEqual(mock_peek_response.call_args.kwargs["endpoint"], "eligibility_decision")
+        self.assertEqual(mock_peek_response.call_args.kwargs["resource_id"], 80)
+        self.assertEqual(mock_peek_response.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_peek_response.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_peek_response.call_args.kwargs["idempotency_key"], "eligibility-80")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.save_package")
     def test_package_commit_requires_idempotency_key(
@@ -1045,6 +1127,47 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_save_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.save_package")
+    @patch(
+        "operations.views.operations_service.peek_idempotent_response",
+        return_value={"status": "COMMITTED", "reliefpkg_id": 70},
+    )
+    def test_package_commit_returns_cached_idempotent_response_before_rate_limit(
+        self,
+        mock_peek_response,
+        mock_save_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ) as mock_rate_limit_response:
+            response = self.client.post(
+                "/api/v1/operations/packages/70/allocations/commit",
+                {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="package-70",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "COMMITTED", "reliefpkg_id": 70})
+        mock_rate_limit_response.assert_not_called()
+        mock_save_package.assert_not_called()
+        self.assertEqual(mock_peek_response.call_args.kwargs["endpoint"], "package_commit_allocation")
+        self.assertEqual(mock_peek_response.call_args.kwargs["resource_id"], 70)
+        self.assertEqual(mock_peek_response.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_peek_response.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_peek_response.call_args.kwargs["idempotency_key"], "package-70")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1072,6 +1195,53 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_submit_dispatch.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.submit_dispatch")
+    @patch(
+        "operations.views.operations_service.peek_idempotent_response",
+        return_value={"status": "IN_TRANSIT", "reliefpkg_id": 90},
+    )
+    def test_dispatch_handoff_returns_cached_idempotent_response_before_rate_limit(
+        self,
+        mock_peek_response,
+        mock_submit_dispatch,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ) as mock_rate_limit_response:
+            response = self.client.post(
+                "/api/v1/operations/dispatch/90/handoff",
+                {
+                    "transport_mode": "TRUCK",
+                    "driver_name": "Jane Driver",
+                    "vehicle_registration": "1234AB",
+                    "departure_dtime": "2026-03-26T10:00:00Z",
+                    "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+                },
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="dispatch-90",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "IN_TRANSIT", "reliefpkg_id": 90})
+        mock_rate_limit_response.assert_not_called()
+        mock_submit_dispatch.assert_not_called()
+        self.assertEqual(mock_peek_response.call_args.kwargs["endpoint"], "dispatch_handoff")
+        self.assertEqual(mock_peek_response.call_args.kwargs["resource_id"], 90)
+        self.assertEqual(mock_peek_response.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_peek_response.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_peek_response.call_args.kwargs["idempotency_key"], "dispatch-90")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1326,6 +1496,7 @@ class OperationsApiTests(SimpleTestCase):
                 "/api/v1/operations/packages/70/allocations/commit",
                 {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
                 format="json",
+                HTTP_IDEMPOTENCY_KEY="package-70",
             )
 
         self.assertEqual(response.status_code, 429)

@@ -13,3 +13,4 @@
 - When adding early tenant-aware prefilters, preserve the existing read-all contract for NEOC/national contexts; requested-tenant state can shape active context without becoming an implicit deny-by-omission filter.
 - When a list endpoint still needs one Python-only filter, keep the common case on DB-side count/slice/order and fall back to bounded batch scanning for the edge filter instead of materializing the full header set in memory.
 - When adding pagination to an existing API list surface, keep the stable collection key if possible and add explicit count/next/previous metadata so current consumers can stay compatible while the response becomes bounded.
+- When reviewing idempotent Django write paths, check both sides of the retry contract: cached replays must bypass throttles where intended, and success responses must only be written to cache in `transaction.on_commit(...)` so rollback paths cannot publish false success.

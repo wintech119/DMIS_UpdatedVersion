@@ -1,7 +1,6 @@
 # Current Task Plan
 
-1. Verify each requested review comment against the live code and discard the stale ones instead of applying them blindly.
-2. Standardize the requirements-to-design skill hook by adding the missing `.agents` skill path and repointing the four instruction docs to the same canonical location.
-3. Patch the confirmed backend gaps only where they still exist: procurement exception handling, bounded pagination, tenant-safe procurement reads, real pagination validation errors, `_iso_or_none(None)`, DB-side method-filter pagination, and the raw-SQL warehouse scope helper move.
-4. Update the affected replenishment tests so they prove the real behavior: offset handling, tenant-safe non-exposure, procurement scope filtering, and invalid pagination rejection.
-5. Run targeted backend tests and finish with a system-architecture review decision against the architecture and security source-of-truth docs.
+1. Replace inline idempotency cache writes with a post-commit helper in `backend/operations/contract_services.py` so success responses are only cached after the transaction commits.
+2. Preserve the view-layer fix that lets cached idempotent retries bypass workflow throttling, and extend that ordering consistently across the remaining idempotent workflow handlers in `backend/operations/views.py`.
+3. Add contract-service regression tests that prove the submit and eligibility idempotency cache writes are deferred via commit callbacks.
+4. Run the targeted operations API and contract-service tests, then finish with a backend review and architecture verdict.
