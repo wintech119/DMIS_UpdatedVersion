@@ -48,7 +48,22 @@ def _tenant_context(
     )
 
 
-class ReliefRequestCapabilityTests(SimpleTestCase):
+class _DeterministicOdpemTenantResolutionMixin:
+    """Keep policy-only tests deterministic without live tenant table access."""
+
+    odpem_tenant_id = 27
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._resolve_odpem_tenant_id_patcher = patch(
+            "operations.policy.resolve_odpem_tenant_id",
+            return_value=self.odpem_tenant_id,
+        )
+        self._resolve_odpem_tenant_id_patcher.start()
+        self.addCleanup(self._resolve_odpem_tenant_id_patcher.stop)
+
+
+class ReliefRequestCapabilityTests(_DeterministicOdpemTenantResolutionMixin, SimpleTestCase):
     def test_non_odpem_self_service_capabilities_are_explicit(self) -> None:
         capabilities = operations_policy.get_relief_request_capabilities(
             tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
@@ -152,7 +167,7 @@ class EventLookupTests(SimpleTestCase):
             operations_service._event_exists(77)
 
 
-class ReliefRequestAgencyPolicyTests(SimpleTestCase):
+class ReliefRequestAgencyPolicyTests(_DeterministicOdpemTenantResolutionMixin, SimpleTestCase):
     @patch("operations.policy.get_agency_scope")
     def test_non_odpem_tenant_can_create_for_allowed_agency_scope(self, get_agency_scope_mock) -> None:
         get_agency_scope_mock.return_value = operations_policy.AgencyScope(
@@ -528,7 +543,12 @@ class ReliefRequestServiceTests(TestCase):
         load_request_mock.return_value = request_record
         tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
 
-        operations_service.submit_request(88, actor_id="user-1", tenant_context=tenant_context)
+        operations_service.submit_request(
+            88,
+            actor_id="user-1",
+            tenant_context=tenant_context,
+            idempotency_key="submit-88",
+        )
 
         validate_scope_mock.assert_called_once_with(agency_id=501, tenant_context=tenant_context)
 
