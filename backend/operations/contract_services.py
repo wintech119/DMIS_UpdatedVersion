@@ -393,7 +393,7 @@ def peek_idempotent_response(
     actor_id: str,
     tenant_context: TenantContext | None,
     resource_id: int,
-    idempotency_key: str | None,
+    idempotency_key: str,
 ) -> dict[str, Any] | None:
     _, _, cached_result = _idempotency_cache_state(
         endpoint=endpoint,

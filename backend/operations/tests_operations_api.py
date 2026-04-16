@@ -967,8 +967,10 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["SYSTEM_ADMINISTRATOR"], []))
     @patch("operations.views.operations_service.submit_request")
+    @patch("operations.views.operations_service.peek_idempotent_response", return_value=None)
     def test_request_submit_returns_429_when_rate_limited(
         self,
+        mock_peek_response,
         mock_submit_request,
         _mock_roles,
         _mock_permission,
@@ -993,6 +995,11 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response["Retry-After"], "17")
         self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
         mock_submit_request.assert_not_called()
+        self.assertEqual(mock_peek_response.call_args.kwargs["endpoint"], "request_submit")
+        self.assertEqual(mock_peek_response.call_args.kwargs["resource_id"], 70)
+        self.assertEqual(mock_peek_response.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_peek_response.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_peek_response.call_args.kwargs["idempotency_key"], "submit-70")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
