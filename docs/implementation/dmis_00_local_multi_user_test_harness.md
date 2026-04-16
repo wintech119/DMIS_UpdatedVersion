@@ -104,10 +104,10 @@ If you intentionally want the documented local-only degraded cache mode, unset `
 Run these commands from `backend/`:
 
 ```powershell
-..\.venv\Scripts\python.exe manage.py seed_operations_rbac_permissions --apply
-..\.venv\Scripts\python.exe manage.py bootstrap_relief_management_authority_baseline --apply
-..\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_data --tenant-code JRC --apply
-..\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_users --tenant-code JRC --apply
+.\.venv\Scripts\python.exe manage.py seed_operations_rbac_permissions --apply
+.\.venv\Scripts\python.exe manage.py bootstrap_relief_management_authority_baseline --apply
+.\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_data --tenant-code JRC --apply
+.\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_users --tenant-code JRC --apply
 ```
 
 The last command prints the recommended values for:
@@ -118,9 +118,9 @@ The last command prints the recommended values for:
 Optional subordinate/parish scenario:
 
 ```powershell
-..\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_data --tenant-code FFP --apply
-..\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_users --tenant-code FFP --apply
-..\.venv\Scripts\python.exe manage.py seed_relief_management_hierarchy_test_data --parish-tenant-code PARISH-KN --subordinate-tenant-code FFP --apply
+.\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_data --tenant-code FFP --apply
+.\.venv\Scripts\python.exe manage.py seed_relief_management_frontend_test_users --tenant-code FFP --apply
+.\.venv\Scripts\python.exe manage.py seed_relief_management_hierarchy_test_data --parish-tenant-code PARISH-KN --subordinate-tenant-code FFP --apply
 ```
 
 If you do this, append the new `FFP` usernames to `LOCAL_AUTH_HARNESS_USERNAMES`.
@@ -136,7 +136,7 @@ If Redis is not available and `REDIS_URL` remains set, readiness will fail and R
 From `backend/`:
 
 ```powershell
-..\.venv\Scripts\python.exe manage.py runserver 0.0.0.0:8001
+.\.venv\Scripts\python.exe manage.py runserver 0.0.0.0:8001
 ```
 
 ### 5. Start the frontend

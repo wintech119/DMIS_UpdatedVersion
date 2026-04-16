@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Local-only MCP tooling for django-ai-boost workflows.
+django-ai-boost==0.6.0
+fastmcp==3.2.0
+authlib==1.6.9
+cryptography==46.0.6
