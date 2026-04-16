@@ -8,6 +8,7 @@ import { of } from 'rxjs';
 
 import { ReliefRequestWizardComponent } from './relief-request-wizard.component';
 import { OperationsService } from '../services/operations.service';
+import { RequestDetailResponse } from '../models/operations.model';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 
@@ -114,6 +115,76 @@ describe('ReliefRequestWizardComponent', () => {
       fixture.detectChanges();
 
       expect(component.reviewFormValue().event_name).toBe('Flood Response 2026');
+    });
+
+    it('requires request notes when overall urgency is High', () => {
+      const component = fixture.componentInstance;
+      const notes = component.requestForm.get('rqst_notes_text')!;
+
+      component.requestForm.get('urgency_ind')?.setValue('H');
+      fixture.detectChanges();
+
+      expect(notes.hasError('required')).toBeTrue();
+
+      notes.setValue('Shelter capacity breached; population of 400 without cover.');
+      fixture.detectChanges();
+
+      expect(notes.hasError('required')).toBeFalse();
+    });
+
+    it('gates step-1 validity on request notes while urgency is High', () => {
+      const component = fixture.componentInstance;
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(5);
+      component.requestForm.get('urgency_ind')?.setValue('H');
+      fixture.detectChanges();
+
+      expect(component.isStep1Valid()).toBeFalse();
+
+      component.requestForm.get('rqst_notes_text')?.setValue('Critical shelter gap in zone 4.');
+      fixture.detectChanges();
+
+      expect(component.isStep1Valid()).toBeTrue();
+    });
+
+    it('drops the notes requirement when urgency is downgraded to Medium', () => {
+      const component = fixture.componentInstance;
+      const notes = component.requestForm.get('rqst_notes_text')!;
+
+      component.requestForm.get('urgency_ind')?.setValue('H');
+      fixture.detectChanges();
+      expect(notes.hasError('required')).toBeTrue();
+
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      fixture.detectChanges();
+
+      expect(notes.hasError('required')).toBeFalse();
+    });
+
+    it('trims notes and item reason text before the create payload is dispatched', () => {
+      const component = fixture.componentInstance;
+      const savedResponse = {
+        reliefrqst_id: 1,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(3);
+      itemGroup.get('rqst_reason_desc')?.setValue('  surge replenishment  ');
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      component.requestForm.get('rqst_notes_text')?.setValue('   please expedite   ');
+      fixture.detectChanges();
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.rqst_notes_text).toBe('please expedite');
+      expect(payload.items[0].rqst_reason_desc).toBe('surge replenishment');
     });
 
     it('recomputes step validity immediately after server control errors are applied', () => {

@@ -29,7 +29,7 @@ describe('RequestItemsStepComponent', () => {
           item_name: new FormControl(''),
           request_qty: new FormControl<number | null>(1, [Validators.required, Validators.min(1)]),
           urgency_ind: new FormControl<string | null>(null),
-          rqst_reason_desc: new FormControl(''),
+          rqst_reason_desc: new FormControl('', [Validators.maxLength(255)]),
           required_by_date: new FormControl<string | null>(null),
         }),
       ]),
@@ -97,5 +97,43 @@ describe('RequestItemsStepComponent', () => {
     expect(component.requestingAgencyTooltip).toBe(
       'Choose whether this request is for your organisation or an agency you manage.',
     );
+  });
+
+  it('flags item reason entries longer than 255 characters and renders the bound error', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+
+    reason.setValue('x'.repeat(256));
+    reason.markAsTouched();
+    fixture.detectChanges();
+
+    expect(reason.hasError('maxlength')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Reason must be 255 characters or fewer.');
+  });
+
+  it('requires the item reason when the line urgency is C or H', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+    reason.setValidators([Validators.required, Validators.maxLength(255)]);
+    reason.updateValueAndValidity();
+    reason.markAsTouched();
+    fixture.detectChanges();
+
+    expect(reason.hasError('required')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Required for C/H');
+  });
+
+  it('surfaces the high-urgency justification error on the request notes field', () => {
+    const notes = component.form.get('rqst_notes_text')!;
+    notes.setValidators([Validators.required]);
+    notes.updateValueAndValidity();
+    notes.markAsTouched();
+    fixture.detectChanges();
+
+    expect(notes.hasError('required')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Justification is required for high-urgency requests.');
   });
 });

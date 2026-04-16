@@ -259,9 +259,10 @@ export class ReliefRequestWizardComponent implements OnInit {
     const form = this.requestForm;
     const agencyValid = form.get('agency_id')?.valid ?? false;
     const urgencyValid = form.get('urgency_ind')?.valid ?? false;
+    const notesValid = form.get('rqst_notes_text')?.valid ?? true;
     const hasItems = this.itemsArray.length > 0;
     const itemsValid = this.itemsArray.valid;
-    return agencyValid && urgencyValid && hasItems && itemsValid;
+    return agencyValid && urgencyValid && notesValid && hasItems && itemsValid;
   });
 
   readonly trackerSteps = computed<StepDefinition[]>(() => [
@@ -303,6 +304,18 @@ export class ReliefRequestWizardComponent implements OnInit {
           clearServerError(this.requestForm.get(controlName));
         });
     });
+
+    this.requestForm.get('urgency_ind')!.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((urgency) => {
+        const notesCtrl = this.requestForm.get('rqst_notes_text')!;
+        if (urgency === 'H') {
+          notesCtrl.setValidators([Validators.required]);
+        } else {
+          notesCtrl.clearValidators();
+        }
+        notesCtrl.updateValueAndValidity({ emitEvent: false });
+      });
   }
 
   private loadReferenceData(): void {
@@ -420,7 +433,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       item_name: [defaults?.item_name ?? '' as string],
       request_qty: [defaults?.request_qty ? Number(defaults.request_qty) : null as number | null, [Validators.required, Validators.min(1)]],
       urgency_ind: [defaults?.urgency_ind ?? null as UrgencyCode | null],
-      rqst_reason_desc: [defaults?.rqst_reason_desc ?? ''],
+      rqst_reason_desc: [defaults?.rqst_reason_desc ?? '', [Validators.maxLength(255)]],
       required_by_date: [defaults?.required_by_date ?? null as string | null],
     });
 
@@ -429,9 +442,9 @@ export class ReliefRequestWizardComponent implements OnInit {
       .subscribe((urgency) => {
         const reasonCtrl = group.get('rqst_reason_desc')!;
         if (urgency === 'C' || urgency === 'H') {
-          reasonCtrl.setValidators([Validators.required]);
+          reasonCtrl.setValidators([Validators.required, Validators.maxLength(255)]);
         } else {
-          reasonCtrl.clearValidators();
+          reasonCtrl.setValidators([Validators.maxLength(255)]);
         }
         reasonCtrl.updateValueAndValidity({ emitEvent: false });
       });
@@ -497,8 +510,9 @@ export class ReliefRequestWizardComponent implements OnInit {
       if (item['urgency_ind']) {
         payload.urgency_ind = item['urgency_ind'] as UrgencyCode;
       }
-      if (item['rqst_reason_desc']) {
-        payload.rqst_reason_desc = item['rqst_reason_desc'] as string;
+      const reason = String(item['rqst_reason_desc'] ?? '').trim();
+      if (reason) {
+        payload.rqst_reason_desc = reason;
       }
       if (item['required_by_date']) {
         const dateValue = item['required_by_date'];
@@ -509,12 +523,15 @@ export class ReliefRequestWizardComponent implements OnInit {
       return payload;
     });
 
+    const notes = String(raw.rqst_notes_text ?? '').trim();
+    const notesPayload = notes || undefined;
+
     if (this.isEditMode() && this.reliefrqstId) {
       const updatePayload: UpdateRequestPayload = {
         agency_id: raw.agency_id,
         urgency_ind: raw.urgency_ind as UrgencyCode,
         eligible_event_id: raw.eligible_event_id,
-        rqst_notes_text: raw.rqst_notes_text || undefined,
+        rqst_notes_text: notesPayload,
         items,
       };
 
@@ -531,7 +548,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       agency_id: raw.agency_id,
       urgency_ind: raw.urgency_ind as UrgencyCode,
       eligible_event_id: raw.eligible_event_id,
-      rqst_notes_text: raw.rqst_notes_text || undefined,
+      rqst_notes_text: notesPayload,
       items,
     };
 

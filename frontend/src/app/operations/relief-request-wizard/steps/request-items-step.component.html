@@ -148,6 +148,9 @@
         cdkAutosizeMinRows="2"
         cdkAutosizeMaxRows="6"></textarea>
       <mat-hint>Visible to reviewers, packers, and dispatch staff once the request leaves intake.</mat-hint>
+      @if (form.get('rqst_notes_text')?.hasError('required') && form.get('rqst_notes_text')?.touched) {
+        <mat-error>Justification is required for high-urgency requests.</mat-error>
+      }
     </mat-form-field>
   </section>
 
@@ -245,9 +248,13 @@
                 <input
                   matInput
                   formControlName="rqst_reason_desc"
+                  maxlength="255"
                   [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required' : 'Optional'" />
                 @if (item.get('rqst_reason_desc')?.hasError('required') && item.get('rqst_reason_desc')?.touched) {
                   <mat-error>Required for C/H</mat-error>
+                }
+                @if (item.get('rqst_reason_desc')?.hasError('maxlength') && item.get('rqst_reason_desc')?.touched) {
+                  <mat-error>Reason must be 255 characters or fewer.</mat-error>
                 }
               </mat-form-field>
 
