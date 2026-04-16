@@ -95,13 +95,20 @@ export class ReliefRequestDetailComponent implements OnInit {
     return getRequestFulfillmentEntryAction(request, this.appAccess.canAccessNavKey('operations.fulfillment'));
   });
 
+  readonly canEditDraft = computed(() => this.appAccess.canEditReliefRequestDraft());
+  readonly canSubmitRequest = computed(() => this.appAccess.canSubmitReliefRequest());
+
   readonly workflow = computed<WorkflowStep[]>(() => {
     const request = this.request();
     if (!request) {
       return [];
     }
 
-    const submitted = Boolean(request.create_dtime);
+    // A request is only considered submitted once its workflow status advances
+    // past DRAFT. `create_dtime` is set on first save and would misleadingly
+    // mark drafts as already submitted. No truthful submit timestamp is present
+    // in the current payload, so we leave the Submitted step timestamp blank.
+    const submitted = request.status_code !== 'DRAFT';
     const reviewed = Boolean(request.review_dtime);
     const hasPackage = (request.packages?.length ?? 0) > 0;
     const firstPackage = request.packages?.[0];
@@ -118,7 +125,7 @@ export class ReliefRequestDetailComponent implements OnInit {
         label: 'Submitted',
         detail: submitted ? 'Sent to review' : 'Pending submit',
         tone: submitted ? 'review' : 'muted',
-        timestamp: submitted ? formatOperationsDateTime(request.create_dtime) : undefined,
+        timestamp: undefined,
       },
       {
         label: 'Eligibility Review',

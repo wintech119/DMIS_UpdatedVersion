@@ -46,14 +46,18 @@
         </div>
         <div class="ops-hero__actions">
           @if (rq.status_code === 'DRAFT') {
-            <button mat-stroked-button type="button" (click)="openEdit()">
-              <mat-icon>edit</mat-icon>
-              Edit Draft
-            </button>
-            <button mat-flat-button color="primary" type="button" (click)="submitForReview()" [disabled]="submitting()">
-              <mat-icon>send</mat-icon>
-              @if (submitting()) { Submitting... } @else { Submit for Review }
-            </button>
+            @if (canEditDraft()) {
+              <button mat-stroked-button type="button" (click)="openEdit()">
+                <mat-icon>edit</mat-icon>
+                Edit Draft
+              </button>
+            }
+            @if (canSubmitRequest()) {
+              <button mat-flat-button color="primary" type="button" (click)="submitForReview()" [disabled]="submitting()">
+                <mat-icon>send</mat-icon>
+                @if (submitting()) { Submitting... } @else { Submit for Review }
+              </button>
+            }
           } @else if (fulfillmentEntryAction(); as action) {
             <span [matTooltip]="action.disabledReason">
               <button

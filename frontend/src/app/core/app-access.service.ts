@@ -323,8 +323,12 @@ export class AppAccessService {
       ]);
   }
 
-  private canEditReliefRequestDraft(): boolean {
+  canEditReliefRequestDraft(): boolean {
     return this.hasPermission('operations.request.edit.draft');
+  }
+
+  canSubmitReliefRequest(): boolean {
+    return this.hasPermission('operations.request.submit');
   }
 
   private canAccessEligibility(): boolean {
