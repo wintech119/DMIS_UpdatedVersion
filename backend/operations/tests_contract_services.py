@@ -1248,6 +1248,7 @@ class OperationsWorkflowContractTests(TestCase):
             70,
             actor_id="requester-1",
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="submit-70",
         )
 
         request_record = OperationsReliefRequest.objects.get(relief_request_id=70)
@@ -1260,6 +1261,191 @@ class OperationsWorkflowContractTests(TestCase):
             OperationsNotification.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count(),
             len(ELIGIBILITY_ROLE_CODES),
         )
+
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_reuses_cached_response_for_same_idempotency_key(
+        self,
+        submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70",
+            )
+        queue_count = OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count()
+        notification_count = OperationsNotification.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count()
+        second = contract_services.submit_request(
+            70,
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="submit-70",
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(submit_request_mock.call_count, 1)
+        self.assertEqual(load_request_mock.call_count, 1)
+        self.assertEqual(
+            OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count(),
+            queue_count,
+        )
+        self.assertEqual(
+            OperationsNotification.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count(),
+            notification_count,
+        )
+
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_idempotency_cache_is_tenant_scoped(
+        self,
+        submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        foreign_tenant_context = _tenant_context(
+            tenant_id=999,
+            tenant_code="OTHER-TENANT",
+            tenant_type="EXTERNAL",
+        )
+
+        def _submit_side_effect(reliefrqst_id: int, *, actor_id: str, tenant_context) -> None:
+            if tenant_context is foreign_tenant_context:
+                raise OperationValidationError(
+                    {"scope": "Request is outside the active tenant or workflow assignment scope."}
+                )
+
+        submit_request_mock.side_effect = _submit_side_effect
+
+        with self.captureOnCommitCallbacks(execute=True):
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70",
+            )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=foreign_tenant_context,
+                idempotency_key="submit-70",
+            )
+
+        self.assertIn("scope", raised.exception.errors)
+        self.assertEqual(submit_request_mock.call_count, 2)
+
+    @patch("operations.contract_services.cache.set")
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_defers_idempotency_cache_until_commit(
+        self,
+        _submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+        cache_set_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            result = contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70",
+            )
+
+        cache_set_mock.assert_not_called()
+        self.assertEqual(len(callbacks), 1)
+        callbacks[0]()
+        cache_set_mock.assert_called_once()
+        args, kwargs = cache_set_mock.call_args
+        self.assertTrue(args[0].startswith("operations:idempotency:request_submit:requester-1:"))
+        self.assertEqual(args[1], result)
+        self.assertEqual(kwargs["timeout"], contract_services._IDEMPOTENCY_TTL_SECONDS)
+
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_releases_idempotency_reservation_after_failure(
+        self,
+        submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        submit_request_mock.side_effect = [
+            RuntimeError("transient submit failure"),
+            None,
+        ]
+
+        with self.assertRaises(RuntimeError):
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70-failure",
+            )
+
+        cache_key = contract_services._idempotency_cache_key(
+            endpoint="request_submit",
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            reliefpkg_id=70,
+            idempotency_key="submit-70-failure",
+        )
+        reservation_key = contract_services._idempotency_reservation_key(cache_key)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(reservation_key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second = contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70-failure",
+            )
+
+        self.assertEqual(submit_request_mock.call_count, 2)
+        self.assertEqual(cache.get(cache_key), second)
+        self.assertIsNone(cache.get(reservation_key))
+
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_requires_idempotency_key(self, submit_request_mock) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
+        submit_request_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -1320,14 +1506,15 @@ class OperationsWorkflowContractTests(TestCase):
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
 
-        first = contract_services.save_package(
-            70,
-            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
-            actor_id="logistics-manager-1",
-            actor_roles=self.dispatch_roles,
-            tenant_context=self.dispatch_ready_context,
-            idempotency_key="commit-70",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.save_package(
+                70,
+                payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="commit-70",
+            )
         queue_assignment_count = OperationsQueueAssignment.objects.filter(
             queue_code=QUEUE_CODE_DISPATCH,
             entity_id=90,
@@ -2814,14 +3001,15 @@ class OperationsWorkflowContractTests(TestCase):
             "released_stock_summary": {"line_count": 1, "total_qty": "2.0000"},
         }
 
-        first = contract_services.abandon_package_draft(
-            3932,
-            payload={"reason": "Retry-safe abandon"},
-            actor_id="logistics-manager-1",
-            actor_roles=self.dispatch_roles,
-            tenant_context=self.dispatch_ready_context,
-            idempotency_key="abandon-3932",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.abandon_package_draft(
+                3932,
+                payload={"reason": "Retry-safe abandon"},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="abandon-3932",
+            )
         second = contract_services.abandon_package_draft(
             3932,
             payload={"reason": "Retry-safe abandon"},
@@ -4731,6 +4919,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="eligibility-1",
                 actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="eligibility-70-invalid",
             )
 
         self.assertEqual(
@@ -4808,6 +4997,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="andrea_tst",
             actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
             tenant_context=self.odpem_context,
+            idempotency_key="eligibility-95009",
         )
 
         self.assertEqual(result["status_code"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
@@ -4863,6 +5053,183 @@ class OperationsWorkflowContractTests(TestCase):
             ).recipient_tenant_id,
             27,
         )
+
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @override_settings(ODPEM_TENANT_ID=27)
+    def test_submit_eligibility_decision_reuses_cached_response_for_same_idempotency_key(
+        self,
+        get_request_mock,
+        load_request_mock,
+        filter_packages_mock,
+        get_agency_scope_mock,
+        _request_summary_payload_mock,
+    ) -> None:
+        get_request_mock.return_value = {
+            "reliefrqst_id": 95009,
+            "items": [],
+            "packages": [],
+        }
+        get_agency_scope_mock.return_value = self.agency_scope
+        filter_packages_mock.return_value.order_by.return_value = []
+        request = self._request_stub(
+            reliefrqst_id=95009,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        request.review_by_id = None
+        request.review_dtime = None
+        request.action_by_id = None
+        request.action_dtime = None
+        request.status_reason_desc = None
+        request.version_nbr = 1
+        request.save = Mock()
+        load_request_mock.return_value = request
+        OperationsReliefRequest.objects.create(
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            submitted_by_id="relief_jrc_requester_tst",
+            submitted_at=timezone.now(),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_eligibility_decision(
+                95009,
+                payload={"decision": "APPROVED"},
+                actor_id="andrea_tst",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.odpem_context,
+                idempotency_key="eligibility-95009",
+            )
+        decision_count = OperationsEligibilityDecision.objects.filter(relief_request_id=95009).count()
+        second = contract_services.submit_eligibility_decision(
+            95009,
+            payload={"decision": "APPROVED"},
+            actor_id="andrea_tst",
+            actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+            tenant_context=self.odpem_context,
+            idempotency_key="eligibility-95009",
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(load_request_mock.call_count, 1)
+        self.assertEqual(
+            OperationsEligibilityDecision.objects.filter(relief_request_id=95009).count(),
+            decision_count,
+        )
+
+    @patch("operations.contract_services.cache.set")
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @override_settings(ODPEM_TENANT_ID=27)
+    def test_submit_eligibility_decision_defers_idempotency_cache_until_commit(
+        self,
+        get_request_mock,
+        load_request_mock,
+        filter_packages_mock,
+        get_agency_scope_mock,
+        _request_summary_payload_mock,
+        cache_set_mock,
+    ) -> None:
+        get_request_mock.return_value = {
+            "reliefrqst_id": 95009,
+            "items": [],
+            "packages": [],
+        }
+        get_agency_scope_mock.return_value = self.agency_scope
+        filter_packages_mock.return_value.order_by.return_value = []
+        request = self._request_stub(
+            reliefrqst_id=95009,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        request.review_by_id = None
+        request.review_dtime = None
+        request.action_by_id = None
+        request.action_dtime = None
+        request.status_reason_desc = None
+        request.version_nbr = 1
+        request.save = Mock()
+        load_request_mock.return_value = request
+        OperationsReliefRequest.objects.create(
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            submitted_by_id="relief_jrc_requester_tst",
+            submitted_at=timezone.now(),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            result = contract_services.submit_eligibility_decision(
+                95009,
+                payload={"decision": "APPROVED"},
+                actor_id="andrea_tst",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.odpem_context,
+                idempotency_key="eligibility-95009",
+            )
+
+        cache_set_mock.assert_not_called()
+        self.assertEqual(len(callbacks), 1)
+        callbacks[0]()
+        cache_set_mock.assert_called_once()
+        args, kwargs = cache_set_mock.call_args
+        self.assertTrue(args[0].startswith("operations:idempotency:eligibility_decision:andrea_tst:"))
+        self.assertEqual(args[1], result)
+        self.assertEqual(kwargs["timeout"], contract_services._IDEMPOTENCY_TTL_SECONDS)
 
     @patch(
         "operations.contract_services._request_summary_payload",
@@ -4936,6 +5303,7 @@ class OperationsWorkflowContractTests(TestCase):
                 tenant_type="NATIONAL",
                 access_level="ADMIN",
             ),
+            idempotency_key="eligibility-70-rejected",
         )
 
         self.assertEqual(result["status_code"], REQUEST_STATUS_REJECTED)
@@ -4961,6 +5329,23 @@ class OperationsWorkflowContractTests(TestCase):
             ).assignment_status,
             "COMPLETED",
         )
+
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_submit_eligibility_decision_requires_idempotency_key(self, load_request_mock) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.submit_eligibility_decision(
+                70,
+                payload={"decision": "APPROVED"},
+                actor_id="eligibility-1",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
+        load_request_mock.assert_not_called()
 
     @patch("operations.contract_services.ReliefRqst.objects.order_by")
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
@@ -5823,20 +6208,21 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="locker-1",
             update_by_id="locker-1",
         )
-        first = contract_services.submit_dispatch(
-            90,
-            payload={
-                "transport_mode": "TRUCK",
-                "driver_name": "Jane Driver",
-                "vehicle_registration": "1234AB",
-                "departure_dtime": "2026-03-26T10:00:00Z",
-                "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
-            },
-            actor_id="dispatch-1",
-            actor_roles=["LOGISTICS_OFFICER"],
-            tenant_context=self.dispatch_ready_context,
-            idempotency_key="dispatch-repeat",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_dispatch(
+                90,
+                payload={
+                    "transport_mode": "TRUCK",
+                    "driver_name": "Jane Driver",
+                    "vehicle_registration": "1234AB",
+                    "departure_dtime": "2026-03-26T10:00:00Z",
+                    "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+                },
+                actor_id="dispatch-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="dispatch-repeat",
+            )
 
         second = contract_services.submit_dispatch(
             90,
@@ -5851,6 +6237,37 @@ class OperationsWorkflowContractTests(TestCase):
             actor_roles=["LOGISTICS_OFFICER"],
             tenant_context=self.dispatch_ready_context,
             idempotency_key="dispatch-repeat",
+        )
+
+        self.assertEqual(first, second)
+        legacy_submit_dispatch_mock.assert_called_once()
+
+    @patch("operations.contract_services._legacy_submit_dispatch")
+    def test_submit_dispatch_reuses_cached_response_for_same_idempotency_key_without_tenant_context(
+        self,
+        legacy_submit_dispatch_mock,
+    ) -> None:
+        legacy_submit_dispatch_mock.return_value = {
+            "reliefpkg_id": 90,
+            "waybill_no": "WB-PK00090",
+            "waybill_payload": {"tracking_no": "WB-PK00090"},
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_dispatch(
+                90,
+                payload={"transport_mode": "TRUCK"},
+                actor_id="dispatch-1",
+                tenant_context=None,
+                idempotency_key="dispatch-legacy-repeat",
+            )
+
+        second = contract_services.submit_dispatch(
+            90,
+            payload={"transport_mode": "AIR"},
+            actor_id="dispatch-1",
+            tenant_context=None,
+            idempotency_key="dispatch-legacy-repeat",
         )
 
         self.assertEqual(first, second)
@@ -6071,14 +6488,15 @@ class OperationsWorkflowContractTests(TestCase):
         )
         load_package_mock.return_value = self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501)
 
-        first = contract_services.request_partial_release(
-            90,
-            payload={"reason": "Release received legs now"},
-            actor_id="dispatcher-1",
-            actor_roles=["LOGISTICS_MANAGER"],
-            tenant_context=self.dispatch_ready_context,
-            idempotency_key="partial-request-90",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.request_partial_release(
+                90,
+                payload={"reason": "Release received legs now"},
+                actor_id="dispatcher-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="partial-request-90",
+            )
         second = contract_services.request_partial_release(
             90,
             payload={"reason": "Changed reason ignored by idempotency"},

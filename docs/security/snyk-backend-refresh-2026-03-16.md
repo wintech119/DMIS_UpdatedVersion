@@ -6,11 +6,13 @@ Repository commit: `733c44fc7263656a375dbca0b1739551be38bb71`
 
 ## Current backend dependency facts
 
-- Backend manifest: `backend/requirements.txt`
+- Backend runtime manifest: `backend/requirements.txt`
+- Backend local MCP manifest: `backend/requirements-mcp.txt`
 - Python runtime in local backend venv: `3.13.12`
 - Django pinned: `4.2.29`
 - PyJWT pinned: `2.12.0`
-- Added `backend/.snyk` with `language-settings.python: "3.13"` so SCM imports can bind the backend manifest to Python 3.13.
+- MCP-only packages are intentionally separated from the deploy/runtime manifest so Snyk runtime monitoring can focus on the shipped Django backend.
+- `backend/.snyk` sets `language-settings.python: "3.13"` so SCM imports can bind the backend manifest to Python 3.13.
 
 ## Why Snyk Web can still look stale
 
@@ -55,7 +57,7 @@ Result:
 1. In Snyk Web, locate the backend Open Source Project for this repository and inspect the dependency snapshot.
 2. Confirm whether the snapshot still shows package versions older than `Django 4.2.29` or `PyJWT 2.12.0`.
 3. Check the Organization Import Log for pip import errors tied to this repository and backend manifest.
-4. If the Project was imported before `backend/.snyk` existed, delete or deactivate the stale imported Project and re-import the repository so the backend manifest is rescanned with the new project-level Python setting.
+4. If the Project was imported before `backend/.snyk` existed, or before `django-ai-boost` was moved to `backend/requirements-mcp.txt`, delete or deactivate the stale imported Project and re-import the repository so the runtime manifest is rescanned with the new Python and dependency boundaries.
 5. In Organization settings for Snyk Open Source, verify the Pip Python version is compatible with Python 3.13 if the Organization relies on org-wide Python settings.
 6. If re-import still fails, open a Snyk support case and include both interaction IDs above plus the pip resolver error.
 
@@ -66,5 +68,6 @@ After a successful re-import or re-monitor, the backend Open Source Project shou
 - Django `4.2.29`
 - PyJWT `2.12.0`
 - backend policy metadata from `backend/.snyk`
+- no `django-ai-boost` / `fastmcp` runtime path in the production backend project snapshot
 
 At that point, stale package advisories such as the Django 4.2 line vulnerabilities and the older PyJWT signature-verification advisory should drop from the current backend snapshot.

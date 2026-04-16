@@ -62,6 +62,7 @@ from replenishment.services import data_access
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
+_WRITE_LIMIT_PER_MINUTE = 40
 _HIGH_RISK_LIMIT_PER_MINUTE = 10
 _WORKFLOW_LIMIT_PER_MINUTE = 15
 _RATE_LIMIT_CACHE_TIMEOUT_SECONDS = _RATE_LIMIT_WINDOW_SECONDS + 5
@@ -273,6 +274,26 @@ def _required_idempotency_key(request) -> str:
     return idempotency_key
 
 
+def _cached_idempotent_response(
+    *,
+    endpoint: str,
+    resource_id: int,
+    actor_id: str,
+    tenant_context,
+    idempotency_key: str,
+) -> Response | None:
+    cached_result = operations_service.peek_idempotent_response(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=resource_id,
+        idempotency_key=idempotency_key,
+    )
+    if cached_result is None:
+        return None
+    return Response(cached_result)
+
+
 def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -> int | None:
     if raw_value in (None, ""):
         return None
@@ -408,6 +429,13 @@ def operations_requests(request):
                     actor_roles=_roles(request),
                 )
             )
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_create",
+            limit=_WRITE_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.create_request(
                 payload=_payload_object(request.data),
@@ -468,6 +496,13 @@ def operations_request_detail(request, reliefrqst_id: int):
                     actor_roles=_roles(request),
                 )
             )
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_update",
+            limit=_WRITE_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.update_request(
                 reliefrqst_id,
@@ -492,11 +527,31 @@ operations_request_detail.required_permission = {
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_request_submit(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="request_submit",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_submit",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.submit_request(
                 reliefrqst_id,
-                actor_id=_actor_id(request),
-                tenant_context=_tenant_context(request),
+                actor_id=actor_id,
+                tenant_context=tenant_context,
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -550,13 +605,33 @@ operations_eligibility_detail.required_permission = PERM_OPERATIONS_ELIGIBILITY_
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_eligibility_decision(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="eligibility_decision",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
+        rate_limited = _rate_limit_response(
+            request,
+            scope="eligibility_decision",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.submit_eligibility_decision(
                 reliefrqst_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -777,6 +852,18 @@ operations_item_allocation_preview.required_permission = PERM_OPERATIONS_PACKAGE
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_commit_allocation(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="package_commit_allocation",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="package_commit_allocation",
@@ -784,14 +871,13 @@ def operations_package_commit_allocation(request, reliefrqst_id: int):
         )
         if rate_limited is not None:
             return rate_limited
-        idempotency_key = _required_idempotency_key(request)
         return Response(
             operations_service.save_package(
                 reliefrqst_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 permissions=_permissions(request),
                 idempotency_key=idempotency_key,
             )
@@ -809,6 +895,17 @@ operations_package_commit_allocation.required_permission = [PERM_OPERATIONS_PACK
 def operations_package_override_approve(request, reliefrqst_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="package_override_approve",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="package_override_approve",
@@ -820,9 +917,9 @@ def operations_package_override_approve(request, reliefrqst_id: int):
             operations_service.approve_override(
                 reliefrqst_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -862,6 +959,17 @@ operations_consolidation_legs.required_permission = [
 def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="consolidation_leg_dispatch",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_dispatch",
@@ -874,9 +982,9 @@ def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: in
                 reliefpkg_id,
                 leg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -893,6 +1001,17 @@ operations_consolidation_leg_dispatch.required_permission = PERM_OPERATIONS_CONS
 def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="consolidation_leg_receive",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_receive",
@@ -905,9 +1024,9 @@ def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int
                 reliefpkg_id,
                 leg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -945,6 +1064,17 @@ operations_consolidation_leg_waybill.required_permission = PERM_OPERATIONS_WAYBI
 def operations_partial_release_request(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="partial_release_request",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="partial_release_request",
@@ -956,9 +1086,9 @@ def operations_partial_release_request(request, reliefpkg_id: int):
             operations_service.request_partial_release(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -975,6 +1105,17 @@ operations_partial_release_request.required_permission = PERM_OPERATIONS_PARTIAL
 def operations_partial_release_approve(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="partial_release_approve",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="partial_release_approve",
@@ -986,9 +1127,9 @@ def operations_partial_release_approve(request, reliefpkg_id: int):
             operations_service.approve_partial_release(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -1005,6 +1146,17 @@ operations_partial_release_approve.required_permission = PERM_OPERATIONS_PARTIAL
 def operations_pickup_release(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="pickup_release",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="pickup_release",
@@ -1016,9 +1168,9 @@ def operations_pickup_release(request, reliefpkg_id: int):
             operations_service.pickup_release(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -1035,6 +1187,17 @@ operations_pickup_release.required_permission = PERM_OPERATIONS_PICKUP_RELEASE
 def operations_package_cancel(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="package_cancel",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="package_cancel",
@@ -1046,9 +1209,9 @@ def operations_package_cancel(request, reliefpkg_id: int):
             operations_service.cancel_package(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -1072,6 +1235,17 @@ def operations_package_abandon_draft(request, reliefpkg_id: int):
     """
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="package_abandon_draft",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="package_abandon_draft",
@@ -1083,9 +1257,9 @@ def operations_package_abandon_draft(request, reliefpkg_id: int):
             operations_service.abandon_package_draft(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -1141,6 +1315,17 @@ operations_dispatch_detail.required_permission = [PERM_OPERATIONS_DISPATCH_PREPA
 def operations_dispatch_handoff(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="dispatch_handoff",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="dispatch_handoff",
@@ -1152,9 +1337,9 @@ def operations_dispatch_handoff(request, reliefpkg_id: int):
             operations_service.submit_dispatch(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )
@@ -1191,6 +1376,17 @@ operations_dispatch_waybill.required_permission = PERM_OPERATIONS_WAYBILL_VIEW
 def operations_receipt_confirm(request, reliefpkg_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="receipt_confirm",
+            resource_id=reliefpkg_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
         rate_limited = _rate_limit_response(
             request,
             scope="receipt_confirm",
@@ -1202,9 +1398,9 @@ def operations_receipt_confirm(request, reliefpkg_id: int):
             operations_service.confirm_receipt(
                 reliefpkg_id,
                 payload=_payload_object(request.data),
-                actor_id=_actor_id(request),
+                actor_id=actor_id,
                 actor_roles=_roles(request),
-                tenant_context=_tenant_context(request),
+                tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
         )

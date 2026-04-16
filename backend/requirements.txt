@@ -1,8 +1,10 @@
 Django==4.2.29
 djangorestframework==3.16.1
 PyJWT==2.12.0
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 django-redis>=5.4,<6.0
 celery[redis]>=5.4,<6.0
-django-ai-boost==0.6.0
 httpx==0.28.1
+
+# Local MCP tooling is intentionally isolated from the deploy/runtime manifest.
+# Install `requirements-mcp.txt` only for explicit developer MCP workflows.

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
+import uuid
 import hashlib
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from functools import wraps
 from typing import Any, Iterable, Mapping, Sequence
 
 from django.conf import settings
@@ -237,6 +241,13 @@ REQUEST_LIST_FILTERS = {
 
 FULFILLMENT_REQUEST_STATUSES = frozenset({STATUS_SUBMITTED, STATUS_PART_FILLED})
 _IDEMPOTENCY_TTL_SECONDS = 15 * 60
+# Keep failed reservations short-lived so retries recover quickly if a write aborts
+# before the success payload is published to the replay cache.
+_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS = 60
+_CURRENT_IDEMPOTENCY_RESERVATION: ContextVar[tuple[str | None, str | None] | None] = ContextVar(
+    "operations_current_idempotency_reservation",
+    default=None,
+)
 
 
 def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
@@ -279,6 +290,198 @@ def _idempotency_cache_key(
         f"operations:idempotency:{endpoint}:{actor_id}:{_tenant_cache_key_value(tenant_context)}:"
         f"{int(reliefpkg_id)}:{digest}"
     )
+
+
+@dataclass(frozen=True)
+class _IdempotencyWriteLease:
+    cache_key: str | None = None
+    cached_result: dict[str, Any] | None = None
+    reservation_key: str | None = None
+    reservation_token: str | None = None
+
+
+def _cached_idempotent_response(cache_key: str | None) -> dict[str, Any] | None:
+    if not cache_key:
+        return None
+    cached_result = cache.get(cache_key)
+    if not isinstance(cached_result, dict):
+        return None
+    return cached_result
+
+
+def _idempotency_reservation_key(cache_key: str) -> str:
+    return f"{cache_key}:in_progress"
+
+
+def _release_idempotency_reservation(*, reservation_key: str | None, reservation_token: str | None) -> None:
+    if not reservation_key or not reservation_token:
+        return
+    current_token = cache.get(reservation_key)
+    if current_token == reservation_token:
+        cache.delete(reservation_key)
+
+
+def _set_current_idempotency_reservation(
+    *,
+    reservation_key: str | None,
+    reservation_token: str | None,
+) -> None:
+    if reservation_key and reservation_token:
+        _CURRENT_IDEMPOTENCY_RESERVATION.set((reservation_key, reservation_token))
+    else:
+        _CURRENT_IDEMPOTENCY_RESERVATION.set(None)
+
+
+def _release_current_idempotency_reservation() -> None:
+    reservation = _CURRENT_IDEMPOTENCY_RESERVATION.get()
+    if reservation is None:
+        return
+    reservation_key, reservation_token = reservation
+    _release_idempotency_reservation(
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    _CURRENT_IDEMPOTENCY_RESERVATION.set(None)
+
+
+def _release_idempotency_reservation_on_error(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        token = _CURRENT_IDEMPOTENCY_RESERVATION.set(None)
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            _release_current_idempotency_reservation()
+            raise
+        finally:
+            _CURRENT_IDEMPOTENCY_RESERVATION.reset(token)
+
+    return wrapper
+
+
+def _idempotency_cache_state(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    resource_id: int,
+    idempotency_key: str | None,
+) -> tuple[str, str, dict[str, Any] | None]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    cache_key = _idempotency_cache_key(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=resource_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = _cached_idempotent_response(cache_key)
+    return normalized_idempotency_key, cache_key, cached_result
+
+
+def _begin_idempotent_write(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    resource_id: int,
+    idempotency_key: str | None,
+    required: bool = True,
+) -> _IdempotencyWriteLease:
+    if not required and idempotency_key is None:
+        return _IdempotencyWriteLease()
+
+    _, cache_key, cached_result = _idempotency_cache_state(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=resource_id,
+        idempotency_key=idempotency_key,
+    )
+    if cached_result is not None:
+        return _IdempotencyWriteLease(cache_key=cache_key, cached_result=cached_result)
+
+    reservation_key = _idempotency_reservation_key(cache_key)
+    reservation_token = uuid.uuid4().hex
+    reserved = cache.add(
+        reservation_key,
+        reservation_token,
+        timeout=_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS,
+    )
+    if not reserved:
+        cached_result = _cached_idempotent_response(cache_key)
+        if cached_result is not None:
+            return _IdempotencyWriteLease(cache_key=cache_key, cached_result=cached_result)
+        raise OperationValidationError(
+            {"idempotency_key": "A request with this Idempotency-Key is already in progress."}
+        )
+
+    cached_result = _cached_idempotent_response(cache_key)
+    if cached_result is not None:
+        _release_idempotency_reservation(
+            reservation_key=reservation_key,
+            reservation_token=reservation_token,
+        )
+        _set_current_idempotency_reservation(
+            reservation_key=None,
+            reservation_token=None,
+        )
+        return _IdempotencyWriteLease(cache_key=cache_key, cached_result=cached_result)
+
+    _set_current_idempotency_reservation(
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return _IdempotencyWriteLease(
+        cache_key=cache_key,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+
+
+def peek_idempotent_response(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    resource_id: int,
+    idempotency_key: str,
+) -> dict[str, Any] | None:
+    _, _, cached_result = _idempotency_cache_state(
+        endpoint=endpoint,
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=resource_id,
+        idempotency_key=idempotency_key,
+    )
+    return cached_result
+
+
+def _cache_idempotent_response_after_commit(
+    cache_key: str | None,
+    payload: dict[str, Any],
+    *,
+    reservation_key: str | None = None,
+    reservation_token: str | None = None,
+) -> None:
+    if not cache_key:
+        return
+
+    def _store() -> None:
+        cache.set(cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _release_idempotency_reservation(
+            reservation_key=reservation_key,
+            reservation_token=reservation_token,
+        )
+
+    try:
+        transaction.on_commit(_store)
+    except Exception:
+        _release_idempotency_reservation(
+            reservation_key=reservation_key,
+            reservation_token=reservation_token,
+        )
+        raise
 
 
 def _tracking_no(prefix: str, numeric_id: int) -> str:
@@ -4393,8 +4596,24 @@ def update_request(
     )
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
-def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantContext) -> dict[str, Any]:
+def submit_request(
+    reliefrqst_id: int,
+    *,
+    actor_id: str,
+    tenant_context: TenantContext,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    idempotency = _begin_idempotent_write(
+        endpoint="request_submit",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
+    )
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     legacy_service.submit_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context)
     request = _legacy_helper("_load_request")(reliefrqst_id)
     if _legacy_request_is_syncable(request):
@@ -4427,11 +4646,18 @@ def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantC
             role_codes=ELIGIBILITY_ROLE_CODES,
             queue_code=QUEUE_CODE_ELIGIBILITY,
         )
-    return _compat_request_response(
+    result = _compat_request_response(
         reliefrqst_id,
         actor_id=actor_id,
         tenant_context=tenant_context,
     )
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
+    return result
 
 
 def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
@@ -4515,6 +4741,7 @@ def get_eligibility_request(reliefrqst_id: int, *, actor_id: str | None = None, 
     return payload
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def submit_eligibility_decision(
     reliefrqst_id: int,
@@ -4523,7 +4750,17 @@ def submit_eligibility_decision(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    idempotency = _begin_idempotent_write(
+        endpoint="eligibility_decision",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
+    )
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may decide requests.")
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
@@ -4647,6 +4884,12 @@ def submit_eligibility_decision(
         "decided_by_role_code": eligibility_decision.decided_by_role_code,
         "decided_at": legacy_service._as_iso(eligibility_decision.decided_at),
     }
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        payload,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return payload
 
 
@@ -4914,6 +5157,7 @@ def reset_package_allocations(
     }
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def abandon_package_draft(
     reliefpkg_id: int,
@@ -4938,17 +5182,15 @@ def abandon_package_draft(
     leg is already in transit or received.
     """
     actor_id = _require_actor_id(actor_id)
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="package_abandon_draft",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     _require_roles(
         actor_roles,
         FULFILLMENT_ROLE_CODES,
@@ -5041,7 +5283,12 @@ def abandon_package_draft(
     result["request_status"] = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
     result["reason"] = reason_text or None
     result["previous_status_code"] = previous_status_code
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
@@ -5219,6 +5466,7 @@ def get_item_allocation_preview(
     )
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def save_package(
     reliefrqst_id: int,
@@ -5232,19 +5480,18 @@ def save_package(
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     draft_save = bool(payload.get("draft_save"))
-    idempotency_cache_key: str | None = None
-    if not draft_save and idempotency_key is not None:
-        normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-        idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _IdempotencyWriteLease()
+    if not draft_save:
+        idempotency = _begin_idempotent_write(
             endpoint="package_commit_allocation",
             actor_id=actor_id,
             tenant_context=tenant_context,
-            reliefpkg_id=reliefrqst_id,
-            idempotency_key=normalized_idempotency_key,
+            resource_id=reliefrqst_id,
+            idempotency_key=idempotency_key,
+            required=False,
         )
-        cached_result = cache.get(idempotency_cache_key)
-        if isinstance(cached_result, dict):
-            return cached_result
+        if idempotency.cached_result is not None:
+            return idempotency.cached_result
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
     validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
@@ -5298,8 +5545,12 @@ def save_package(
     if not package_locked_before_save and package is not None:
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
-        if idempotency_cache_key is not None:
-            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _cache_idempotent_response_after_commit(
+            idempotency.cache_key,
+            result,
+            reservation_key=idempotency.reservation_key,
+            reservation_token=idempotency.reservation_token,
+        )
         return result
     # For draft saves, only persist an explicit user-selected default warehouse.
     # Per-item selection is first-class and must not fabricate a package-level
@@ -5485,11 +5736,16 @@ def save_package(
         "package_status_label": STATUS_LABELS.get(package_record.status_code, package_record.status_code.title()),
         "lock": _package_lock_payload(int(package.reliefpkg_id)),
         }
-    if idempotency_cache_key is not None:
-        cache.set(idempotency_cache_key, final_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        final_result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return final_result
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def approve_override(
     reliefrqst_id: int,
@@ -5500,17 +5756,15 @@ def approve_override(
     tenant_context: TenantContext | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="package_override_approve",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefrqst_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     if tenant_context is None:
         execution_link = _execution_link_for_request(reliefrqst_id)
         if execution_link is not None:
@@ -5529,7 +5783,12 @@ def approve_override(
                 override_note=str(payload.get("override_note") or "").strip(),
                 submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
             )
-            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+            _cache_idempotent_response_after_commit(
+                idempotency.cache_key,
+                result,
+                reservation_key=idempotency.reservation_key,
+                reservation_token=idempotency.reservation_token,
+            )
             return result
         request = _load_request(reliefrqst_id)
         package = _current_package_for_request(reliefrqst_id)
@@ -5544,7 +5803,12 @@ def approve_override(
             supervisor_role_codes=actor_roles,
             override_submitter_user_id=allocator_user_id,
         )
-        cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _cache_idempotent_response_after_commit(
+            idempotency.cache_key,
+            result,
+            reservation_key=idempotency.reservation_key,
+            reservation_token=idempotency.reservation_token,
+        )
         return result
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
@@ -5646,10 +5910,16 @@ def approve_override(
                 tenant_id=request_record.beneficiary_tenant_id,
                 queue_code=QUEUE_CODE_DISPATCH,
             )
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def dispatch_consolidation_leg(
     reliefpkg_id: int,
@@ -5661,17 +5931,15 @@ def dispatch_consolidation_leg(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="consolidation_leg_dispatch",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off consolidation legs.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -5766,10 +6034,16 @@ def dispatch_consolidation_leg(
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def receive_consolidation_leg(
     reliefpkg_id: int,
@@ -5781,17 +6055,15 @@ def receive_consolidation_leg(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="consolidation_leg_receive",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may receive consolidation legs.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -5908,7 +6180,12 @@ def receive_consolidation_leg(
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
@@ -5950,6 +6227,7 @@ def get_consolidation_leg_waybill(
     }
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def pickup_release(
     reliefpkg_id: int,
@@ -5960,17 +6238,15 @@ def pickup_release(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="pickup_release",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may complete pickup release.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -6071,10 +6347,16 @@ def pickup_release(
         "status": "RECEIVED",
         "package": _package_summary_payload(package, package_record),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
+@_release_idempotency_reservation_on_error
 def request_partial_release(
     reliefpkg_id: int,
     *,
@@ -6084,17 +6366,15 @@ def request_partial_release(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="partial_release_request",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may request partial release.")
     _package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -6146,7 +6426,12 @@ def request_partial_release(
             package_record,
         ),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
@@ -6420,6 +6705,7 @@ def split_package(
     }
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def approve_partial_release(
     reliefpkg_id: int,
@@ -6430,17 +6716,15 @@ def approve_partial_release(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="partial_release_approve",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     normalized_roles = _require_roles(
         actor_roles,
         [ROLE_LOGISTICS_MANAGER],
@@ -6492,10 +6776,16 @@ def approve_partial_release(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
-    cache.set(idempotency_cache_key, split_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        split_result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return split_result
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def cancel_package(
     reliefpkg_id: int,
@@ -6506,17 +6796,15 @@ def cancel_package(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="package_cancel",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     del payload
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may cancel packages.")
     package, request, request_record, package_record = _package_context_by_package_id(
@@ -6624,7 +6912,12 @@ def cancel_package(
         "package": _package_summary_payload(package, package_record),
         "request": _request_summary_payload(request, request_record),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
@@ -6734,6 +7027,7 @@ def _validated_transport_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def submit_dispatch(
     reliefpkg_id: int,
@@ -6744,19 +7038,24 @@ def submit_dispatch(
     tenant_context: TenantContext | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    if tenant_context is None:
-        return _legacy_submit_dispatch(reliefpkg_id, payload=payload, actor_id=actor_id)
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="dispatch_handoff",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
+    if tenant_context is None:
+        result = _legacy_submit_dispatch(reliefpkg_id, payload=payload, actor_id=actor_id)
+        _cache_idempotent_response_after_commit(
+            idempotency.cache_key,
+            result,
+            reservation_key=idempotency.reservation_key,
+            reservation_token=idempotency.reservation_token,
+        )
+        return result
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off packages.")
     transport_payload = _validated_transport_payload(payload)
     package = legacy_service._load_package(reliefpkg_id)
@@ -6834,7 +7133,12 @@ def submit_dispatch(
         "dispatch": _dispatch_payload(package, dispatch),
         "waybill": get_waybill(reliefpkg_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context),
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
@@ -6866,6 +7170,7 @@ def get_waybill(
     return legacy_service.get_waybill(reliefpkg_id)
 
 
+@_release_idempotency_reservation_on_error
 @transaction.atomic
 def confirm_receipt(
     reliefpkg_id: int,
@@ -6876,17 +7181,15 @@ def confirm_receipt(
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
-    idempotency_cache_key = _idempotency_cache_key(
+    idempotency = _begin_idempotent_write(
         endpoint="receipt_confirm",
         actor_id=actor_id,
         tenant_context=tenant_context,
-        reliefpkg_id=reliefpkg_id,
-        idempotency_key=normalized_idempotency_key,
+        resource_id=reliefpkg_id,
+        idempotency_key=idempotency_key,
     )
-    cached_result = cache.get(idempotency_cache_key)
-    if isinstance(cached_result, dict):
-        return cached_result
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
     package = legacy_service._load_package(reliefpkg_id, for_update=True)
     request = legacy_service._load_request(int(package.reliefrqst_id), for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
@@ -6965,7 +7268,12 @@ def confirm_receipt(
         "package_tracking_no": package.tracking_no,
         "receipt": receipt_artifact,
     }
-    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
     return result
 
 
