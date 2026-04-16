@@ -1,6 +1,6 @@
 # Current Task Plan
 
-1. Replace inline idempotency cache writes with a post-commit helper in `backend/operations/contract_services.py` so success responses are only cached after the transaction commits.
-2. Preserve the view-layer fix that lets cached idempotent retries bypass workflow throttling, and extend that ordering consistently across the remaining idempotent workflow handlers in `backend/operations/views.py`.
-3. Add contract-service regression tests that prove the submit and eligibility idempotency cache writes are deferred via commit callbacks.
-4. Run the targeted operations API and contract-service tests, then finish with a backend review and architecture verdict.
+1. Verify the current idempotency helper and each affected write path in `backend/operations/contract_services.py`, then add a shared reservation/replay helper only where the race still exists.
+2. Add the missing tenant-scoped idempotency regression in `backend/operations/tests_contract_services.py` and keep the existing post-commit cache assertions intact.
+3. Fix the verified parser and import-error handling issues in `backend/run_mcp.py` without changing unrelated launcher behavior.
+4. Run targeted backend tests and lightweight script verification, then finish with backend and architecture review conclusions.

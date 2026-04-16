@@ -1304,6 +1304,52 @@ class OperationsWorkflowContractTests(TestCase):
             notification_count,
         )
 
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_idempotency_cache_is_tenant_scoped(
+        self,
+        submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        foreign_tenant_context = _tenant_context(
+            tenant_id=999,
+            tenant_code="OTHER-TENANT",
+            tenant_type="EXTERNAL",
+        )
+
+        def _submit_side_effect(reliefrqst_id: int, *, actor_id: str, tenant_context) -> None:
+            if tenant_context is foreign_tenant_context:
+                raise OperationValidationError(
+                    {"scope": "Request is outside the active tenant or workflow assignment scope."}
+                )
+
+        submit_request_mock.side_effect = _submit_side_effect
+
+        with self.captureOnCommitCallbacks(execute=True):
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70",
+            )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=foreign_tenant_context,
+                idempotency_key="submit-70",
+            )
+
+        self.assertIn("scope", raised.exception.errors)
+        self.assertEqual(submit_request_mock.call_count, 2)
+
     @patch("operations.contract_services.cache.set")
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -4966,6 +5012,7 @@ class OperationsWorkflowContractTests(TestCase):
             "status_code": request_record.status_code,
         },
     )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.ReliefPkg.objects.filter")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.get_request")
@@ -4975,6 +5022,7 @@ class OperationsWorkflowContractTests(TestCase):
         get_request_mock,
         load_request_mock,
         filter_packages_mock,
+        get_agency_scope_mock,
         _request_summary_payload_mock,
     ) -> None:
         get_request_mock.return_value = {
@@ -4982,6 +5030,7 @@ class OperationsWorkflowContractTests(TestCase):
             "items": [],
             "packages": [],
         }
+        get_agency_scope_mock.return_value = self.agency_scope
         filter_packages_mock.return_value.order_by.return_value = []
         request = self._request_stub(
             reliefrqst_id=95009,
@@ -5055,6 +5104,7 @@ class OperationsWorkflowContractTests(TestCase):
             "status_code": request_record.status_code,
         },
     )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.ReliefPkg.objects.filter")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.get_request")
@@ -5064,6 +5114,7 @@ class OperationsWorkflowContractTests(TestCase):
         get_request_mock,
         load_request_mock,
         filter_packages_mock,
+        get_agency_scope_mock,
         _request_summary_payload_mock,
         cache_set_mock,
     ) -> None:
@@ -5072,6 +5123,7 @@ class OperationsWorkflowContractTests(TestCase):
             "items": [],
             "packages": [],
         }
+        get_agency_scope_mock.return_value = self.agency_scope
         filter_packages_mock.return_value.order_by.return_value = []
         request = self._request_stub(
             reliefrqst_id=95009,

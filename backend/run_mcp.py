@@ -29,10 +29,9 @@ _MINIMUM_VERSIONS = {
 def _parse_version_tuple(raw_version: str) -> tuple[int, ...]:
     parts: list[int] = []
     for segment in raw_version.split("."):
-        digits = "".join(ch for ch in segment if ch.isdigit())
-        if not digits:
+        if not segment.isdigit():
             break
-        parts.append(int(digits))
+        parts.append(int(segment))
     return tuple(parts)
 
 
@@ -60,6 +59,8 @@ _assert_mcp_dependencies()
 try:
     from django_ai_boost import main
 except ModuleNotFoundError as exc:
+    if exc.name != "django_ai_boost":
+        raise
     raise SystemExit(
         "django-ai-boost is not installed in this backend environment. "
         "From `backend/`, install `python -m pip install -r requirements-mcp.txt` "
