@@ -5,6 +5,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatTooltip } from '@angular/material/tooltip';
 
 import { RequestItemsStepComponent } from './request-items-step.component';
+import { trimmedRequiredValidator } from '../relief-request-wizard.component';
 
 describe('RequestItemsStepComponent', () => {
   let fixture: ComponentFixture<RequestItemsStepComponent>;
@@ -115,7 +116,7 @@ describe('RequestItemsStepComponent', () => {
   it('requires the item reason when the line urgency is C or H', () => {
     const itemGroup = component.itemsArray.at(0) as FormGroup;
     const reason = itemGroup.get('rqst_reason_desc')!;
-    reason.setValidators([Validators.required, Validators.maxLength(255)]);
+    reason.setValidators([trimmedRequiredValidator, Validators.maxLength(255)]);
     reason.updateValueAndValidity();
     reason.markAsTouched();
     fixture.detectChanges();
@@ -123,6 +124,23 @@ describe('RequestItemsStepComponent', () => {
     expect(reason.hasError('required')).toBeTrue();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Required for C/H');
+  });
+
+  it('rejects whitespace-only item reasons as a C/H justification', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+    reason.setValidators([trimmedRequiredValidator, Validators.maxLength(255)]);
+    reason.updateValueAndValidity();
+
+    reason.setValue('    ');
+    reason.markAsTouched();
+    fixture.detectChanges();
+    expect(reason.hasError('required')).toBeTrue();
+
+    reason.setValue('Surge shortfall at staging point.');
+    fixture.detectChanges();
+    expect(reason.hasError('required')).toBeFalse();
+    expect(reason.valid).toBeTrue();
   });
 
   it('surfaces the high-urgency justification error on the request notes field', () => {

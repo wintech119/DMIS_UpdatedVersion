@@ -310,7 +310,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       .subscribe((urgency) => {
         const notesCtrl = this.requestForm.get('rqst_notes_text')!;
         if (urgency === 'H') {
-          notesCtrl.setValidators([Validators.required]);
+          notesCtrl.setValidators([trimmedRequiredValidator]);
         } else {
           notesCtrl.clearValidators();
         }
@@ -442,7 +442,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       .subscribe((urgency) => {
         const reasonCtrl = group.get('rqst_reason_desc')!;
         if (urgency === 'C' || urgency === 'H') {
-          reasonCtrl.setValidators([Validators.required, Validators.maxLength(255)]);
+          reasonCtrl.setValidators([trimmedRequiredValidator, Validators.maxLength(255)]);
         } else {
           reasonCtrl.setValidators([Validators.maxLength(255)]);
         }
@@ -647,6 +647,17 @@ function selectedReferenceValidator(control: { value: unknown }): Record<string,
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? null
     : { invalidSelection: true };
+}
+
+export function trimmedRequiredValidator(control: { value: unknown }): Record<string, true> | null {
+  // Parity with backend `.strip()` at backend/operations/contract_services.py:795, 825.
+  // Whitespace-only text gets dropped to undefined in the payload, so the form must
+  // reject it up front rather than letting a submit fail on the server.
+  const raw = control.value;
+  if (raw == null) {
+    return { required: true };
+  }
+  return String(raw).trim().length > 0 ? null : { required: true };
 }
 
 function mergeReferenceOptions(

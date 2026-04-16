@@ -132,6 +132,26 @@ describe('ReliefRequestWizardComponent', () => {
       expect(notes.hasError('required')).toBeFalse();
     });
 
+    it('rejects whitespace-only notes as justification for high-urgency requests', () => {
+      const component = fixture.componentInstance;
+      const notes = component.requestForm.get('rqst_notes_text')!;
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(4);
+      component.requestForm.get('urgency_ind')?.setValue('H');
+      notes.setValue('   ');
+      fixture.detectChanges();
+
+      expect(notes.hasError('required')).toBeTrue();
+      expect(component.isStep1Valid()).toBeFalse();
+
+      notes.setValue('Real justification text.');
+      fixture.detectChanges();
+
+      expect(notes.hasError('required')).toBeFalse();
+      expect(component.isStep1Valid()).toBeTrue();
+    });
+
     it('gates step-1 validity on request notes while urgency is High', () => {
       const component = fixture.componentInstance;
       const itemGroup = component.itemsArray.at(0);
