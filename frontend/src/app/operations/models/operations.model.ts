@@ -162,8 +162,12 @@ export interface RequestSummary {
   execution_status: string | null;
   needs_list_id: number | null;
   compatibility_bridge: boolean;
-  request_mode: 'SELF' | 'SUBORDINATE' | 'ODPEM_BRIDGE' | null;
+  request_mode: 'SELF' | 'FOR_SUBORDINATE' | 'ODPEM_BRIDGE' | null;
   authority_context: string | null;
+  requesting_tenant_id: number | null;
+  requesting_agency_id: number | null;
+  beneficiary_tenant_id: number | null;
+  beneficiary_agency_id: number | null;
 }
 
 export interface RequestDetailResponse extends RequestSummary {

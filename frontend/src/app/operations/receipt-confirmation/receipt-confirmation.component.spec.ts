@@ -65,6 +65,10 @@ describe('ReceiptConfirmationComponent', () => {
         compatibility_bridge: false,
         request_mode: null,
         authority_context: null,
+        requesting_tenant_id: null,
+        requesting_agency_id: null,
+        beneficiary_tenant_id: null,
+        beneficiary_agency_id: null,
       },
       waybill: {
         waybill_no: 'WB-00090',

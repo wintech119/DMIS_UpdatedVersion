@@ -2200,6 +2200,10 @@ describe('OperationsWorkspaceStateService lock conflict interception', () => {
         compatibility_bridge: false,
         request_mode: 'SELF',
         authority_context: null,
+        requesting_tenant_id: null,
+        requesting_agency_id: null,
+        beneficiary_tenant_id: null,
+        beneficiary_agency_id: null,
       },
       package: {
         reliefpkg_id: RELIEFPKG_ID,

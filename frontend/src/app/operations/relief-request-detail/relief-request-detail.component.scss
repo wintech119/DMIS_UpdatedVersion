@@ -22,6 +22,52 @@
   gap: 8px;
 }
 
+// ── Intake context strip ──────────────────────────────────────────────
+// Compact read-only metadata row: request mode + tenant/agency IDs.
+// See frontend/src/lib/prompts/generation.tsx §4 information hierarchy.
+.ops-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 10px 16px;
+  margin: 0 0 18px;
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-text-secondary));
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+
+  &__mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__meta--muted {
+    color: color-mix(in srgb, var(--color-text-secondary) 75%, transparent);
+    font-style: italic;
+  }
+
+  strong {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  mat-icon {
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
 // ── Card overrides ─────────────────────────────────────────────────────
 .ops-card__header {
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);

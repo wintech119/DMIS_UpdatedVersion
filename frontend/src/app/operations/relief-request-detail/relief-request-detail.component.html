@@ -70,6 +70,45 @@
       </div>
     </header>
 
+    @if (
+      rq.request_mode ||
+      rq.requesting_tenant_id !== null ||
+      rq.requesting_agency_id !== null ||
+      rq.beneficiary_tenant_id !== null ||
+      rq.beneficiary_agency_id !== null ||
+      rq.authority_context
+    ) {
+      <div class="ops-context-strip" role="status" aria-label="Request intake context">
+        <mat-icon aria-hidden="true">security</mat-icon>
+        <span class="ops-context-strip__mode">
+          <strong>Request mode</strong>
+          @if (rq.request_mode) {
+            <app-ops-status-chip
+              [label]="formatRequestMode(rq.request_mode)"
+              tone="info"
+              [showDot]="true"></app-ops-status-chip>
+          } @else {
+            <span>&mdash;</span>
+          }
+        </span>
+        <span class="ops-context-strip__meta">
+          <mat-icon aria-hidden="true">apartment</mat-icon>
+          Requesting tenant {{ rq.requesting_tenant_id ?? '—' }}
+          &middot; agency {{ rq.requesting_agency_id ?? '—' }}
+        </span>
+        <span class="ops-context-strip__meta">
+          <mat-icon aria-hidden="true">volunteer_activism</mat-icon>
+          Beneficiary tenant {{ rq.beneficiary_tenant_id ?? '—' }}
+          &middot; agency {{ rq.beneficiary_agency_id ?? '—' }}
+        </span>
+        @if (rq.authority_context) {
+          <span class="ops-context-strip__meta ops-context-strip__meta--muted">
+            {{ rq.authority_context }}
+          </span>
+        }
+      </div>
+    }
+
     <div class="ops-detail-grid">
       <div class="ops-detail-stack">
         <section class="ops-card">

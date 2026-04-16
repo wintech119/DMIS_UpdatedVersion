@@ -136,6 +136,8 @@ Expect two checkpoints for low-medium, medium, and high work:
 - review before finalizing the plan
 - review again before final output after implementation
 
+For any future thread at low-medium+ risk, the review must run before `ExitPlanMode` as well as after final implementation. Do not call `ExitPlanMode` until the pre-plan architecture review has completed and its findings have been incorporated into the plan file.
+
 Use the local project instructions in `frontend/AGENTS.md` and `backend/AGENTS.md` when work is scoped there.
 Treat `system_application_architecture.md` as the canonical architecture baseline.
 Treat the hardening and Flask-retirement strategy as supporting execution guidance, not the main architecture reference.

@@ -25,6 +25,7 @@ import {
   formatOperationsPackageStatus,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
+  formatRequestMode,
   getPackageDispatchAction,
   getRequestFulfillmentEntryAction,
   OperationsTone,
@@ -80,6 +81,7 @@ export class ReliefRequestDetailComponent implements OnInit {
   readonly formatOperationsUrgency = formatOperationsUrgency;
   readonly formatOperationsDateTime = formatOperationsDateTime;
   readonly formatOperationsLineCount = formatOperationsLineCount;
+  readonly formatRequestMode = formatRequestMode;
   readonly getOperationsRequestTone = getOperationsRequestTone;
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
   readonly getOperationsPackageTone = getOperationsPackageTone;
