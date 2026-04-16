@@ -1383,6 +1383,55 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(args[1], result)
         self.assertEqual(kwargs["timeout"], contract_services._IDEMPOTENCY_TTL_SECONDS)
 
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.submit_request")
+    def test_submit_request_releases_idempotency_reservation_after_failure(
+        self,
+        submit_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        submit_request_mock.side_effect = [
+            RuntimeError("transient submit failure"),
+            None,
+        ]
+
+        with self.assertRaises(RuntimeError):
+            contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70-failure",
+            )
+
+        cache_key = contract_services._idempotency_cache_key(
+            endpoint="request_submit",
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            reliefpkg_id=70,
+            idempotency_key="submit-70-failure",
+        )
+        reservation_key = contract_services._idempotency_reservation_key(cache_key)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(reservation_key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second = contract_services.submit_request(
+                70,
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="submit-70-failure",
+            )
+
+        self.assertEqual(submit_request_mock.call_count, 2)
+        self.assertEqual(cache.get(cache_key), second)
+        self.assertIsNone(cache.get(reservation_key))
+
     @patch("operations.contract_services.legacy_service.submit_request")
     def test_submit_request_requires_idempotency_key(self, submit_request_mock) -> None:
         with self.assertRaises(OperationValidationError) as raised:
@@ -6188,6 +6237,37 @@ class OperationsWorkflowContractTests(TestCase):
             actor_roles=["LOGISTICS_OFFICER"],
             tenant_context=self.dispatch_ready_context,
             idempotency_key="dispatch-repeat",
+        )
+
+        self.assertEqual(first, second)
+        legacy_submit_dispatch_mock.assert_called_once()
+
+    @patch("operations.contract_services._legacy_submit_dispatch")
+    def test_submit_dispatch_reuses_cached_response_for_same_idempotency_key_without_tenant_context(
+        self,
+        legacy_submit_dispatch_mock,
+    ) -> None:
+        legacy_submit_dispatch_mock.return_value = {
+            "reliefpkg_id": 90,
+            "waybill_no": "WB-PK00090",
+            "waybill_payload": {"tracking_no": "WB-PK00090"},
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_dispatch(
+                90,
+                payload={"transport_mode": "TRUCK"},
+                actor_id="dispatch-1",
+                tenant_context=None,
+                idempotency_key="dispatch-legacy-repeat",
+            )
+
+        second = contract_services.submit_dispatch(
+            90,
+            payload={"transport_mode": "AIR"},
+            actor_id="dispatch-1",
+            tenant_context=None,
+            idempotency_key="dispatch-legacy-repeat",
         )
 
         self.assertEqual(first, second)
