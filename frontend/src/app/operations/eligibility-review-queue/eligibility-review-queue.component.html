@@ -48,6 +48,7 @@
               #searchBox
               type="search"
               placeholder="Search by tracking number, agency, event, or notes"
+              [attr.maxlength]="searchMaxLength"
               [value]="searchTerm()"
               (input)="onSearch(searchBox.value)"
             />
@@ -84,7 +85,7 @@
             [message]="message"
             actionLabel="Retry"
             actionIcon="refresh"
-            (action)="loadQueue()"
+            (action)="retryLoad()"
           />
         } @else if (filteredRequests().length === 0) {
           <dmis-empty-state

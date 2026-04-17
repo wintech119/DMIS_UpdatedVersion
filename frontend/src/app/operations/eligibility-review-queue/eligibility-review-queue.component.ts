@@ -25,6 +25,7 @@ import {
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
+  OPERATIONS_QUEUE_SEARCH_MAX_LENGTH,
   OperationsTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
@@ -48,7 +49,7 @@ interface ReviewSummary {
 const AWAITING_ACTION_STATUS: RequestSummary['status_code'] = 'UNDER_ELIGIBILITY_REVIEW';
 
 function urgencyCode(request: RequestSummary): string {
-  return String(request.urgency_ind ?? '').toUpperCase();
+  return String(request.urgency_ind ?? '').trim().toUpperCase();
 }
 
 function oldestAgeHours(rows: readonly RequestSummary[]): number {
@@ -101,6 +102,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
     { label: 'Standard', value: 'standard' },
     { label: 'All', value: 'all' },
   ];
+  readonly searchMaxLength = OPERATIONS_QUEUE_SEARCH_MAX_LENGTH;
 
   // UX defense only. Authoritative queue scope lives in
   // backend/operations/contract_services.py — never treat this as an
@@ -228,8 +230,11 @@ export class EligibilityReviewQueueComponent implements OnInit {
     return request.reliefrqst_id;
   }
 
+  retryLoad(): void {
+    this.loadQueue();
+  }
 
-  loadQueue(): void {
+  private loadQueue(): void {
     this.loading.set(true);
     this.loadError.set(null);
 
@@ -283,7 +288,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
 
   private getFilterRequestIds(
     filter: Exclude<ReviewFilter, 'all'>,
-    rows: readonly RequestSummary[] = this.requests(),
+    rows: readonly RequestSummary[] = this.actionableRequests(),
   ): number[] {
     return rows
       .filter((request) => this.matchesFilter(request, filter))

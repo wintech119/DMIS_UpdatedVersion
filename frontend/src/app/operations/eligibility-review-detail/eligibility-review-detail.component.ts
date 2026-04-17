@@ -90,6 +90,18 @@ export class EligibilityReviewDetailComponent implements OnInit {
   readonly decisionMetadata = computed<EligibilityDecisionMetadata | null>(() =>
     this.detail()?.eligibility_decision ?? null,
   );
+  readonly decisionAuditMetadata = computed<EligibilityDecisionMetadata | null>(() => {
+    const decision = this.decisionMetadata();
+    if (!decision) {
+      return null;
+    }
+    return decision.decision_reason
+      || decision.decided_by_role_code
+      || decision.decided_by_user_id
+      || decision.decided_at
+      ? decision
+      : null;
+  });
 
   readonly decisionLabel = computed(() => {
     const detail = this.detail();

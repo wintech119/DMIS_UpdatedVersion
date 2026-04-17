@@ -251,6 +251,7 @@ describe('EligibilityReviewDetailComponent', () => {
     expect(text).toContain('Aligned with SURGE allocation.');
     expect(text).toContain('ELIGIBILITY_APPROVER');
     expect(text).toContain('user-9001');
+    expect(text).toContain(component.formatOperationsDateTime('2026-04-15T09:30:00Z'));
   });
 
   it('hides the decision metadata list when no decision block is attached', () => {
@@ -265,6 +266,35 @@ describe('EligibilityReviewDetailComponent', () => {
     fixture.detectChanges();
 
     expect(component.decisionMetadata()).toBeNull();
+    const metaBlock = fixture.nativeElement.querySelector('.ops-detail-meta--inline');
+    expect(metaBlock).toBeNull();
+  });
+
+  it('hides the decision metadata list when the decision exists without visible audit fields', () => {
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'APPROVED_FOR_FULFILLMENT',
+      status_label: 'Approved',
+      eligibility_decision: {
+        decision_code: 'APPROVED',
+        decision_reason: null,
+        decided_by_user_id: null,
+        decided_by_role_code: null,
+        decided_at: null,
+      },
+    });
+    fixture.detectChanges();
+
+    expect(component.decisionMetadata()).toEqual({
+      decision_code: 'APPROVED',
+      decision_reason: null,
+      decided_by_user_id: null,
+      decided_by_role_code: null,
+      decided_at: null,
+    });
+    expect(component.decisionAuditMetadata()).toBeNull();
     const metaBlock = fixture.nativeElement.querySelector('.ops-detail-meta--inline');
     expect(metaBlock).toBeNull();
   });

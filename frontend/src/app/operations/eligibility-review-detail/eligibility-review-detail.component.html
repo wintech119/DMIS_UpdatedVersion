@@ -79,7 +79,7 @@
                   <p class="ops-section__copy">
                     Decision recorded: {{ decisionLabel() }}.
                   </p>
-                  @if (decisionMetadata(); as decision) {
+                  @if (decisionAuditMetadata(); as decision) {
                     <dl class="ops-detail-meta ops-detail-meta--inline" aria-label="Decision audit">
                       @if (decision.decision_reason) {
                         <div class="ops-detail-meta__item">

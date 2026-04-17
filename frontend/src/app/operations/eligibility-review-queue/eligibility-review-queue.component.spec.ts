@@ -111,7 +111,9 @@ describe('EligibilityReviewQueueComponent', () => {
       results: [buildSummary({ reliefrqst_id: 77, status_code: 'UNDER_ELIGIBILITY_REVIEW' })],
     }));
 
-    fixture.componentInstance.loadQueue();
+    const retryButton = host.querySelector('dmis-empty-state button');
+    expect(retryButton).not.toBeNull();
+    retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     fixture.detectChanges();
 
     expect(operationsService.getEligibilityQueue).toHaveBeenCalledTimes(1);
@@ -127,6 +129,7 @@ describe('EligibilityReviewQueueComponent', () => {
         buildSummary({ reliefrqst_id: 12, urgency_ind: 'M' }),
         buildSummary({ reliefrqst_id: 13, urgency_ind: 'L' }),
         buildSummary({ reliefrqst_id: 14, urgency_ind: null }),
+        buildSummary({ reliefrqst_id: 15, urgency_ind: ' h ' as unknown as RequestSummary['urgency_ind'] }),
       ],
     }));
 
