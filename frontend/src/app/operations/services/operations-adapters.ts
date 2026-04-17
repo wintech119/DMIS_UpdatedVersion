@@ -16,6 +16,7 @@ import {
   DispatchQueueItem,
   DispatchRecordSummary,
   DispatchTransportSummary,
+  EligibilityDecisionMetadata,
   EligibilityDetailResponse,
   FulfillmentMode,
   OperationsEntityType,
@@ -302,12 +303,37 @@ export function normalizeRequestDetail(raw: unknown): RequestDetailResponse {
   };
 }
 
+function normalizeEligibilityDecisionMetadata(raw: unknown): EligibilityDecisionMetadata | null {
+  if (raw == null) {
+    return null;
+  }
+  const source = asRecord(raw);
+  if (!Object.keys(source).length) {
+    return null;
+  }
+  const rawCode = asString(source['decision_code'], '').trim().toUpperCase();
+  // Reject unknown codes instead of coercing — the caller reads the
+  // authoritative outcome from status_code on the request, and rendering a
+  // fabricated decision_code would misrepresent the audit record.
+  if (rawCode !== 'APPROVED' && rawCode !== 'REJECTED' && rawCode !== 'INELIGIBLE') {
+    return null;
+  }
+  return {
+    decision_code: rawCode as EligibilityDecisionMetadata['decision_code'],
+    decision_reason: asNullableString(source['decision_reason']),
+    decided_by_user_id: asNullableString(source['decided_by_user_id']),
+    decided_by_role_code: asNullableString(source['decided_by_role_code']),
+    decided_at: asNullableString(source['decided_at']),
+  };
+}
+
 export function normalizeEligibilityDetail(raw: unknown): EligibilityDetailResponse {
   const source = asRecord(raw);
   return {
     ...normalizeRequestDetail(source),
     decision_made: asBoolean(source['decision_made']),
     can_edit: asBoolean(source['can_edit']),
+    eligibility_decision: normalizeEligibilityDecisionMetadata(source['eligibility_decision']),
   };
 }
 

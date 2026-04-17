@@ -11,6 +11,8 @@ export interface FulfillmentEntryAction {
 export type OperationsDispatchStage = 'ready' | 'in_transit' | 'completed' | 'unknown';
 
 const OPERATIONS_QUEUE_SEEN_LIMIT = 250;
+// Bound queue search terms to the longest searchable request free-text field.
+export const OPERATIONS_QUEUE_SEARCH_MAX_LENGTH = 500;
 
 const REQUEST_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',

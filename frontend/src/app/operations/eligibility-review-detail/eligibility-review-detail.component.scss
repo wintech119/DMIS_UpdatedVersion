@@ -7,8 +7,27 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+// Decision audit list that lives inside the post-decision callout.
+// See frontend/src/lib/prompts/generation.tsx §4 information hierarchy and
+// §2 "distinguish recovery vs. no-matching-data" empty/blocker guidance.
+.ops-detail-meta--inline {
+  margin: 0.75rem 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem;
+}
+
+.ops-detail-meta__value-note {
+  margin-left: 0.25rem;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-regular);
+}
+
 @media (max-width: 768px) {
   .ops-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-detail-meta--inline {
     grid-template-columns: 1fr;
   }
 }

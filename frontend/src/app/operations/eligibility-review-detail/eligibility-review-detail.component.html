@@ -79,6 +79,33 @@
                   <p class="ops-section__copy">
                     Decision recorded: {{ decisionLabel() }}.
                   </p>
+                  @if (decisionAuditMetadata(); as decision) {
+                    <dl class="ops-detail-meta ops-detail-meta--inline" aria-label="Decision audit">
+                      @if (decision.decision_reason) {
+                        <div class="ops-detail-meta__item">
+                          <dt class="ops-detail-meta__label">Reason</dt>
+                          <dd class="ops-detail-meta__value">{{ decision.decision_reason }}</dd>
+                        </div>
+                      }
+                      @if (decision.decided_by_role_code || decision.decided_by_user_id) {
+                        <div class="ops-detail-meta__item">
+                          <dt class="ops-detail-meta__label">Decided by</dt>
+                          <dd class="ops-detail-meta__value">
+                            {{ decision.decided_by_role_code ?? 'Role unknown' }}
+                            @if (decision.decided_by_user_id) {
+                              <span class="ops-detail-meta__value-note">({{ decision.decided_by_user_id }})</span>
+                            }
+                          </dd>
+                        </div>
+                      }
+                      @if (decision.decided_at) {
+                        <div class="ops-detail-meta__item">
+                          <dt class="ops-detail-meta__label">Decided at</dt>
+                          <dd class="ops-detail-meta__value">{{ formatOperationsDateTime(decision.decided_at) }}</dd>
+                        </div>
+                      }
+                    </dl>
+                  }
                 </div>
               </div>
             } @else {

@@ -54,6 +54,7 @@ describe('EligibilityReviewDetailComponent', () => {
     packages: [],
     decision_made: false,
     can_edit: true,
+    eligibility_decision: null,
   };
 
   beforeEach(async () => {
@@ -219,6 +220,83 @@ describe('EligibilityReviewDetailComponent', () => {
         disabled: false,
       }),
     );
+  });
+
+  it('exposes the decision metadata block when the detail includes a recorded decision', () => {
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'APPROVED_FOR_FULFILLMENT',
+      status_label: 'Approved',
+      eligibility_decision: {
+        decision_code: 'APPROVED',
+        decision_reason: 'Aligned with SURGE allocation.',
+        decided_by_user_id: 'user-9001',
+        decided_by_role_code: 'ELIGIBILITY_APPROVER',
+        decided_at: '2026-04-15T09:30:00Z',
+      },
+    });
+    fixture.detectChanges();
+
+    expect(component.decisionMetadata()).toEqual({
+      decision_code: 'APPROVED',
+      decision_reason: 'Aligned with SURGE allocation.',
+      decided_by_user_id: 'user-9001',
+      decided_by_role_code: 'ELIGIBILITY_APPROVER',
+      decided_at: '2026-04-15T09:30:00Z',
+    });
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Aligned with SURGE allocation.');
+    expect(text).toContain('ELIGIBILITY_APPROVER');
+    expect(text).toContain('user-9001');
+    expect(text).toContain(component.formatOperationsDateTime('2026-04-15T09:30:00Z'));
+  });
+
+  it('hides the decision metadata list when no decision block is attached', () => {
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'REJECTED',
+      status_label: 'Rejected',
+      eligibility_decision: null,
+    });
+    fixture.detectChanges();
+
+    expect(component.decisionMetadata()).toBeNull();
+    const metaBlock = fixture.nativeElement.querySelector('.ops-detail-meta--inline');
+    expect(metaBlock).toBeNull();
+  });
+
+  it('hides the decision metadata list when the decision exists without visible audit fields', () => {
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'APPROVED_FOR_FULFILLMENT',
+      status_label: 'Approved',
+      eligibility_decision: {
+        decision_code: 'APPROVED',
+        decision_reason: null,
+        decided_by_user_id: null,
+        decided_by_role_code: null,
+        decided_at: null,
+      },
+    });
+    fixture.detectChanges();
+
+    expect(component.decisionMetadata()).toEqual({
+      decision_code: 'APPROVED',
+      decision_reason: null,
+      decided_by_user_id: null,
+      decided_by_role_code: null,
+      decided_at: null,
+    });
+    expect(component.decisionAuditMetadata()).toBeNull();
+    const metaBlock = fixture.nativeElement.querySelector('.ops-detail-meta--inline');
+    expect(metaBlock).toBeNull();
   });
 
   it('surfaces nested validation errors from the decision submit response', () => {

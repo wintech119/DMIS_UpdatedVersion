@@ -205,9 +205,18 @@ export interface UpdateRequestPayload {
 }
 
 // Eligibility
+export interface EligibilityDecisionMetadata {
+  decision_code: 'APPROVED' | 'REJECTED' | 'INELIGIBLE';
+  decision_reason: string | null;
+  decided_by_user_id: string | null;
+  decided_by_role_code: string | null;
+  decided_at: string | null;
+}
+
 export interface EligibilityDetailResponse extends RequestDetailResponse {
   decision_made: boolean;
   can_edit: boolean;
+  eligibility_decision: EligibilityDecisionMetadata | null;
 }
 
 export interface EligibilityDecisionPayload {

@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
@@ -25,12 +26,13 @@ import {
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
+  OPERATIONS_QUEUE_SEARCH_MAX_LENGTH,
   OperationsTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
-type ReviewFilter = 'all' | 'critical' | 'high' | 'submitted' | 'closed';
+type ReviewFilter = 'all' | 'critical' | 'high' | 'standard';
 
 interface ReviewMetric {
   label: string;
@@ -43,6 +45,54 @@ interface ReviewSummary {
   total: number;
   oldest: RequestSummary | null;
   newest: RequestSummary | null;
+}
+
+const AWAITING_ACTION_STATUS: RequestSummary['status_code'] = 'UNDER_ELIGIBILITY_REVIEW';
+const LOAD_ERROR_MESSAGE = 'We could not load the eligibility queue. Check your connection and try again.';
+
+function urgencyCode(request: RequestSummary): string {
+  return String(request.urgency_ind ?? '').trim().toUpperCase();
+}
+
+function requestTimestampValue(
+  row: Pick<RequestSummary, 'create_dtime' | 'request_date'>,
+): string | null {
+  const candidates = [row.create_dtime, row.request_date];
+  for (const candidate of candidates) {
+    const value = typeof candidate === 'string' ? candidate.trim() : '';
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function requestTimestampMs(
+  row: Pick<RequestSummary, 'create_dtime' | 'request_date'>,
+  fallbackMs: number,
+): number {
+  const value = requestTimestampValue(row);
+  if (!value) {
+    return fallbackMs;
+  }
+
+  const stamp = new Date(value).getTime();
+  return Number.isFinite(stamp) ? stamp : fallbackMs;
+}
+
+function oldestAgeHours(rows: readonly RequestSummary[]): number {
+  if (!rows.length) {
+    return 0;
+  }
+  const now = Date.now();
+  let oldestMs = now;
+  for (const row of rows) {
+    const stamp = requestTimestampMs(row, now);
+    if (stamp < oldestMs) {
+      oldestMs = stamp;
+    }
+  }
+  return Math.max(0, Math.floor((now - oldestMs) / 3_600_000));
 }
 
 @Component({
@@ -63,11 +113,14 @@ interface ReviewSummary {
 })
 export class EligibilityReviewQueueComponent implements OnInit {
   private readonly auth = inject(AuthRbacService);
+  private readonly notify = inject(DmisNotificationService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
   private readonly seenStorageScope = 'eligibility-review';
+  private loadRequestToken = 0;
 
   readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
   readonly requests = signal<RequestSummary[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<ReviewFilter>('all');
@@ -76,16 +129,24 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly filterOptions: readonly { label: string; value: ReviewFilter }[] = [
     { label: 'Critical', value: 'critical' },
     { label: 'High', value: 'high' },
-    { label: 'Submitted', value: 'submitted' },
-    { label: 'Closed', value: 'closed' },
+    { label: 'Standard', value: 'standard' },
     { label: 'All', value: 'all' },
   ];
+  readonly searchMaxLength = OPERATIONS_QUEUE_SEARCH_MAX_LENGTH;
+
+  // UX defense only. Authoritative queue scope lives in
+  // backend/operations/contract_services.py — never treat this as an
+  // authorization boundary. Keeps the UI from leaking decided items if a
+  // transient contract drift emits them.
+  readonly actionableRequests = computed(() =>
+    this.requests().filter((request) => request.status_code === AWAITING_ACTION_STATUS),
+  );
 
   readonly filteredRequests = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
     const filter = this.activeFilter();
 
-    return this.requests().filter((request) => {
+    return this.actionableRequests().filter((request) => {
       if (!this.matchesFilter(request, filter)) {
         return false;
       }
@@ -111,12 +172,12 @@ export class EligibilityReviewQueueComponent implements OnInit {
   });
 
   readonly metrics = computed<ReviewMetric[]>(() => {
-    const rows = this.requests();
+    const rows = this.actionableRequests();
     return [
-      { label: 'Pending', value: rows.filter((row) => row.status_code === 'SUBMITTED' || row.status_code === 'UNDER_ELIGIBILITY_REVIEW' || row.status_code === 'APPROVED_FOR_FULFILLMENT').length, note: 'Awaiting a decision', route: '/operations/eligibility-review' },
-      { label: 'Critical', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
-      { label: 'High', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
-      { label: 'Closed', value: rows.filter((row) => row.status_code === 'CANCELLED' || row.status_code === 'REJECTED' || row.status_code === 'FULFILLED' || row.status_code === 'INELIGIBLE').length, note: 'Finalized decisions', route: '/operations/eligibility-review' },
+      { label: 'Awaiting action', value: rows.length, note: 'Needs an eligibility decision', route: '/operations/eligibility-review' },
+      { label: 'Critical', value: rows.filter((row) => urgencyCode(row) === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
+      { label: 'High', value: rows.filter((row) => urgencyCode(row) === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
+      { label: 'Oldest waiting (h)', value: oldestAgeHours(rows), note: 'Hours since oldest submission', route: '/operations/eligibility-review' },
     ];
   });
 
@@ -130,15 +191,14 @@ export class EligibilityReviewQueueComponent implements OnInit {
   });
 
   readonly unreadCounts = computed<Record<ReviewFilter, number>>(() => {
-    const rows = this.requests();
+    const rows = this.actionableRequests();
     const seen = this.seenFilters();
 
     return {
       all: 0,
       critical: countOperationsUnreadIds(this.getFilterRequestIds('critical', rows), seen['critical']),
       high: countOperationsUnreadIds(this.getFilterRequestIds('high', rows), seen['high']),
-      submitted: countOperationsUnreadIds(this.getFilterRequestIds('submitted', rows), seen['submitted']),
-      closed: countOperationsUnreadIds(this.getFilterRequestIds('closed', rows), seen['closed']),
+      standard: countOperationsUnreadIds(this.getFilterRequestIds('standard', rows), seen['standard']),
     };
   });
 
@@ -149,6 +209,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly formatOperationsLineCount = formatOperationsLineCount;
   readonly getOperationsRequestTone = getOperationsRequestTone;
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
+  readonly requestTimestamp = requestTimestampValue;
 
   ngOnInit(): void {
     this.loadSeenFilters();
@@ -200,23 +261,41 @@ export class EligibilityReviewQueueComponent implements OnInit {
     return request.reliefrqst_id;
   }
 
+  retryLoad(): void {
+    if (this.loading()) {
+      return;
+    }
+    this.loadQueue();
+  }
 
   private loadQueue(): void {
+    const requestToken = ++this.loadRequestToken;
     this.loading.set(true);
+    this.loadError.set(null);
 
     this.operationsService.getEligibilityQueue().subscribe({
       next: (response) => {
+        if (requestToken !== this.loadRequestToken) {
+          return;
+        }
+
+        const now = Date.now();
         const rows = [...response.results].sort((left, right) =>
-          new Date(right.create_dtime ?? right.request_date ?? 0).getTime() -
-          new Date(left.create_dtime ?? left.request_date ?? 0).getTime(),
+          requestTimestampMs(right, now) - requestTimestampMs(left, now),
         );
         this.requests.set(rows);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
+        if (requestToken !== this.loadRequestToken) {
+          return;
+        }
+
         this.requests.set([]);
+        this.loadError.set(LOAD_ERROR_MESSAGE);
         this.loading.set(false);
+        this.notify.showNetworkError(LOAD_ERROR_MESSAGE, () => this.retryLoad());
       },
     });
   }
@@ -253,7 +332,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
 
   private getFilterRequestIds(
     filter: Exclude<ReviewFilter, 'all'>,
-    rows: readonly RequestSummary[] = this.requests(),
+    rows: readonly RequestSummary[] = this.actionableRequests(),
   ): number[] {
     return rows
       .filter((request) => this.matchesFilter(request, filter))
@@ -261,20 +340,14 @@ export class EligibilityReviewQueueComponent implements OnInit {
   }
 
   private matchesFilter(request: RequestSummary, filter: ReviewFilter): boolean {
+    const urgency = urgencyCode(request);
     switch (filter) {
       case 'critical':
-        return String(request.urgency_ind ?? '').toUpperCase() === 'C';
+        return urgency === 'C';
       case 'high':
-        return String(request.urgency_ind ?? '').toUpperCase() === 'H';
-      case 'submitted':
-        return request.status_code === 'SUBMITTED'
-          || request.status_code === 'UNDER_ELIGIBILITY_REVIEW'
-          || request.status_code === 'APPROVED_FOR_FULFILLMENT';
-      case 'closed':
-        return request.status_code === 'CANCELLED'
-          || request.status_code === 'REJECTED'
-          || request.status_code === 'INELIGIBLE'
-          || request.status_code === 'FULFILLED';
+        return urgency === 'H';
+      case 'standard':
+        return urgency !== 'C' && urgency !== 'H';
       case 'all':
       default:
         return true;
