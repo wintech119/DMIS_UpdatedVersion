@@ -113,6 +113,7 @@ from operations.models import (
     OperationsQueueAssignment,
     OperationsReceipt,
     OperationsReliefRequest,
+    OperationsStatusHistory,
     OperationsWaybill,
 )
 from operations.workflow import (
@@ -559,6 +560,42 @@ def _execution_link_for_request(reliefrqst_id: int) -> NeedsListExecutionLink | 
 
 def _execution_link_for_package(reliefpkg_id: int) -> NeedsListExecutionLink | None:
     return NeedsListExecutionLink.objects.select_related("needs_list").filter(reliefpkg_id=reliefpkg_id).first()
+
+
+def _override_submitter_user_id(
+    *,
+    reliefrqst_id: int,
+    request: ReliefRqst | None = None,
+    package: ReliefPkg | None = None,
+) -> str | None:
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    if execution_link is not None:
+        submitter = str(
+            execution_link.override_requested_by or execution_link.needs_list.submitted_by or ""
+        ).strip()
+        return submitter or None
+
+    if package is not None:
+        submitter = str(
+            OperationsStatusHistory.objects.filter(
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            )
+            .order_by("-changed_at", "-status_history_id")
+            .values_list("changed_by_id", flat=True)
+            .first()
+            or ""
+        ).strip()
+        if submitter:
+            return submitter
+
+    fallback_submitter = str(
+        (request.create_by_id if request is not None else None)
+        or (package.create_by_id if package is not None else None)
+        or ""
+    ).strip()
+    return fallback_submitter or None
 
 
 def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
@@ -1028,6 +1065,15 @@ FULFILLMENT_VISIBLE_REQUEST_STATUSES = frozenset(
         REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
         REQUEST_STATUS_PARTIALLY_FULFILLED,
         REQUEST_STATUS_FULFILLED,
+    }
+)
+
+# Queue visibility is narrower than detail readability. The fulfillment queue
+# is an active work queue for requests still being packaged.
+FULFILLMENT_QUEUE_REQUEST_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+        REQUEST_STATUS_PARTIALLY_FULFILLED,
     }
 )
 
@@ -3844,7 +3890,14 @@ def _save_package_allocation(
                 code="override_details_missing",
             )
         if not allow_pending_override:
-            actual_submitter = override_submitter_user_id or request.create_by_id
+            actual_submitter = (
+                str(override_submitter_user_id or "").strip()
+                or _override_submitter_user_id(
+                    reliefrqst_id=reliefrqst_id,
+                    request=request,
+                    package=package,
+                )
+            )
             validate_override_approval(
                 approver_user_id=supervisor_user_id,
                 approver_role_codes=supervisor_role_codes,
@@ -4302,7 +4355,11 @@ def _legacy_approve_override(
         )
     request = _load_request(reliefrqst_id)
     package = _current_package_for_request(reliefrqst_id)
-    allocator_user_id = str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
+    allocator_user_id = _override_submitter_user_id(
+        reliefrqst_id=reliefrqst_id,
+        request=request,
+        package=package,
+    ) or str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
     return _save_package_allocation(
         reliefrqst_id,
         payload=payload,
@@ -4907,28 +4964,25 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
     )
     status_list = list(
         OperationsReliefRequest.objects.filter(
-            status_code__in=list(FULFILLMENT_VISIBLE_REQUEST_STATUSES)
+            status_code__in=list(FULFILLMENT_QUEUE_REQUEST_STATUSES)
         )
         .order_by("-request_date", "-relief_request_id")
         .values_list("relief_request_id", flat=True)[:200]
     )
-    request_ids: list[int] = []
     seen_request_ids: set[int] = set()
-    for request_id in queue_list + status_list:
-        request_id = int(request_id)
-        if request_id in seen_request_ids:
-            continue
-        request_ids.append(request_id)
-        seen_request_ids.add(request_id)
-        if len(request_ids) >= 200:
-            break
     results: list[dict[str, Any]] = []
-    for reliefrqst_id in request_ids:
+    for reliefrqst_id in queue_list + status_list:
+        reliefrqst_id = int(reliefrqst_id)
+        if reliefrqst_id in seen_request_ids:
+            continue
+        seen_request_ids.add(reliefrqst_id)
         try:
             request = legacy_service._load_request(int(reliefrqst_id))
         except ReliefRqst.DoesNotExist:
             continue
         request_probe = _request_access_probe_from_legacy(request)
+        if request_probe.status_code not in FULFILLMENT_QUEUE_REQUEST_STATUSES:
+            continue
         try:
             _ensure_fulfillment_request_access(
                 request_probe,
@@ -4947,6 +5001,8 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
         else:
             row["current_package"] = None
         results.append(row)
+        if len(results) >= 200:
+            break
     return {"results": results}
 
 
@@ -5914,6 +5970,79 @@ def approve_override(
                 tenant_id=request_record.beneficiary_tenant_id,
                 queue_code=QUEUE_CODE_DISPATCH,
             )
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
+    return result
+
+
+@_release_idempotency_reservation_on_error
+@transaction.atomic
+def reject_override(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    idempotency = _begin_idempotent_write(
+        endpoint="package_override_reject",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
+    )
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
+    normalized_roles = _require_roles(
+        actor_roles,
+        [ROLE_LOGISTICS_MANAGER],
+        message="Only Logistics Managers may reject overrides.",
+    )
+    reason_text = str(payload.get("reason") or payload.get("rejection_reason") or "").strip()
+    if not reason_text:
+        raise OperationValidationError({"reason": "Reason is required when rejecting an override."})
+    if len(reason_text) > 500:
+        raise OperationValidationError({"reason": "Reason must be 500 characters or fewer."})
+    request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(
+        request_probe,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    package = legacy_service._current_package_for_request(reliefrqst_id)
+    if package is None:
+        raise OperationValidationError({"override": "No package exists for this request."})
+    package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+    if package_record.status_code != PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
+        raise OperationValidationError({"override": "Package is not awaiting override approval."})
+    allocator_user_id = _override_submitter_user_id(
+        reliefrqst_id=reliefrqst_id,
+        request=request,
+        package=package,
+    ) or actor_id
+    validate_override_approval(
+        approver_user_id=actor_id,
+        approver_role_codes=normalized_roles,
+        submitter_user_id=allocator_user_id,
+        needs_list_submitted_by=allocator_user_id,
+    )
+    result = reset_package_allocations(
+        int(package_record.package_id),
+        actor_id=actor_id,
+        status_transition_reason=reason_text,
+    )
+    result["override_rejected"] = True
+    result["reason"] = reason_text
     _cache_idempotent_response_after_commit(
         idempotency.cache_key,
         result,

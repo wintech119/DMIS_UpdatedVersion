@@ -1337,6 +1337,31 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.reject_override", return_value={"reliefrqst_id": 70, "status": "DRAFT"})
+    def test_package_override_reject_forwards_payload_context_and_idempotency(
+        self,
+        mock_reject_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-reject",
+            {"reason": "Rebuild with compliant stock order."},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="override-reject-70",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_reject_override.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_reject_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_reject_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_reject_override.call_args.kwargs["payload"]["reason"], "Rebuild with compliant stock order.")
+        self.assertEqual(mock_reject_override.call_args.kwargs["idempotency_key"], "override-reject-70")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.approve_override")
     def test_package_override_approve_requires_idempotency_key(
         self,
@@ -1354,6 +1379,27 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_approve_override.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.reject_override")
+    def test_package_override_reject_requires_idempotency_key(
+        self,
+        mock_reject_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-reject",
+            {"reason": "Rebuild with compliant stock order."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_reject_override.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1448,6 +1494,37 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response["Retry-After"], "17")
         self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
         mock_request_partial_release.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.reject_override")
+    def test_package_override_reject_returns_429_when_rate_limited(
+        self,
+        mock_reject_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/70/allocations/override-reject",
+                {"reason": "Rebuild with compliant stock order."},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="override-reject-70",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_reject_override.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)

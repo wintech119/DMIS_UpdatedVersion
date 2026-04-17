@@ -76,3 +76,30 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches fulfillment routing, tenant scoping, workflow queues, or operational ownership rules, mention this lesson in the closeout and confirm the relevant regression tests were run.
+
+## Workflow-Safe Queue And Approval Signals
+
+### Symptom
+- Active fulfillment work disappeared from the Package Fulfillment queue when stale open assignments existed for already fulfilled requests.
+- Override no-self-approval checks could rely on request or package creators instead of the user who actually submitted the override for review.
+
+### Root Cause
+- Queue selection applied the 200-row cap before filtering out rows that were no longer active fulfillment work.
+- Override approval and rejection fallback logic used creator fields as a proxy for the override submitter even when workflow history contained a better signal.
+
+### Invariant
+- Workflow-sensitive queue limits must apply after status, authorization, and active-work filters.
+- Workflow-sensitive approval guards must prefer persisted workflow actors such as execution links or status-history transitions over creator heuristics.
+
+### Correct Architectural Rule
+- Treat queue assignment rows and creator fields as hints, not authoritative workflow truth, when later workflow state can invalidate them.
+- For fulfillment queues, only visible active-work rows should count toward list caps.
+- For override review, use the recorded actor who moved the package into pending override approval when available, then fall back only when no stronger workflow signal exists.
+
+### Regression Tests That Must Exist
+- The fulfillment queue still returns active work when 200+ stale fulfilled assignments exist ahead of it.
+- Override approval passes the actual pending-override submitter into downstream no-self-approval validation.
+- Override rejection blocks self-approval for the actual pending-override submitter, not merely the request creator.
+
+### Closeout Expectation
+- If a change touches fulfillment queue visibility, override approval, or override rejection, mention this lesson in the closeout and confirm the related regression tests were run.
