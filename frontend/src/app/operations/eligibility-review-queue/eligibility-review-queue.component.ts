@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
@@ -47,9 +48,36 @@ interface ReviewSummary {
 }
 
 const AWAITING_ACTION_STATUS: RequestSummary['status_code'] = 'UNDER_ELIGIBILITY_REVIEW';
+const LOAD_ERROR_MESSAGE = 'We could not load the eligibility queue. Check your connection and try again.';
 
 function urgencyCode(request: RequestSummary): string {
   return String(request.urgency_ind ?? '').trim().toUpperCase();
+}
+
+function requestTimestampValue(
+  row: Pick<RequestSummary, 'create_dtime' | 'request_date'>,
+): string | null {
+  const candidates = [row.create_dtime, row.request_date];
+  for (const candidate of candidates) {
+    const value = typeof candidate === 'string' ? candidate.trim() : '';
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function requestTimestampMs(
+  row: Pick<RequestSummary, 'create_dtime' | 'request_date'>,
+  fallbackMs: number,
+): number {
+  const value = requestTimestampValue(row);
+  if (!value) {
+    return fallbackMs;
+  }
+
+  const stamp = new Date(value).getTime();
+  return Number.isFinite(stamp) ? stamp : fallbackMs;
 }
 
 function oldestAgeHours(rows: readonly RequestSummary[]): number {
@@ -59,8 +87,8 @@ function oldestAgeHours(rows: readonly RequestSummary[]): number {
   const now = Date.now();
   let oldestMs = now;
   for (const row of rows) {
-    const stamp = new Date(row.create_dtime ?? row.request_date ?? now).getTime();
-    if (Number.isFinite(stamp) && stamp < oldestMs) {
+    const stamp = requestTimestampMs(row, now);
+    if (stamp < oldestMs) {
       oldestMs = stamp;
     }
   }
@@ -85,9 +113,11 @@ function oldestAgeHours(rows: readonly RequestSummary[]): number {
 })
 export class EligibilityReviewQueueComponent implements OnInit {
   private readonly auth = inject(AuthRbacService);
+  private readonly notify = inject(DmisNotificationService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
   private readonly seenStorageScope = 'eligibility-review';
+  private loadRequestToken = 0;
 
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
@@ -179,6 +209,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly formatOperationsLineCount = formatOperationsLineCount;
   readonly getOperationsRequestTone = getOperationsRequestTone;
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
+  readonly requestTimestamp = requestTimestampValue;
 
   ngOnInit(): void {
     this.loadSeenFilters();
@@ -231,27 +262,40 @@ export class EligibilityReviewQueueComponent implements OnInit {
   }
 
   retryLoad(): void {
+    if (this.loading()) {
+      return;
+    }
     this.loadQueue();
   }
 
   private loadQueue(): void {
+    const requestToken = ++this.loadRequestToken;
     this.loading.set(true);
     this.loadError.set(null);
 
     this.operationsService.getEligibilityQueue().subscribe({
       next: (response) => {
+        if (requestToken !== this.loadRequestToken) {
+          return;
+        }
+
+        const now = Date.now();
         const rows = [...response.results].sort((left, right) =>
-          new Date(right.create_dtime ?? right.request_date ?? 0).getTime() -
-          new Date(left.create_dtime ?? left.request_date ?? 0).getTime(),
+          requestTimestampMs(right, now) - requestTimestampMs(left, now),
         );
         this.requests.set(rows);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
+        if (requestToken !== this.loadRequestToken) {
+          return;
+        }
+
         this.requests.set([]);
-        this.loadError.set('We could not load the eligibility queue. Check your connection and try again.');
+        this.loadError.set(LOAD_ERROR_MESSAGE);
         this.loading.set(false);
+        this.notify.showNetworkError(LOAD_ERROR_MESSAGE, () => this.retryLoad());
       },
     });
   }

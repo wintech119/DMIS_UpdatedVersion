@@ -116,12 +116,12 @@
                     <span aria-hidden="true">|</span>
                     <span>{{ formatOperationsLineCount(request.item_count) }}</span>
                     <span aria-hidden="true">|</span>
-                    <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
+                    <span>Created {{ formatOperationsDateTime(requestTimestamp(request)) }}</span>
                   </div>
                 </div>
 
                 <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral" [showDot]="false"></app-ops-status-chip>
+                  <app-ops-status-chip [label]="formatOperationsAge(requestTimestamp(request))" tone="neutral" [showDot]="false"></app-ops-status-chip>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
               </article>

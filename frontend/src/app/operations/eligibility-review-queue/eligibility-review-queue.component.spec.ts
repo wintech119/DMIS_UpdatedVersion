@@ -2,9 +2,10 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Router } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { RequestSummary } from '../models/operations.model';
 import { OperationsService } from '../services/operations.service';
 import { EligibilityReviewQueueComponent } from './eligibility-review-queue.component';
@@ -15,6 +16,7 @@ describe('EligibilityReviewQueueComponent', () => {
     currentUserRef: signal<string | null>('kemar.logistics'),
   };
   const operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', ['getEligibilityQueue']);
+  const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', ['showNetworkError']);
   const router = jasmine.createSpyObj<Router>('Router', ['navigate', 'navigateByUrl']);
 
   function buildSummary(overrides: Partial<RequestSummary> = {}): RequestSummary {
@@ -58,6 +60,7 @@ describe('EligibilityReviewQueueComponent', () => {
   beforeEach(async () => {
     authStub.ensureLoaded.calls.reset();
     operationsService.getEligibilityQueue.calls.reset();
+    notificationService.showNetworkError.calls.reset();
     router.navigate.calls.reset();
     router.navigateByUrl.calls.reset();
 
@@ -67,6 +70,7 @@ describe('EligibilityReviewQueueComponent', () => {
       imports: [NoopAnimationsModule, EligibilityReviewQueueComponent],
       providers: [
         { provide: AuthRbacService, useValue: authStub },
+        { provide: DmisNotificationService, useValue: notificationService },
         { provide: OperationsService, useValue: operationsService },
         { provide: Router, useValue: router },
       ],
@@ -99,6 +103,11 @@ describe('EligibilityReviewQueueComponent', () => {
     expect(fixture.componentInstance.loadError()).toBe(
       'We could not load the eligibility queue. Check your connection and try again.',
     );
+    expect(notificationService.showNetworkError).toHaveBeenCalledTimes(1);
+    expect(notificationService.showNetworkError.calls.mostRecent().args[0]).toBe(
+      'We could not load the eligibility queue. Check your connection and try again.',
+    );
+    expect(notificationService.showNetworkError.calls.mostRecent().args[1]).toEqual(jasmine.any(Function));
 
     const host: HTMLElement = fixture.nativeElement;
     const emptyState = host.querySelector('dmis-empty-state');
@@ -121,6 +130,26 @@ describe('EligibilityReviewQueueComponent', () => {
     expect(fixture.componentInstance.actionableRequests().length).toBe(1);
   });
 
+  it('ignores retry clicks while the initial load is still in flight', () => {
+    const response$ = new Subject<{ results: RequestSummary[] }>();
+    operationsService.getEligibilityQueue.and.returnValue(response$.asObservable());
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    expect(operationsService.getEligibilityQueue).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.loading()).toBeTrue();
+
+    fixture.componentInstance.retryLoad();
+    expect(operationsService.getEligibilityQueue).toHaveBeenCalledTimes(1);
+
+    response$.next({ results: [] });
+    response$.complete();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.loading()).toBeFalse();
+  });
+
   it('narrows the standard filter to non-critical and non-high urgency rows', () => {
     operationsService.getEligibilityQueue.and.returnValue(of({
       results: [
@@ -141,5 +170,22 @@ describe('EligibilityReviewQueueComponent', () => {
 
     const ids = fixture.componentInstance.filteredRequests().map((row) => row.reliefrqst_id).sort();
     expect(ids).toEqual([12, 13, 14]);
+  });
+
+  it('treats empty or invalid timestamps as missing when ordering queue rows and metrics', () => {
+    spyOn(Date, 'now').and.returnValue(Date.parse('2026-04-12T12:00:00Z'));
+    operationsService.getEligibilityQueue.and.returnValue(of({
+      results: [
+        buildSummary({ reliefrqst_id: 21, tracking_no: 'RQ-21', create_dtime: '', request_date: '2026-04-10' }),
+        buildSummary({ reliefrqst_id: 22, tracking_no: 'RQ-22', create_dtime: '2026-04-11T09:00:00Z' }),
+        buildSummary({ reliefrqst_id: 23, tracking_no: 'RQ-23', create_dtime: 'not-a-date', request_date: '' }),
+      ],
+    }));
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.filteredRequests().map((row) => row.reliefrqst_id)).toEqual([23, 22, 21]);
+    expect(fixture.componentInstance.metrics().find((metric) => metric.label === 'Oldest waiting (h)')?.value).toBe(60);
   });
 });
