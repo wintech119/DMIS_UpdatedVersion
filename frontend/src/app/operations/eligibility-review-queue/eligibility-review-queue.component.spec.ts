@@ -172,20 +172,27 @@ describe('EligibilityReviewQueueComponent', () => {
     expect(ids).toEqual([12, 13, 14]);
   });
 
-  it('treats empty or invalid timestamps as missing when ordering queue rows and metrics', () => {
+  it('falls back to request_date when create_dtime is invalid instead of treating the row as brand new', () => {
     spyOn(Date, 'now').and.returnValue(Date.parse('2026-04-12T12:00:00Z'));
     operationsService.getEligibilityQueue.and.returnValue(of({
       results: [
-        buildSummary({ reliefrqst_id: 21, tracking_no: 'RQ-21', create_dtime: '', request_date: '2026-04-10' }),
+        buildSummary({ reliefrqst_id: 21, tracking_no: 'RQ-21', create_dtime: '', request_date: '2026-04-10T00:00:00Z' }),
         buildSummary({ reliefrqst_id: 22, tracking_no: 'RQ-22', create_dtime: '2026-04-11T09:00:00Z' }),
-        buildSummary({ reliefrqst_id: 23, tracking_no: 'RQ-23', create_dtime: 'not-a-date', request_date: '' }),
+        buildSummary({ reliefrqst_id: 23, tracking_no: 'RQ-23', create_dtime: 'not-a-date', request_date: '2026-04-09T08:00:00Z' }),
       ],
     }));
 
     const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
     fixture.detectChanges();
+    const host: HTMLElement = fixture.nativeElement;
+    const fallbackRow = fixture.componentInstance.filteredRequests().find((row) => row.reliefrqst_id === 23);
 
-    expect(fixture.componentInstance.filteredRequests().map((row) => row.reliefrqst_id)).toEqual([23, 22, 21]);
-    expect(fixture.componentInstance.metrics().find((metric) => metric.label === 'Oldest waiting (h)')?.value).toBe(60);
+    expect(fixture.componentInstance.filteredRequests().map((row) => row.reliefrqst_id)).toEqual([22, 21, 23]);
+    expect(fixture.componentInstance.metrics().find((metric) => metric.label === 'Oldest waiting (h)')?.value).toBe(76);
+    expect(fallbackRow).toBeDefined();
+    expect(fixture.componentInstance.requestTimestamp(fallbackRow!)).toBe('2026-04-09T08:00:00Z');
+    expect(host.textContent).toContain(
+      `Created ${fixture.componentInstance.formatOperationsDateTime('2026-04-09T08:00:00Z')}`,
+    );
   });
 });
