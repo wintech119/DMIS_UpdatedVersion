@@ -51,6 +51,7 @@ from operations.constants import (
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_FULFILLED,
+    REQUEST_STATUS_INELIGIBLE,
     REQUEST_STATUS_PARTIALLY_FULFILLED,
     REQUEST_STATUS_REJECTED,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
@@ -4789,6 +4790,19 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual(result["results"], [])
 
+    def test_eligibility_queue_rejects_non_eligibility_roles(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.list_eligibility_queue(
+                actor_id="logistics-1",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"roles": "Only eligibility approvers may view this queue."},
+        )
+
     @patch(
         "operations.contract_services._request_summary_payload",
         side_effect=lambda request, request_record: {
@@ -4799,7 +4813,7 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.ReliefRqst.objects.filter")
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
-    def test_eligibility_queue_includes_decided_requests_after_assignment_completion(
+    def test_eligibility_queue_returns_only_requests_awaiting_action(
         self,
         load_request_mock,
         get_agency_scope_mock,
@@ -4816,13 +4830,27 @@ class OperationsWorkflowContractTests(TestCase):
             agency_id=502,
             status_code=contract_services.legacy_service.STATUS_SUBMITTED,
         )
+        rejected_request = self._request_stub(
+            reliefrqst_id=72,
+            agency_id=503,
+            status_code=contract_services.legacy_service.STATUS_DENIED,
+        )
+        ineligible_request = self._request_stub(
+            reliefrqst_id=73,
+            agency_id=504,
+            status_code=contract_services.legacy_service.STATUS_INELIGIBLE,
+        )
         load_request_mock.side_effect = lambda reliefrqst_id, **kwargs: {
             70: awaiting_request,
             71: approved_request,
+            72: rejected_request,
+            73: ineligible_request,
         }[int(reliefrqst_id)]
         get_agency_scope_mock.side_effect = lambda agency_id: {
             501: self._agency_scope_for(501, 20, "FFP"),
             502: self._agency_scope_for(502, 30, "OUT-30"),
+            503: self._agency_scope_for(503, 30, "OUT-30"),
+            504: self._agency_scope_for(504, 30, "OUT-30"),
         }[int(agency_id)]
         relief_request_filter_mock.return_value.order_by.return_value.iterator.return_value = []
 
@@ -4879,13 +4907,75 @@ class OperationsWorkflowContractTests(TestCase):
             assignment_status="COMPLETED",
         )
 
+        OperationsReliefRequest.objects.create(
+            relief_request_id=72,
+            request_no="RQ00072",
+            requesting_tenant_id=30,
+            requesting_agency_id=503,
+            beneficiary_tenant_id=30,
+            beneficiary_agency_id=503,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_REJECTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsEligibilityDecision.objects.create(
+            relief_request_id=72,
+            decision_code="REJECTED",
+            decision_reason="Outside current scope",
+            decided_by_user_id="eligibility-1",
+            decided_by_role_code=ELIGIBILITY_ROLE_CODES[0],
+            decided_at=timezone.now(),
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=72,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="COMPLETED",
+        )
+
+        OperationsReliefRequest.objects.create(
+            relief_request_id=73,
+            request_no="RQ00073",
+            requesting_tenant_id=30,
+            requesting_agency_id=504,
+            beneficiary_tenant_id=30,
+            beneficiary_agency_id=504,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_INELIGIBLE,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsEligibilityDecision.objects.create(
+            relief_request_id=73,
+            decision_code="INELIGIBLE",
+            decision_reason="Insufficient justification",
+            decided_by_user_id="eligibility-1",
+            decided_by_role_code=ELIGIBILITY_ROLE_CODES[0],
+            decided_at=timezone.now(),
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=73,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="COMPLETED",
+        )
+
         result = contract_services.list_eligibility_queue(
             actor_id="eligibility-1",
             actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
             tenant_context=self.dispatch_ready_context,
         )
 
-        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [71, 70])
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
 
     @patch("operations.contract_services._ensure_request_access")
     @patch("operations.contract_services._sync_operations_request")

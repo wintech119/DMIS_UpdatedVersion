@@ -1019,6 +1019,10 @@ ELIGIBILITY_VISIBLE_REQUEST_STATUSES = frozenset(
     }
 )
 
+# Queue visibility is narrower than detail readability. The eligibility queue
+# is a work queue for requests still awaiting reviewer action.
+ELIGIBILITY_QUEUE_REQUEST_STATUSES = frozenset({REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW})
+
 FULFILLMENT_VISIBLE_REQUEST_STATUSES = frozenset(
     {
         REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
@@ -4667,7 +4671,7 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
     seen_request_ids: set[int] = set()
 
     for request_record in OperationsReliefRequest.objects.filter(
-        status_code__in=ELIGIBILITY_VISIBLE_REQUEST_STATUSES,
+        status_code__in=ELIGIBILITY_QUEUE_REQUEST_STATUSES,
     ).order_by("-request_date", "-relief_request_id").iterator():
         if not _can_read_eligibility_request(
             request_record,
@@ -4681,7 +4685,7 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
         except ReliefRqst.DoesNotExist:
             continue
         refreshed_record = _sync_operations_request(request, actor_id=actor_id)
-        if refreshed_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
+        if refreshed_record.status_code not in ELIGIBILITY_QUEUE_REQUEST_STATUSES:
             continue
         results.append(_request_summary_payload(request, refreshed_record))
         seen_request_ids.add(int(request.reliefrqst_id))
