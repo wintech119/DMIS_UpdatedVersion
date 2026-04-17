@@ -7,17 +7,13 @@
       </p>
       <h1 class="ops-hero__title">Eligibility Review</h1>
       <p class="ops-hero__copy">
-        Review submitted requests and close the loop with auditable approvals or rejections.
+        Work the queue of requests awaiting an eligibility decision and record auditable approvals or rejections.
       </p>
       <app-ops-status-chip label="Awaiting Eligibility Action" tone="info" />
     </div>
 
     <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('submitted')">
-        <mat-icon>hourglass_top</mat-icon>
-        Review Submitted
-      </button>
-      <button mat-stroked-button type="button" (click)="setFilter('critical')">
+      <button mat-flat-button color="primary" type="button" (click)="setFilter('critical')">
         <mat-icon>priority_high</mat-icon>
         Critical Only
       </button>
@@ -39,8 +35,8 @@
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
-          <h2 class="ops-section__title">Review worklist</h2>
-          <p class="ops-section__copy">Filter by urgency or state and open a request to make a decision.</p>
+          <h2 class="ops-section__title">Awaiting action</h2>
+          <p class="ops-section__copy">Filter by urgency and open a request to record an eligibility decision.</p>
         </div>
       </div>
 
@@ -81,11 +77,20 @@
 
         @if (loading()) {
           <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (loadError(); as message) {
+          <dmis-empty-state
+            icon="error_outline"
+            title="Unable to load queue"
+            [message]="message"
+            actionLabel="Retry"
+            actionIcon="refresh"
+            (action)="loadQueue()"
+          />
         } @else if (filteredRequests().length === 0) {
           <dmis-empty-state
             icon="verified_user"
-            title="No requests to review"
-            message="No requests match the current filter."
+            title="No requests awaiting action"
+            message="When a request is submitted for eligibility review it will appear here."
           />
         } @else {
           <div class="ops-row-list">
@@ -172,7 +177,7 @@
             <div class="ops-timeline__step">
               <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
               <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Open a submitted request</p>
+                <p class="ops-timeline__title">Open a request awaiting action</p>
                 <div class="ops-timeline__meta">
                   <span>Use the detail screen to inspect the evidence and item list.</span>
                 </div>
@@ -181,18 +186,18 @@
             <div class="ops-timeline__step">
               <span class="ops-timeline__dot" style="background: #92400e;"></span>
               <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Approve or reject with a reason</p>
+                <p class="ops-timeline__title">Record an approve, reject, or ineligible decision</p>
                 <div class="ops-timeline__meta">
-                  <span>Rejected decisions require a reason before submission.</span>
+                  <span>Rejected or ineligible decisions require a reason before submission.</span>
                 </div>
               </div>
             </div>
             <div class="ops-timeline__step">
               <span class="ops-timeline__dot" style="background: #065f46;"></span>
               <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Approved requests move to fulfillment</p>
+                <p class="ops-timeline__title">Decided requests leave this queue</p>
                 <div class="ops-timeline__meta">
-                  <span>Package preparation stays in the Operations module.</span>
+                  <span>Approved requests move to fulfillment; rejected or ineligible requests exit the workflow.</span>
                 </div>
               </div>
             </div>

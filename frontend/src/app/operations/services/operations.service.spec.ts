@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
-import { RequestDetailResponse } from '../models/operations.model';
+import { EligibilityDetailResponse, RequestDetailResponse } from '../models/operations.model';
 import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
 import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
 
@@ -653,6 +653,90 @@ describe('OperationsService', () => {
       });
 
       expect(result.request_mode).toBeNull();
+    });
+  });
+
+  describe('eligibility detail normalization', () => {
+    function flushEligibility(payload: Record<string, unknown>): EligibilityDetailResponse {
+      let result: EligibilityDetailResponse | undefined;
+      service.getEligibilityDetail(70).subscribe((value) => {
+        result = value;
+      });
+      const request = httpMock.expectOne('/api/v1/operations/eligibility/70');
+      expect(request.request.method).toBe('GET');
+      request.flush(payload);
+      if (!result) {
+        throw new Error('getEligibilityDetail did not emit a value');
+      }
+      return result;
+    }
+
+    it('round-trips all five eligibility_decision fields', () => {
+      const result = flushEligibility({
+        reliefrqst_id: 70,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+        decision_made: true,
+        can_edit: false,
+        eligibility_decision: {
+          decision_code: 'APPROVED',
+          decision_reason: 'Request aligns with SURGE allocation.',
+          decided_by_user_id: 'user-9001',
+          decided_by_role_code: 'ELIGIBILITY_APPROVER',
+          decided_at: '2026-04-15T09:30:00Z',
+        },
+      });
+
+      expect(result.decision_made).toBeTrue();
+      expect(result.can_edit).toBeFalse();
+      expect(result.eligibility_decision).toEqual({
+        decision_code: 'APPROVED',
+        decision_reason: 'Request aligns with SURGE allocation.',
+        decided_by_user_id: 'user-9001',
+        decided_by_role_code: 'ELIGIBILITY_APPROVER',
+        decided_at: '2026-04-15T09:30:00Z',
+      });
+    });
+
+    it('normalizes a null eligibility_decision block to null', () => {
+      const result = flushEligibility({
+        reliefrqst_id: 70,
+        status_code: 'UNDER_ELIGIBILITY_REVIEW',
+        decision_made: false,
+        can_edit: true,
+        eligibility_decision: null,
+      });
+
+      expect(result.eligibility_decision).toBeNull();
+    });
+
+    it('treats an empty eligibility_decision object as null', () => {
+      const result = flushEligibility({
+        reliefrqst_id: 70,
+        status_code: 'UNDER_ELIGIBILITY_REVIEW',
+        decision_made: false,
+        can_edit: true,
+        eligibility_decision: {},
+      });
+
+      expect(result.eligibility_decision).toBeNull();
+    });
+
+    it('drops the decision block when decision_code is malformed so audit data is never fabricated', () => {
+      const result = flushEligibility({
+        reliefrqst_id: 70,
+        status_code: 'REJECTED',
+        decision_made: true,
+        can_edit: false,
+        eligibility_decision: {
+          decision_code: 'maybe',
+          decision_reason: 'Unclear outcome in feed.',
+          decided_by_user_id: null,
+          decided_by_role_code: null,
+          decided_at: null,
+        },
+      });
+
+      expect(result.eligibility_decision).toBeNull();
     });
   });
 });

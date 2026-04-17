@@ -17,7 +17,7 @@ import { DmisReasonDialogComponent, DmisReasonDialogData, DmisReasonDialogResult
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
-import { EligibilityDetailResponse, EligibilityDecisionPayload, RequestItem } from '../models/operations.model';
+import { EligibilityDecisionMetadata, EligibilityDetailResponse, EligibilityDecisionPayload, RequestItem } from '../models/operations.model';
 import {
   formatOperationsDateTime,
   formatOperationsLineCount,
@@ -86,6 +86,10 @@ export class EligibilityReviewDetailComponent implements OnInit {
     }
     return getRequestFulfillmentEntryAction(detail, this.appAccess.canAccessNavKey('operations.fulfillment'));
   });
+
+  readonly decisionMetadata = computed<EligibilityDecisionMetadata | null>(() =>
+    this.detail()?.eligibility_decision ?? null,
+  );
 
   readonly decisionLabel = computed(() => {
     const detail = this.detail();
