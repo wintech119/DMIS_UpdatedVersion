@@ -235,9 +235,9 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
 const CANONICAL_REQUEST_MODES = new Set<string>(['SELF', 'FOR_SUBORDINATE', 'ODPEM_BRIDGE']);
 
 function normalizeRequestMode(source: UnknownRecord): RequestSummary['request_mode'] {
-  const primary = asNullableString(source['request_mode']);
-  const fallback = asNullableString(source['origin_mode']);
-  const raw = (primary ?? fallback ?? '').trim().toUpperCase();
+  const trimmedPrimary = asNullableString(source['request_mode'])?.trim() || null;
+  const trimmedFallback = asNullableString(source['origin_mode'])?.trim() || null;
+  const raw = (trimmedPrimary ?? trimmedFallback ?? '').toUpperCase();
   if (!raw) {
     return null;
   }

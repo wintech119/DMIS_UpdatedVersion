@@ -63,6 +63,8 @@ export class RequestItemsStepComponent implements OnChanges {
   }
 
   readonly urgencyOptions = URGENCY_OPTIONS;
+  readonly requestNotesMaxLength = 500;
+  readonly requestReasonMaxLength = 255;
   readonly tooltips = {
     event: 'Link this request to the active event when the support is tied to a live incident. Leave it unlinked when the request is not event-specific.',
     requestUrgency: 'Sets the baseline priority for review, packaging, and dispatch unless an item line is given a different urgency.',
@@ -88,6 +90,10 @@ export class RequestItemsStepComponent implements OnChanges {
       default:
         return 'Choose the agency requesting relief supplies.';
     }
+  }
+
+  get isHighUrgency(): boolean {
+    return this.form?.get('urgency_ind')?.value === 'H';
   }
 
   isReasonRequired(urgency: UrgencyCode | string | null): boolean {

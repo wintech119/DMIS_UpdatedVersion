@@ -512,6 +512,7 @@ export function formatOperationsLineCount(count: number): string {
 const REQUEST_MODE_LABELS: Record<string, string> = {
   SELF: 'Self',
   FOR_SUBORDINATE: 'For subordinate',
+  SUBORDINATE: 'For subordinate',
   ODPEM_BRIDGE: 'ODPEM Bridge',
 };
 

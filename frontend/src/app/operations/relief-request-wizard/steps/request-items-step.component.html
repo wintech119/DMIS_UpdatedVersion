@@ -143,6 +143,8 @@
       <textarea
         matInput
         formControlName="rqst_notes_text"
+        [required]="isHighUrgency"
+        [attr.maxlength]="requestNotesMaxLength"
         rows="3"
         cdkTextareaAutosize
         cdkAutosizeMinRows="2"
@@ -248,7 +250,8 @@
                 <input
                   matInput
                   formControlName="rqst_reason_desc"
-                  maxlength="255"
+                  [required]="isReasonRequired(item.get('urgency_ind')?.value)"
+                  [attr.maxlength]="requestReasonMaxLength"
                   [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required' : 'Optional'" />
                 @if (item.get('rqst_reason_desc')?.hasError('required') && item.get('rqst_reason_desc')?.touched) {
                   <mat-error>Required for C/H</mat-error>

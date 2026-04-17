@@ -132,6 +132,20 @@ describe('ReliefRequestWizardComponent', () => {
       expect(notes.hasError('required')).toBeFalse();
     });
 
+    it('preserves the 500-character request-notes limit when urgency toggles validators', () => {
+      const component = fixture.componentInstance;
+      const notes = component.requestForm.get('rqst_notes_text')!;
+
+      notes.setValue('x'.repeat(501));
+      fixture.detectChanges();
+      expect(notes.hasError('maxlength')).toBeTrue();
+
+      component.requestForm.get('urgency_ind')?.setValue('H');
+      fixture.detectChanges();
+
+      expect(notes.hasError('maxlength')).toBeTrue();
+    });
+
     it('rejects whitespace-only notes as justification for high-urgency requests', () => {
       const component = fixture.componentInstance;
       const notes = component.requestForm.get('rqst_notes_text')!;

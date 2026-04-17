@@ -38,6 +38,8 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   year: 'numeric',
 });
+const REQUEST_NOTES_MAX_LENGTH = 500;
+const REQUEST_REASON_MAX_LENGTH = 255;
 
 type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
   item_name?: string | null;
@@ -95,7 +97,7 @@ export class ReliefRequestWizardComponent implements OnInit {
     agency_id: [null as number | null, [Validators.required]],
     urgency_ind: [null as UrgencyCode | null, [Validators.required]],
     eligible_event_id: [null as number | null],
-    rqst_notes_text: [''],
+    rqst_notes_text: ['', [Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)]],
     items: this.fb.array([] as FormGroup[]),
   });
 
@@ -305,16 +307,13 @@ export class ReliefRequestWizardComponent implements OnInit {
         });
     });
 
-    this.requestForm.get('urgency_ind')!.valueChanges
+    const urgencyCtrl = this.requestForm.get('urgency_ind')!;
+    this.applyRequestNotesValidators(urgencyCtrl.value);
+
+    urgencyCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((urgency) => {
-        const notesCtrl = this.requestForm.get('rqst_notes_text')!;
-        if (urgency === 'H') {
-          notesCtrl.setValidators([trimmedRequiredValidator]);
-        } else {
-          notesCtrl.clearValidators();
-        }
-        notesCtrl.updateValueAndValidity({ emitEvent: false });
+        this.applyRequestNotesValidators(urgency);
       });
   }
 
@@ -433,23 +432,40 @@ export class ReliefRequestWizardComponent implements OnInit {
       item_name: [defaults?.item_name ?? '' as string],
       request_qty: [defaults?.request_qty ? Number(defaults.request_qty) : null as number | null, [Validators.required, Validators.min(1)]],
       urgency_ind: [defaults?.urgency_ind ?? null as UrgencyCode | null],
-      rqst_reason_desc: [defaults?.rqst_reason_desc ?? '', [Validators.maxLength(255)]],
+      rqst_reason_desc: [defaults?.rqst_reason_desc ?? '', [Validators.maxLength(REQUEST_REASON_MAX_LENGTH)]],
       required_by_date: [defaults?.required_by_date ?? null as string | null],
     });
 
-    group.get('urgency_ind')!.valueChanges
+    const urgencyCtrl = group.get('urgency_ind')!;
+    this.applyItemReasonValidators(group, urgencyCtrl.value);
+
+    urgencyCtrl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((urgency) => {
-        const reasonCtrl = group.get('rqst_reason_desc')!;
-        if (urgency === 'C' || urgency === 'H') {
-          reasonCtrl.setValidators([trimmedRequiredValidator, Validators.maxLength(255)]);
-        } else {
-          reasonCtrl.setValidators([Validators.maxLength(255)]);
-        }
-        reasonCtrl.updateValueAndValidity({ emitEvent: false });
+        this.applyItemReasonValidators(group, urgency);
       });
 
     return group;
+  }
+
+  private applyRequestNotesValidators(urgency: UrgencyCode | null): void {
+    const notesCtrl = this.requestForm.get('rqst_notes_text')!;
+    notesCtrl.setValidators(
+      urgency === 'H'
+        ? [trimmedRequiredValidator, Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)]
+        : [Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)],
+    );
+    notesCtrl.updateValueAndValidity({ emitEvent: false });
+  }
+
+  private applyItemReasonValidators(group: FormGroup, urgency: UrgencyCode | null): void {
+    const reasonCtrl = group.get('rqst_reason_desc')!;
+    reasonCtrl.setValidators(
+      urgency === 'C' || urgency === 'H'
+        ? [trimmedRequiredValidator, Validators.maxLength(REQUEST_REASON_MAX_LENGTH)]
+        : [Validators.maxLength(REQUEST_REASON_MAX_LENGTH)],
+    );
+    reasonCtrl.updateValueAndValidity({ emitEvent: false });
   }
 
   private resolveItemName(itemId: unknown, fallback: unknown): string {
