@@ -1,6 +1,12 @@
 # Current Task Plan
 
-1. Completed: verified the rollback-lease and legacy-dispatch idempotency findings against the current `contract_services.py` implementation and existing tests.
-2. Completed: released idempotency reservations on failed write paths and moved dispatch reservation ahead of the legacy/scoped branch split.
-3. Completed: added focused contract-service regressions for rollback/failure reservation release and legacy dispatch idempotent replay.
-4. Completed: ran targeted backend tests and finished the backend and architecture review pass.
+1. Completed: verified the new test/auth and lessons wording comments against the current contract-service tests and task notes.
+2. Completed: applied the still-valid fixes in `backend/operations/tests_contract_services.py` and `tasks/lessons.md`.
+3. Completed: ran targeted backend tests for the class-level auth override and the eligibility cross-tenant idempotency regression.
+4. Completed: finished the backend and architecture review pass, calling out which comments were already stale; audit artifact: [relief_request_wizard_frontend_architecture_review_2026-04-17.md](../docs/reviews/relief_request_wizard_frontend_architecture_review_2026-04-17.md). Mandatory review coverage included tenancy/RBAC boundaries, backend-authoritative input-validation parity, legacy request-mode compatibility, and audit-trail/documentation updates. PR description should reference the same artifact.
+
+## Consolidation Requirements Task Plan
+
+1. In progress: collect authoritative repo-local consolidation and staging sources across requirements docs, operations backend, and operations frontend.
+2. Pending: extract the confirmed workflow, actors, statuses, controls, and edge cases for staging warehouse and consolidation flows.
+3. Pending: provide a requirements-oriented summary that separates documented/implemented behavior from best-practice recommendations and open gaps.

@@ -179,6 +179,7 @@ class RequestAuthorityHierarchyTests(TestCase):
         self.assertEqual(decision.beneficiary_tenant_id, 300)
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class OperationsWorkflowContractTests(TestCase):
     def setUp(self) -> None:
         cache.clear()
@@ -5143,6 +5144,107 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(
             OperationsEligibilityDecision.objects.filter(relief_request_id=95009).count(),
             decision_count,
+        )
+
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @override_settings(ODPEM_TENANT_ID=27)
+    def test_submit_eligibility_decision_idempotency_cache_is_tenant_scoped(
+        self,
+        get_request_mock,
+        load_request_mock,
+        filter_packages_mock,
+        get_agency_scope_mock,
+        _request_summary_payload_mock,
+    ) -> None:
+        get_request_mock.return_value = {
+            "reliefrqst_id": 95009,
+            "items": [],
+            "packages": [],
+        }
+        get_agency_scope_mock.return_value = self.agency_scope
+        filter_packages_mock.return_value.order_by.return_value = []
+        request = self._request_stub(
+            reliefrqst_id=95009,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        request.review_by_id = None
+        request.review_dtime = None
+        request.action_by_id = None
+        request.action_dtime = None
+        request.status_reason_desc = None
+        request.version_nbr = 1
+        request.save = Mock()
+        load_request_mock.return_value = request
+        OperationsReliefRequest.objects.create(
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            submitted_by_id="relief_jrc_requester_tst",
+            submitted_at=timezone.now(),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+        foreign_tenant_context = _tenant_context(
+            tenant_id=999,
+            tenant_code="OTHER-TENANT",
+            tenant_type="EXTERNAL",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.submit_eligibility_decision(
+                95009,
+                payload={"decision": "APPROVED"},
+                actor_id="andrea_tst",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.odpem_context,
+                idempotency_key="eligibility-95009",
+            )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.submit_eligibility_decision(
+                95009,
+                payload={"decision": "APPROVED"},
+                actor_id="andrea_tst",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=foreign_tenant_context,
+                idempotency_key="eligibility-95009",
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"scope": "Request is outside the active tenant or workflow assignment scope."},
+        )
+        self.assertEqual(first["reliefrqst_id"], 95009)
+        self.assertEqual(load_request_mock.call_count, 2)
+        self.assertEqual(
+            OperationsEligibilityDecision.objects.filter(relief_request_id=95009).count(),
+            1,
         )
 
     @patch("operations.contract_services.cache.set")

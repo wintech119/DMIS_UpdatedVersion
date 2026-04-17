@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
+import { RequestDetailResponse } from '../models/operations.model';
 import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
 import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
 
@@ -589,5 +590,69 @@ describe('OperationsService', () => {
     expect(request.request.method).toBe('POST');
     expect(request.request.headers.get('Idempotency-Key')).toMatch(/^receipt-44-/);
     request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
+  });
+
+  describe('relief-request intake contract normalization', () => {
+    function flushRequest(payload: Record<string, unknown>): RequestDetailResponse {
+      let result: RequestDetailResponse | undefined;
+      service.getRequest(12).subscribe((value) => {
+        result = value;
+      });
+      const request = httpMock.expectOne('/api/v1/operations/requests/12');
+      expect(request.request.method).toBe('GET');
+      request.flush(payload);
+      if (!result) {
+        throw new Error('getRequest did not emit a value');
+      }
+      return result;
+    }
+
+    it('preserves canonical request_mode and all four tenant/agency IDs', () => {
+      const result = flushRequest({
+        reliefrqst_id: 12,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+        request_mode: 'FOR_SUBORDINATE',
+        requesting_tenant_id: 3,
+        requesting_agency_id: 17,
+        beneficiary_tenant_id: 5,
+        beneficiary_agency_id: 21,
+      });
+
+      expect(result.request_mode).toBe('FOR_SUBORDINATE');
+      expect(result.requesting_tenant_id).toBe(3);
+      expect(result.requesting_agency_id).toBe(17);
+      expect(result.beneficiary_tenant_id).toBe(5);
+      expect(result.beneficiary_agency_id).toBe(21);
+    });
+
+    it('falls back to origin_mode when request_mode is missing', () => {
+      const result = flushRequest({
+        reliefrqst_id: 12,
+        status_code: 'SUBMITTED',
+        origin_mode: 'FOR_SUBORDINATE',
+      });
+
+      expect(result.request_mode).toBe('FOR_SUBORDINATE');
+    });
+
+    it('remaps the legacy SUBORDINATE value to the canonical FOR_SUBORDINATE', () => {
+      const result = flushRequest({
+        reliefrqst_id: 12,
+        status_code: 'SUBMITTED',
+        request_mode: 'SUBORDINATE',
+      });
+
+      expect(result.request_mode).toBe('FOR_SUBORDINATE');
+    });
+
+    it('rejects unknown request_mode values via the canonical whitelist', () => {
+      const result = flushRequest({
+        reliefrqst_id: 12,
+        status_code: 'SUBMITTED',
+        request_mode: 'BOGUS',
+      });
+
+      expect(result.request_mode).toBeNull();
+    });
   });
 });

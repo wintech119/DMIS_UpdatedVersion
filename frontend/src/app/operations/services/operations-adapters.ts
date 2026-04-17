@@ -232,6 +232,23 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
   };
 }
 
+const CANONICAL_REQUEST_MODES = new Set<string>(['SELF', 'FOR_SUBORDINATE', 'ODPEM_BRIDGE']);
+
+function normalizeRequestMode(source: UnknownRecord): RequestSummary['request_mode'] {
+  const trimmedPrimary = asNullableString(source['request_mode'])?.trim() || null;
+  const trimmedFallback = asNullableString(source['origin_mode'])?.trim() || null;
+  const raw = (trimmedPrimary ?? trimmedFallback ?? '').toUpperCase();
+  if (!raw) {
+    return null;
+  }
+  // Legacy compatibility: the superseded 'SUBORDINATE' value maps to the
+  // canonical 'FOR_SUBORDINATE' backend contract.
+  const canonical = raw === 'SUBORDINATE' ? 'FOR_SUBORDINATE' : raw;
+  return CANONICAL_REQUEST_MODES.has(canonical)
+    ? (canonical as RequestSummary['request_mode'])
+    : null;
+}
+
 export function normalizeRequestSummary(raw: unknown): RequestSummary {
   const source = asRecord(raw);
   const VALID_STATUS_CODES = new Set<string>([
@@ -267,8 +284,12 @@ export function normalizeRequestSummary(raw: unknown): RequestSummary {
     execution_status: asNullableString(source['execution_status']),
     needs_list_id: asNullableNumber(source['needs_list_id']),
     compatibility_bridge: asBoolean(source['compatibility_bridge']),
-    request_mode: asNullableString(source['request_mode']) as RequestSummary['request_mode'],
+    request_mode: normalizeRequestMode(source),
     authority_context: asNullableString(source['authority_context']),
+    requesting_tenant_id: asNullableNumber(source['requesting_tenant_id']),
+    requesting_agency_id: asNullableNumber(source['requesting_agency_id']),
+    beneficiary_tenant_id: asNullableNumber(source['beneficiary_tenant_id']),
+    beneficiary_agency_id: asNullableNumber(source['beneficiary_agency_id']),
   };
 }
 

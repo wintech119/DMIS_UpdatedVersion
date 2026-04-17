@@ -150,6 +150,60 @@ describe('AppAccessService', () => {
     expect(access.canAccessNavKey('operations.dashboard')).toBeTrue();
   });
 
+  it('opens the create-route key for users with a relief-request creation capability', () => {
+    const access = setup({
+      permissions: [],
+      operationsCapabilities: buildOperationsCapabilities({
+        can_create_relief_request: true,
+        relief_request_submission_mode: 'self',
+      }),
+    });
+
+    expect(access.canAccessNavKey('operations.relief-requests.create')).toBeTrue();
+  });
+
+  it('opens the create-route key for on-behalf requesters even without a direct permission', () => {
+    const access = setup({
+      permissions: [],
+      operationsCapabilities: buildOperationsCapabilities({
+        can_create_relief_request_on_behalf: true,
+      }),
+    });
+
+    expect(access.canAccessNavKey('operations.relief-requests.create')).toBeTrue();
+  });
+
+  it('opens the create-route key when only a backend create permission is granted', () => {
+    const access = setup({
+      permissions: ['operations.request.create.for_subordinate'],
+    });
+
+    expect(access.canAccessNavKey('operations.relief-requests.create')).toBeTrue();
+  });
+
+  it('denies the create-route key for read-only queue viewers', () => {
+    const access = setup({
+      permissions: ['operations.queue.view'],
+    });
+
+    expect(access.canAccessNavKey('operations.relief-requests.create')).toBeFalse();
+    expect(access.canAccessNavKey('operations.relief-requests')).toBeTrue();
+  });
+
+  it('opens the edit-route key only for users holding operations.request.edit.draft', () => {
+    const editor = setup({
+      permissions: ['operations.request.edit.draft'],
+    });
+
+    expect(editor.canAccessNavKey('operations.relief-requests.edit')).toBeTrue();
+
+    const creatorOnly = setup({
+      permissions: ['operations.request.create.self'],
+    });
+
+    expect(creatorOnly.canAccessNavKey('operations.relief-requests.edit')).toBeFalse();
+  });
+
   it('uses backend eligibility permissions to expose the eligibility lane without a frontend role allowlist', () => {
     const directorAccess = setup({
       roles: ['ODPEM_DIR_PEOD'],

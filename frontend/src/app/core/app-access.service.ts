@@ -148,6 +148,8 @@ type NavAccessKey =
   | 'replenishment.procurement.receive'
   | 'operations.dashboard'
   | 'operations.relief-requests'
+  | 'operations.relief-requests.create'
+  | 'operations.relief-requests.edit'
   | 'operations.eligibility'
   | 'operations.fulfillment'
   | 'operations.dispatch'
@@ -214,6 +216,10 @@ export class AppAccessService {
         return this.canAccessAnyOperations();
       case 'operations.relief-requests':
         return this.canAccessReliefRequests();
+      case 'operations.relief-requests.create':
+        return this.canCreateReliefRequest();
+      case 'operations.relief-requests.edit':
+        return this.canEditReliefRequestDraft();
       case 'operations.eligibility':
         return this.canAccessEligibility();
       case 'operations.fulfillment':
@@ -302,6 +308,27 @@ export class AppAccessService {
       || Boolean(capabilities?.can_create_relief_request_on_behalf)
       || this.hasAnyPermission(OPERATIONS_REQUEST_PERMISSIONS)
       || this.hasPermission('operations.queue.view');
+  }
+
+  private canCreateReliefRequest(): boolean {
+    // Backend RBAC is the source of truth. These checks only shape UX for the
+    // create route so read-only viewers aren't deep-linked into the wizard.
+    const capabilities = this.auth.operationsCapabilities();
+    return Boolean(capabilities?.can_create_relief_request)
+      || Boolean(capabilities?.can_create_relief_request_on_behalf)
+      || this.hasAnyPermission([
+        'operations.request.create.self',
+        'operations.request.create.for_subordinate',
+        'operations.request.create.on_behalf_bridge',
+      ]);
+  }
+
+  canEditReliefRequestDraft(): boolean {
+    return this.hasPermission('operations.request.edit.draft');
+  }
+
+  canSubmitReliefRequest(): boolean {
+    return this.hasPermission('operations.request.submit');
   }
 
   private canAccessEligibility(): boolean {

@@ -5,6 +5,42 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatTooltip } from '@angular/material/tooltip';
 
 import { RequestItemsStepComponent } from './request-items-step.component';
+import { trimmedRequiredValidator } from '../relief-request-wizard.component';
+
+const REQUEST_REASON_MAX_LENGTH = 255;
+const REQUEST_NOTES_MAX_LENGTH = 500;
+
+function syncRequestNotesValidators(form: FormGroup): void {
+  const notes = form.get('rqst_notes_text')!;
+  notes.setValidators(
+    form.get('urgency_ind')?.value === 'H'
+      ? [trimmedRequiredValidator, Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)]
+      : [Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)],
+  );
+  notes.updateValueAndValidity({ emitEvent: false });
+}
+
+function syncItemReasonValidators(itemGroup: FormGroup): void {
+  const reason = itemGroup.get('rqst_reason_desc')!;
+  const urgency = itemGroup.get('urgency_ind')?.value;
+  reason.setValidators(
+    urgency === 'C' || urgency === 'H'
+      ? [trimmedRequiredValidator, Validators.maxLength(REQUEST_REASON_MAX_LENGTH)]
+      : [Validators.maxLength(REQUEST_REASON_MAX_LENGTH)],
+  );
+  reason.updateValueAndValidity({ emitEvent: false });
+}
+
+function wireUrgencyValidation(form: FormGroup, itemsArray: FormArray): void {
+  syncRequestNotesValidators(form);
+  form.get('urgency_ind')?.valueChanges.subscribe(() => syncRequestNotesValidators(form));
+
+  itemsArray.controls.forEach((group) => {
+    const itemGroup = group as FormGroup;
+    syncItemReasonValidators(itemGroup);
+    itemGroup.get('urgency_ind')?.valueChanges.subscribe(() => syncItemReasonValidators(itemGroup));
+  });
+}
 
 describe('RequestItemsStepComponent', () => {
   let fixture: ComponentFixture<RequestItemsStepComponent>;
@@ -22,19 +58,20 @@ describe('RequestItemsStepComponent', () => {
       agency_id: new FormControl<number | null>(null, Validators.required),
       eligible_event_id: new FormControl<number | null>(null),
       urgency_ind: new FormControl<string | null>(null, Validators.required),
-      rqst_notes_text: new FormControl(''),
+      rqst_notes_text: new FormControl('', [Validators.maxLength(REQUEST_NOTES_MAX_LENGTH)]),
       items: new FormArray([
         new FormGroup({
           item_id: new FormControl<number | string | null>(null, Validators.required),
           item_name: new FormControl(''),
           request_qty: new FormControl<number | null>(1, [Validators.required, Validators.min(1)]),
           urgency_ind: new FormControl<string | null>(null),
-          rqst_reason_desc: new FormControl(''),
+          rqst_reason_desc: new FormControl('', [Validators.maxLength(REQUEST_REASON_MAX_LENGTH)]),
           required_by_date: new FormControl<string | null>(null),
         }),
       ]),
     });
     component.itemsArray = component.form.get('items') as FormArray;
+    wireUrgencyValidation(component.form, component.itemsArray);
     component.onAddItem = jasmine.createSpy('onAddItem');
     component.onRemoveItem = jasmine.createSpy('onRemoveItem');
     component.agencyOptions = [{ value: 12, label: 'St. Mary Parish Council' }];
@@ -97,5 +134,57 @@ describe('RequestItemsStepComponent', () => {
     expect(component.requestingAgencyTooltip).toBe(
       'Choose whether this request is for your organisation or an agency you manage.',
     );
+  });
+
+  it('flags item reason entries longer than 255 characters and renders the bound error', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+
+    reason.setValue('x'.repeat(256));
+    reason.markAsTouched();
+    fixture.detectChanges();
+
+    expect(reason.hasError('maxlength')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Reason must be 255 characters or fewer.');
+  });
+
+  it('requires the item reason when the line urgency is C or H', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+    itemGroup.get('urgency_ind')!.setValue('C');
+    reason.markAsTouched();
+    fixture.detectChanges();
+
+    expect(reason.hasError('required')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Required for C/H');
+  });
+
+  it('rejects whitespace-only item reasons as a C/H justification', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    const reason = itemGroup.get('rqst_reason_desc')!;
+    itemGroup.get('urgency_ind')!.setValue('C');
+
+    reason.setValue('    ');
+    reason.markAsTouched();
+    fixture.detectChanges();
+    expect(reason.hasError('required')).toBeTrue();
+
+    reason.setValue('Surge shortfall at staging point.');
+    fixture.detectChanges();
+    expect(reason.hasError('required')).toBeFalse();
+    expect(reason.valid).toBeTrue();
+  });
+
+  it('surfaces the high-urgency justification error on the request notes field', () => {
+    const notes = component.form.get('rqst_notes_text')!;
+    component.form.get('urgency_ind')!.setValue('H');
+    notes.markAsTouched();
+    fixture.detectChanges();
+
+    expect(notes.hasError('required')).toBeTrue();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Justification is required for high-urgency requests.');
   });
 });

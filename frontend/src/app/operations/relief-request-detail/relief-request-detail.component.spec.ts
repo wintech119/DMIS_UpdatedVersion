@@ -40,7 +40,10 @@ describe('ReliefRequestDetailComponent', () => {
     compatibility_bridge: false,
   };
 
-  function buildDetail(packageOverrides: Partial<PackageSummary>): RequestDetailResponse {
+  function buildDetail(
+    packageOverrides: Partial<PackageSummary>,
+    detailOverrides: Partial<RequestDetailResponse> = {},
+  ): RequestDetailResponse {
     const pkg: PackageSummary = { ...basePackage, ...packageOverrides };
     return {
       reliefrqst_id: 95009,
@@ -71,8 +74,13 @@ describe('ReliefRequestDetailComponent', () => {
       compatibility_bridge: false,
       request_mode: null,
       authority_context: null,
+      requesting_tenant_id: 3,
+      requesting_agency_id: 17,
+      beneficiary_tenant_id: 5,
+      beneficiary_agency_id: 21,
       items: [],
       packages: [pkg],
+      ...detailOverrides,
     };
   }
 
@@ -112,8 +120,14 @@ describe('ReliefRequestDetailComponent', () => {
       'showSuccess',
       'showWarning',
     ]);
-    appAccess = jasmine.createSpyObj<AppAccessService>('AppAccessService', ['canAccessNavKey']);
+    appAccess = jasmine.createSpyObj<AppAccessService>('AppAccessService', [
+      'canAccessNavKey',
+      'canEditReliefRequestDraft',
+      'canSubmitReliefRequest',
+    ]);
     appAccess.canAccessNavKey.and.returnValue(true);
+    appAccess.canEditReliefRequestDraft.and.returnValue(true);
+    appAccess.canSubmitReliefRequest.and.returnValue(true);
     dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
   });
 
@@ -179,5 +193,122 @@ describe('ReliefRequestDetailComponent', () => {
     expect(
       component.packageDispatchAction(component.request()!.packages[0]).disabled,
     ).toBeFalse();
+  });
+
+  it('renders request mode on the detail page', async () => {
+    await createComponent(buildDetail({}, { request_mode: 'FOR_SUBORDINATE' }));
+
+    const host = fixture.nativeElement as HTMLElement;
+    const strip = host.querySelector('.ops-context-strip');
+    expect(strip).not.toBeNull();
+    expect(strip?.getAttribute('aria-label')).toBe('Request intake context');
+    expect(strip?.textContent).toContain('Request mode');
+    expect(strip?.textContent).toContain('For subordinate');
+  });
+
+  it('keeps the Submitted lifecycle step pending while the request is still a draft', async () => {
+    await createComponent(
+      buildDetail(
+        { status_code: 'DRAFT', execution_status: 'DRAFT' },
+        { status_code: 'DRAFT', review_dtime: null, create_dtime: '2026-03-26T08:00:00Z' },
+      ),
+    );
+
+    const submittedStep = component.workflow().find((step) => step.label === 'Submitted')!;
+    expect(submittedStep.tone).toBe('muted');
+    expect(submittedStep.detail).toBe('Pending submit');
+    expect(submittedStep.timestamp).toBeUndefined();
+  });
+
+  it('marks the Submitted lifecycle step complete once the request advances past DRAFT', async () => {
+    await createComponent(
+      buildDetail(
+        {},
+        { status_code: 'UNDER_ELIGIBILITY_REVIEW', review_dtime: null },
+      ),
+    );
+
+    const submittedStep = component.workflow().find((step) => step.label === 'Submitted')!;
+    expect(submittedStep.tone).toBe('review');
+    expect(submittedStep.detail).toBe('Sent to review');
+  });
+
+  it('renders draft write actions only when the matching request-side permissions are granted', async () => {
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionButtons = () => Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+
+    expect(actionButtons().some((label) => label.includes('Edit Draft'))).toBeTrue();
+    expect(actionButtons().some((label) => label.includes('Submit for Review'))).toBeTrue();
+  });
+
+  it('hides Edit Draft when the user lacks operations.request.edit.draft', async () => {
+    appAccess.canEditReliefRequestDraft.and.returnValue(false);
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionButtons = Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+
+    expect(actionButtons.some((label) => label.includes('Edit Draft'))).toBeFalse();
+    expect(actionButtons.some((label) => label.includes('Submit for Review'))).toBeTrue();
+  });
+
+  it('hides Submit for Review when the user lacks operations.request.submit', async () => {
+    appAccess.canSubmitReliefRequest.and.returnValue(false);
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionButtons = Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+
+    expect(actionButtons.some((label) => label.includes('Edit Draft'))).toBeTrue();
+    expect(actionButtons.some((label) => label.includes('Submit for Review'))).toBeFalse();
+  });
+
+  it('renders no draft write actions when the user holds neither request-side permission', async () => {
+    appAccess.canEditReliefRequestDraft.and.returnValue(false);
+    appAccess.canSubmitReliefRequest.and.returnValue(false);
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionLabels = Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+
+    expect(actionLabels.some((label) => label.includes('Edit Draft'))).toBeFalse();
+    expect(actionLabels.some((label) => label.includes('Submit for Review'))).toBeFalse();
+  });
+
+  it('renders tenant and agency context on the detail page', async () => {
+    await createComponent(
+      buildDetail(
+        {},
+        {
+          request_mode: 'FOR_SUBORDINATE',
+          requesting_tenant_id: 3,
+          requesting_agency_id: 17,
+          beneficiary_tenant_id: 5,
+          beneficiary_agency_id: 21,
+        },
+      ),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const strip = host.querySelector('.ops-context-strip');
+    const text = strip?.textContent ?? '';
+    expect(text).toContain('Requesting tenant 3');
+    expect(text).toContain('agency 17');
+    expect(text).toContain('Beneficiary tenant 5');
+    expect(text).toContain('agency 21');
   });
 });
