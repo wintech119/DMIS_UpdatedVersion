@@ -592,6 +592,42 @@ describe('OperationsService', () => {
     request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
   });
 
+  it('adds an idempotency key when submitting a relief request', () => {
+    service.submitRequest(12).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/submit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^request-submit-12-/);
+    request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
+  });
+
+  it('uses the caller-supplied idempotency key when replaying request submission', () => {
+    service.submitRequest(12, 'request-submit-12-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/submit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('request-submit-12-fixed');
+    request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
+  });
+
+  it('adds an idempotency key when submitting an eligibility decision', () => {
+    service.submitEligibilityDecision(12, { decision: 'APPROVED' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/eligibility/12/decision');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^eligibility-decision-12-/);
+    request.flush({ reliefrqst_id: 12, status_code: 'APPROVED_FOR_FULFILLMENT' });
+  });
+
+  it('uses the caller-supplied idempotency key when replaying an eligibility decision', () => {
+    service.submitEligibilityDecision(12, { decision: 'APPROVED' }, 'eligibility-decision-12-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/eligibility/12/decision');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('eligibility-decision-12-fixed');
+    request.flush({ reliefrqst_id: 12, status_code: 'APPROVED_FOR_FULFILLMENT' });
+  });
+
   describe('relief-request intake contract normalization', () => {
     function flushRequest(payload: Record<string, unknown>): RequestDetailResponse {
       let result: RequestDetailResponse | undefined;
@@ -798,6 +834,16 @@ describe('OperationsService', () => {
     it('createIdempotencyKey shapes override keys as override:<id>:<uuid>', () => {
       const key = service.createIdempotencyKey('override', 42);
       expect(key.startsWith('override:42:')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes request-submit keys as request-submit-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('request-submit', 12);
+      expect(key.startsWith('request-submit-12-')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes eligibility-decision keys as eligibility-decision-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('eligibility-decision', 12);
+      expect(key.startsWith('eligibility-decision-12-')).toBeTrue();
     });
 
     it('same idempotency key propagates on replay (same key -> same header)', () => {

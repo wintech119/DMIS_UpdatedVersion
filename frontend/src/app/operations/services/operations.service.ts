@@ -116,10 +116,19 @@ export class OperationsService {
     );
   }
 
-  submitRequest(reliefrqstId: number): Observable<RequestDetailResponse> {
-    return this.http.post<RequestDetailResponse>(`${this.apiUrl}/requests/${reliefrqstId}/submit`, {}).pipe(
-      map(normalizeRequestDetail),
-    );
+  submitRequest(
+    reliefrqstId: number,
+    idempotencyKey = this.createIdempotencyKey('request-submit', reliefrqstId),
+  ): Observable<RequestDetailResponse> {
+    return this.http.post<RequestDetailResponse>(
+      `${this.apiUrl}/requests/${reliefrqstId}/submit`,
+      {},
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    ).pipe(map(normalizeRequestDetail));
   }
 
   getEligibilityQueue(): Observable<RequestListResponse> {
@@ -139,10 +148,16 @@ export class OperationsService {
   submitEligibilityDecision(
     reliefrqstId: number,
     payload: EligibilityDecisionPayload,
+    idempotencyKey = this.createIdempotencyKey('eligibility-decision', reliefrqstId),
   ): Observable<EligibilityDetailResponse> {
     return this.http.post<EligibilityDetailResponse>(
       `${this.apiUrl}/eligibility/${reliefrqstId}/decision`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
     ).pipe(map(normalizeEligibilityDetail));
   }
 
@@ -436,13 +451,16 @@ export class OperationsService {
     );
   }
 
-  createIdempotencyKey(scope: 'dispatch' | 'receipt' | 'override', reliefpkgId: number): string {
+  createIdempotencyKey(
+    scope: 'dispatch' | 'receipt' | 'override' | 'request-submit' | 'eligibility-decision',
+    resourceId: number,
+  ): string {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     if (scope === 'override') {
-      return `override:${reliefpkgId}:${randomId}`;
+      return `override:${resourceId}:${randomId}`;
     }
-    return `${scope}-${reliefpkgId}-${randomId}`;
+    return `${scope}-${resourceId}-${randomId}`;
   }
 
   private isPreDispatchWaybillError(error: HttpErrorResponse): boolean {

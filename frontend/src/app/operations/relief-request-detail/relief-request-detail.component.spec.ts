@@ -1,8 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { AppAccessService } from '../../core/app-access.service';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
@@ -112,8 +113,10 @@ describe('ReliefRequestDetailComponent', () => {
   beforeEach(() => {
     operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
       'getRequest',
+      'createIdempotencyKey',
       'submitRequest',
     ]);
+    operationsService.createIdempotencyKey.and.returnValue('request-submit-95009-fixed');
     router = jasmine.createSpyObj<Router>('Router', ['navigate', 'navigateByUrl']);
     notifications = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
       'showError',
@@ -310,5 +313,28 @@ describe('ReliefRequestDetailComponent', () => {
     expect(text).toContain('agency 17');
     expect(text).toContain('Beneficiary tenant 5');
     expect(text).toContain('agency 21');
+  });
+
+  it('reuses the same idempotency key when submit-for-review is retried after an ambiguous failure', async () => {
+    await createComponent(
+      buildDetail(
+        { status_code: 'DRAFT', execution_status: 'DRAFT' },
+        { status_code: 'DRAFT', status_label: 'Draft', review_dtime: null },
+      ),
+    );
+    dialog.open.and.returnValue({
+      afterClosed: () => of(true),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.submitRequest.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.submitForReview();
+    component.submitForReview();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.submitRequest.calls.argsFor(0)).toEqual([95009, 'request-submit-95009-fixed']);
+    expect(operationsService.submitRequest.calls.argsFor(1)).toEqual([95009, 'request-submit-95009-fixed']);
   });
 });

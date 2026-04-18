@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
@@ -59,6 +60,7 @@ describe('EligibilityReviewDetailComponent', () => {
 
   beforeEach(async () => {
     operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
+      'createIdempotencyKey',
       'getEligibilityDetail',
       'submitEligibilityDecision',
     ]);
@@ -72,6 +74,7 @@ describe('EligibilityReviewDetailComponent', () => {
     appAccess.canAccessNavKey.and.returnValue(true);
 
     operationsService.getEligibilityDetail.and.returnValue(of(detailResponse));
+    operationsService.createIdempotencyKey.and.returnValue('eligibility-decision-70-fixed');
     operationsService.submitEligibilityDecision.and.returnValue(of({
       ...detailResponse,
       decision_made: true,
@@ -116,7 +119,7 @@ describe('EligibilityReviewDetailComponent', () => {
 
     expect(operationsService.submitEligibilityDecision).toHaveBeenCalledWith(70, {
       decision: 'APPROVED',
-    });
+    }, 'eligibility-decision-70-fixed');
   });
 
   it('submits the reject decision with the rejected contract code', () => {
@@ -129,7 +132,7 @@ describe('EligibilityReviewDetailComponent', () => {
     expect(operationsService.submitEligibilityDecision).toHaveBeenCalledWith(70, {
       decision: 'REJECTED',
       reason: 'Missing documentation',
-    });
+    }, 'eligibility-decision-70-fixed');
   });
 
   it('submits the ineligible decision with the ineligible contract code', () => {
@@ -142,7 +145,7 @@ describe('EligibilityReviewDetailComponent', () => {
     expect(operationsService.submitEligibilityDecision).toHaveBeenCalledWith(70, {
       decision: 'INELIGIBLE',
       reason: 'Outside the event scope',
-    });
+    }, 'eligibility-decision-70-fixed');
   });
 
   it('treats approved-for-fulfillment requests as fulfillment-ready in the workflow', () => {
@@ -316,5 +319,64 @@ describe('EligibilityReviewDetailComponent', () => {
     component.approve();
 
     expect(notifications.showError).toHaveBeenCalledWith('Decision reason is required.');
+  });
+
+  it('reuses the same idempotency key when the same eligibility decision is retried after an ambiguous failure', () => {
+    dialog.open.and.returnValue({
+      afterClosed: () => of(true),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.submitEligibilityDecision.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.approve();
+    component.approve();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.submitEligibilityDecision.calls.argsFor(0)).toEqual([
+      70,
+      { decision: 'APPROVED' },
+      'eligibility-decision-70-fixed',
+    ]);
+    expect(operationsService.submitEligibilityDecision.calls.argsFor(1)).toEqual([
+      70,
+      { decision: 'APPROVED' },
+      'eligibility-decision-70-fixed',
+    ]);
+  });
+
+  it('mints a new idempotency key when the decision payload changes after a failed attempt', () => {
+    dialog.open.and.returnValues(
+      {
+        afterClosed: () => of(true),
+      } as ReturnType<MatDialog['open']>,
+      {
+        afterClosed: () => of({ reason: 'Missing documentation' }),
+      } as ReturnType<MatDialog['open']>,
+    );
+    operationsService.createIdempotencyKey.and.returnValues(
+      'eligibility-decision-70-approve',
+      'eligibility-decision-70-reject',
+    );
+    operationsService.submitEligibilityDecision.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.approve();
+    component.deny();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(2);
+    expect(operationsService.submitEligibilityDecision.calls.argsFor(0)).toEqual([
+      70,
+      { decision: 'APPROVED' },
+      'eligibility-decision-70-approve',
+    ]);
+    expect(operationsService.submitEligibilityDecision.calls.argsFor(1)).toEqual([
+      70,
+      { decision: 'REJECTED', reason: 'Missing documentation' },
+      'eligibility-decision-70-reject',
+    ]);
   });
 });
