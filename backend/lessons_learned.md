@@ -76,3 +76,59 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches fulfillment routing, tenant scoping, workflow queues, or operational ownership rules, mention this lesson in the closeout and confirm the relevant regression tests were run.
+
+## Workflow-Safe Queue And Approval Signals
+
+### Symptom
+- Active fulfillment work disappeared from the Package Fulfillment queue when stale open assignments existed for already fulfilled requests.
+- Override no-self-approval checks could rely on request or package creators instead of the user who actually submitted the override for review.
+
+### Root Cause
+- Queue selection applied the 200-row cap before filtering out rows that were no longer active fulfillment work.
+- Override approval and rejection fallback logic used creator fields as a proxy for the override submitter even when workflow history contained a better signal.
+- Override approval response assembly reused the legacy pre-transition result instead of rebuilding from the final post-review package state.
+- Override approval also treated a review decision as physical fulfillment and advanced the request lifecycle too early.
+
+### Invariant
+- Workflow-sensitive queue limits must apply after status, authorization, and active-work filters.
+- Workflow-sensitive approval guards must prefer persisted workflow actors such as execution links or status-history transitions over creator heuristics.
+- Review-only approval decisions must not advance request fulfillment lifecycle state before downstream dispatch or receipt work occurs.
+- Workflow responses and cached idempotent payloads must reflect the final persisted post-transition state, not an intermediate legacy result captured before downstream routing logic runs.
+
+### Correct Architectural Rule
+- Treat queue assignment rows and creator fields as hints, not authoritative workflow truth, when later workflow state can invalidate them.
+- For fulfillment queues, only visible active-work rows should count toward list caps.
+- For override review, use the recorded actor who moved the package into pending override approval when available, then fall back only when no stronger workflow signal exists.
+
+### Regression Tests That Must Exist
+- The fulfillment queue still returns active work when 200+ stale fulfilled assignments exist ahead of it.
+- Override approval passes the actual pending-override submitter into downstream no-self-approval validation.
+- Override rejection blocks self-approval for the actual pending-override submitter, not merely the request creator.
+- Override approval keeps the request at `APPROVED_FOR_FULFILLMENT` until downstream dispatch or receipt transitions advance it.
+- Staged override approval responses return `CONSOLIDATING`, `READY_FOR_PICKUP`, or `READY_FOR_DISPATCH` when those are the final package outcomes, and the response matches persisted package state.
+
+### Closeout Expectation
+- If a change touches fulfillment queue visibility, override approval, or override rejection, mention this lesson in the closeout and confirm the related regression tests were run.
+
+## Frozen Outcome Semantics Must Match Workflow Labels
+
+### Symptom
+- An `override reject` endpoint reset the package back to `DRAFT`, cleared allocation lines, and reopened active fulfillment work even though the frozen design never defined that reject outcome.
+
+### Root Cause
+- The backlog required `Approve`, `Return for Adjustments`, and `Reject`, but the freeze only closed approval plus the existence of supervisor rejection.
+- Implementation filled the missing design gap by reusing a draft-reset helper, which silently turned `reject` into an unfrozen return-for-adjustments path.
+
+### Invariant
+- Workflow action labels such as `reject`, `cancel`, and `return for adjustments` must map only to outcomes explicitly frozen in the design.
+
+### Correct Architectural Rule
+- When the freeze names an action but does not define the resulting state, queue, and audit outcome, backend behavior must narrow to a documented design-gap error rather than inventing a new state transition.
+- Reusable helpers like allocation reset or cancel flows must not be reused under a different workflow label unless the frozen design explicitly equates those outcomes.
+
+### Regression Tests That Must Exist
+- Override rejection must not reset a package to `DRAFT` or reopen fulfillment work unless that exact outcome is frozen.
+- Reject-route tests must not encode return-for-adjustments semantics under a successful `reject` response.
+
+### Closeout Expectation
+- If a change touches workflow outcomes whose labels appear in the freeze but whose state effects are incomplete, call out the design gap explicitly in the closeout instead of treating current code behavior as the requirement.

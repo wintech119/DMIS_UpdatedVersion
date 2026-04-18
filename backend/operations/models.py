@@ -521,3 +521,38 @@ class OperationsStatusHistory(models.Model):
         indexes = [
             models.Index(fields=["entity_type", "entity_id", "changed_at"]),
         ]
+
+
+class OperationsActionAudit(models.Model):
+    action_audit_id = models.BigAutoField(primary_key=True)
+    entity_type = models.CharField(max_length=50, db_index=True)
+    entity_id = models.IntegerField(db_index=True)
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.SET_NULL,
+        related_name="action_audits",
+        blank=True,
+        null=True,
+    )
+    consolidation_leg = models.ForeignKey(
+        OperationsConsolidationLeg,
+        on_delete=models.SET_NULL,
+        related_name="action_audits",
+        blank=True,
+        null=True,
+    )
+    tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    warehouse_id = models.IntegerField(blank=True, null=True, db_index=True)
+    action_code = models.CharField(max_length=80, db_index=True)
+    action_reason = models.TextField(blank=True, null=True)
+    artifact_reference = models.CharField(max_length=255, blank=True, null=True)
+    acted_by_user_id = models.CharField(max_length=50)
+    acted_by_role_code = models.CharField(max_length=50)
+    acted_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "operations_action_audit"
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id", "acted_at"]),
+            models.Index(fields=["action_code", "acted_at"]),
+        ]

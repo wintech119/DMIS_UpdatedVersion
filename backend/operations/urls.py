@@ -23,6 +23,8 @@ from operations.views import (
     operations_package_draft,
     operations_package_unlock,
     operations_package_override_approve,
+    operations_package_override_return,
+    operations_package_override_reject,
     operations_packages_queue,
     operations_partial_release_approve,
     operations_partial_release_request,
@@ -80,6 +82,16 @@ urlpatterns = [
         "packages/<int:reliefrqst_id>/allocations/override-approve",
         operations_package_override_approve,
         name="operations_package_override_approve",
+    ),
+    path(
+        "packages/<int:reliefrqst_id>/allocations/override-return",
+        operations_package_override_return,
+        name="operations_package_override_return",
+    ),
+    path(
+        "packages/<int:reliefrqst_id>/allocations/override-reject",
+        operations_package_override_reject,
+        name="operations_package_override_reject",
     ),
     path(
         "packages/<int:reliefpkg_id>/consolidation-legs",

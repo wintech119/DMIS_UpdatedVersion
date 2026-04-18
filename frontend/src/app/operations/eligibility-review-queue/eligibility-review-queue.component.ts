@@ -60,7 +60,12 @@ function requestTimestampValue(
   const candidates = [row.create_dtime, row.request_date];
   for (const candidate of candidates) {
     const value = typeof candidate === 'string' ? candidate.trim() : '';
-    if (value) {
+    if (!value) {
+      continue;
+    }
+
+    const stamp = new Date(value).getTime();
+    if (Number.isFinite(stamp)) {
       return value;
     }
   }
@@ -76,8 +81,7 @@ function requestTimestampMs(
     return fallbackMs;
   }
 
-  const stamp = new Date(value).getTime();
-  return Number.isFinite(stamp) ? stamp : fallbackMs;
+  return new Date(value).getTime();
 }
 
 function oldestAgeHours(rows: readonly RequestSummary[]): number {
