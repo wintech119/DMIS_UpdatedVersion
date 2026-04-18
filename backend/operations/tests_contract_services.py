@@ -1272,20 +1272,16 @@ class OperationsWorkflowContractTests(TestCase):
                 idempotency_key="override-reject-70",
             )
 
+    @patch("operations.contract_services.reset_package_allocations")
     @patch("operations.contract_services.operations_policy.get_agency_scope")
-    @patch("operations.contract_services._delete_legacy_allocation_lines", return_value=0)
-    @patch("operations.contract_services._legacy_allocation_line_count", return_value=0)
-    @patch("operations.contract_services.legacy_service._load_package")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
-    def test_reject_override_returns_request_to_active_fulfillment_work(
+    def test_reject_override_blocks_unfrozen_return_for_adjustments_semantics(
         self,
         load_request_mock,
         current_package_mock,
-        load_package_mock,
-        _legacy_line_count_mock,
-        _delete_legacy_lines_mock,
         get_agency_scope_mock,
+        reset_package_allocations_mock,
     ) -> None:
         request_record = self._create_operations_request_record()
         package_record = OperationsPackage.objects.create(
@@ -1334,17 +1330,17 @@ class OperationsWorkflowContractTests(TestCase):
         )
         load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = package
-        load_package_mock.return_value = package
         get_agency_scope_mock.return_value = self.agency_scope
 
-        result = contract_services.reject_override(
-            70,
-            payload={"reason": "Rebuild with compliant stock order."},
-            actor_id="manager-1",
-            actor_roles=[ROLE_LOGISTICS_MANAGER],
-            tenant_context=self.dispatch_ready_context,
-            idempotency_key="override-reject-70",
-        )
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.reject_override(
+                70,
+                payload={"reason": "Rebuild with compliant stock order."},
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-reject-70",
+            )
 
         package_record.refresh_from_db()
         request_record.refresh_from_db()
@@ -1360,16 +1356,19 @@ class OperationsWorkflowContractTests(TestCase):
             entity_id=70,
             assigned_role_code=ROLE_LOGISTICS_OFFICER,
         )
-        self.assertEqual(result["status"], PACKAGE_STATUS_DRAFT)
-        self.assertTrue(result["override_rejected"])
-        self.assertEqual(result["reason"], "Rebuild with compliant stock order.")
-        self.assertEqual(package_record.status_code, PACKAGE_STATUS_DRAFT)
-        self.assertIsNone(package_record.override_status_code)
-        self.assertFalse(
-            OperationsAllocationLine.objects.filter(package_id=90).exists()
+        self.assertEqual(
+            raised.exception.errors["override"],
+            contract_services.OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE,
         )
+        reset_package_allocations_mock.assert_not_called()
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
+        self.assertEqual(
+            package_record.override_status_code,
+            PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+        )
+        self.assertTrue(OperationsAllocationLine.objects.filter(package_id=90).exists())
         self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
-        self.assertEqual(override_assignment.assignment_status, "CANCELLED")
+        self.assertEqual(override_assignment.assignment_status, "OPEN")
         self.assertEqual(fulfillment_assignment.assignment_status, "OPEN")
 
     def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:

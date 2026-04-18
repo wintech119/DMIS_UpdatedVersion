@@ -1337,8 +1337,18 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
-    @patch("operations.views.operations_service.reject_override", return_value={"reliefrqst_id": 70, "status": "DRAFT"})
-    def test_package_override_reject_forwards_payload_context_and_idempotency(
+    @patch(
+        "operations.views.operations_service.reject_override",
+        side_effect=OperationValidationError(
+            {
+                "override": (
+                    "Override rejection outcome is not yet defined by the frozen design; "
+                    "return-for-adjustments remains unresolved."
+                )
+            }
+        ),
+    )
+    def test_package_override_reject_surfaces_design_gap_without_success_semantics(
         self,
         mock_reject_override,
         _mock_roles,
@@ -1352,7 +1362,18 @@ class OperationsApiTests(SimpleTestCase):
             HTTP_IDEMPOTENCY_KEY="override-reject-70",
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "errors": {
+                    "override": (
+                        "Override rejection outcome is not yet defined by the frozen design; "
+                        "return-for-adjustments remains unresolved."
+                    )
+                }
+            },
+        )
         self.assertEqual(mock_reject_override.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_reject_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_reject_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)

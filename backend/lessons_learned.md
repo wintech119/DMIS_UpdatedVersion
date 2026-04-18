@@ -103,3 +103,26 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches fulfillment queue visibility, override approval, or override rejection, mention this lesson in the closeout and confirm the related regression tests were run.
+
+## Frozen Outcome Semantics Must Match Workflow Labels
+
+### Symptom
+- An `override reject` endpoint reset the package back to `DRAFT`, cleared allocation lines, and reopened active fulfillment work even though the frozen design never defined that reject outcome.
+
+### Root Cause
+- The backlog required `Approve`, `Return for Adjustments`, and `Reject`, but the freeze only closed approval plus the existence of supervisor rejection.
+- Implementation filled the missing design gap by reusing a draft-reset helper, which silently turned `reject` into an unfrozen return-for-adjustments path.
+
+### Invariant
+- Workflow action labels such as `reject`, `cancel`, and `return for adjustments` must map only to outcomes explicitly frozen in the design.
+
+### Correct Architectural Rule
+- When the freeze names an action but does not define the resulting state, queue, and audit outcome, backend behavior must narrow to a documented design-gap error rather than inventing a new state transition.
+- Reusable helpers like allocation reset or cancel flows must not be reused under a different workflow label unless the frozen design explicitly equates those outcomes.
+
+### Regression Tests That Must Exist
+- Override rejection must not reset a package to `DRAFT` or reopen fulfillment work unless that exact outcome is frozen.
+- Reject-route tests must not encode return-for-adjustments semantics under a successful `reject` response.
+
+### Closeout Expectation
+- If a change touches workflow outcomes whose labels appear in the freeze but whose state effects are incomplete, call out the design gap explicitly in the closeout instead of treating current code behavior as the requirement.

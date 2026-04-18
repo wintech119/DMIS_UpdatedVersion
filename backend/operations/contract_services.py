@@ -5979,6 +5979,12 @@ def approve_override(
     return result
 
 
+OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE = (
+    "Override rejection outcome is not yet defined by the frozen design; "
+    "return-for-adjustments remains unresolved."
+)
+
+
 @_release_idempotency_reservation_on_error
 @transaction.atomic
 def reject_override(
@@ -6036,20 +6042,12 @@ def reject_override(
         submitter_user_id=allocator_user_id,
         needs_list_submitted_by=allocator_user_id,
     )
-    result = reset_package_allocations(
-        int(package_record.package_id),
-        actor_id=actor_id,
-        status_transition_reason=reason_text,
+    # The current freeze allows supervisor rejection but does not freeze the
+    # resulting package/request workflow outcome. Do not smuggle an unfrozen
+    # return-for-adjustments reset path behind the word "reject".
+    raise OperationValidationError(
+        {"override": OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE}
     )
-    result["override_rejected"] = True
-    result["reason"] = reason_text
-    _cache_idempotent_response_after_commit(
-        idempotency.cache_key,
-        result,
-        reservation_key=idempotency.reservation_key,
-        reservation_token=idempotency.reservation_token,
-    )
-    return result
 
 
 @_release_idempotency_reservation_on_error
