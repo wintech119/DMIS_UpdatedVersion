@@ -204,13 +204,15 @@ The following rules override any earlier simplified assumptions:
 - users must not be able to view or act on consolidation packages, legs, or artifacts outside their authorized tenant and role scope
 - invalid status transitions and duplicate processing must be blocked for all consolidation, staging receipt, pickup release, and staged dispatch actions
 
-### Staged audit write contract
+### Override and staged audit write contract
 
 - `operations_status_history` is authoritative for lifecycle status transitions
-- `operations_action_audit` is authoritative for immutable operational action evidence on staged/consolidation workflow actions
-- when an action both changes status and represents a material staged/consolidation operation, both records must be written
-- for this staged/consolidation slice, the following actions must write both `operations_status_history` and `operations_action_audit`:
-  - staged override approval when it changes the package out of `PENDING_OVERRIDE_APPROVAL`
+- `operations_action_audit` is authoritative for immutable operational action evidence on override, staged, and consolidation workflow actions
+- when an action both changes status and represents a material override, staged, or consolidation operation, both records must be written
+- for this override/staged/consolidation slice, the following actions must write both `operations_status_history` and `operations_action_audit`:
+  - override approval when it changes the package out of `PENDING_OVERRIDE_APPROVAL`
+  - override return for adjustments when it changes the package out of `PENDING_OVERRIDE_APPROVAL`
+  - override rejection when it changes the package out of `PENDING_OVERRIDE_APPROVAL`
   - consolidation leg dispatch
   - consolidation leg receipt
   - pickup release completion
@@ -218,7 +220,7 @@ The following rules override any earlier simplified assumptions:
   - partial release approval
 - `operations_partial_release_request` remains the workflow record for the request/approval transaction, but it does not replace either audit table
 - actions that create immutable artifacts without changing lifecycle status may write `operations_action_audit` only
-- status-only transitions outside staged/consolidation operations may write `operations_status_history` without `operations_action_audit`
+- status-only transitions outside override, staged, and consolidation operations may write `operations_status_history` without `operations_action_audit`
 
 ### First-class database ownership rules
 
@@ -578,7 +580,34 @@ Page must:
 - show non-compliant allocation plan
 - show reason for override
 - enforce no-self-approval
-- allow supervisor approval or rejection
+- allow authorized supervisor review actions for `Approve`, `Return for Adjustments`, and `Reject`
+- keep all three FR05.08 manager actions on the same override review surface so frontend does not infer separate action lanes
+
+#### 12A. FR05.08 frozen override review decision model
+
+Freeze rules:
+
+- `PENDING_OVERRIDE_APPROVAL` is a package-level review state for a non-compliant allocation plan that has not yet reserved stock
+- `Approve`, `Return for Adjustments`, and `Reject` are distinct outcomes and must not be collapsed into synonyms in backend or frontend behavior
+- `operations_package.override_status_code` is the current override-review state field with these Phase 1 values:
+  - `PENDING_APPROVAL`
+  - `APPROVED`
+  - `RETURNED_FOR_ADJUSTMENT`
+  - `REJECTED`
+- the Phase 1 actor for all three outcomes is the `Logistics Manager`; future supervisor expansion may reuse the same flow only if the same no-self-approval rule and permission gate are preserved
+- the existing `operations.package.override.approve` permission is the Phase 1 gate for the full FR05.08 override-review surface, not only the approve button
+
+| Action | Actor | Required permission | Required reason/comment | Allowed starting state | Resulting package state | Resulting override-review state | Stock effect | Allocation effect | Queue / notification effect | Audit / status write requirements | Editable afterward |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Approve | `Logistics Manager` | `operations.package.override.approve` | Approval comment optional | `PENDING_OVERRIDE_APPROVAL` | Follow the same post-commit state as a compliant commit: `COMMITTED` for direct packages, `CONSOLIDATING` for staged packages with off-staging source stock, or `READY_FOR_PICKUP` / `READY_FOR_DISPATCH` when all staged stock is already at the selected staging hub | `APPROVED` | Reserve stock | Keep the reviewed allocation rows as the committed package lines; do not clear or transform them | Remove from override approval queue; notify the originating fulfillment actor; then let the package enter the normal direct/staged downstream queue for its resulting package state | Write both `operations_status_history` and `operations_action_audit`; store actor, role, timestamp, package id, resulting state, and any approval comment | No |
+| Return for Adjustments | `Logistics Manager` | `operations.package.override.approve` | Return reason required | `PENDING_OVERRIDE_APPROVAL` | `DRAFT` | `RETURNED_FOR_ADJUSTMENT` | None | Keep the current allocation rows as editable draft lines so the fulfillment actor can revise the same package; preserve the original override reason and the manager return reason | Remove from override approval queue; notify the originating fulfillment actor; return the package to active fulfillment work; do not add the package to dispatch, consolidation, or pickup queues | Write both `operations_status_history` and `operations_action_audit`; store actor, role, timestamp, package id, and required return reason | Yes, under normal package-lock rules |
+| Reject | `Logistics Manager` | `operations.package.override.approve` | Reject reason required | `PENDING_OVERRIDE_APPROVAL` | `REJECTED` | `REJECTED` | None | Keep the reviewed allocation rows as read-only rejected evidence on that package record; do not auto-clear, auto-transform, or auto-reopen them | Remove from override approval queue; notify the originating fulfillment actor; do not route the rejected package into fulfillment, dispatch, consolidation, or pickup queues; further fulfillment requires a separate package draft if open quantities still remain on the request | Write both `operations_status_history` and `operations_action_audit`; store actor, role, timestamp, package id, and required reject reason | No |
+
+Relief request lifecycle effect:
+
+- `Approve` uses the normal package-commit rule: if this is the first committed package for a request, the relief request moves from `APPROVED_FOR_FULFILLMENT` to `PARTIALLY_FULFILLED`; otherwise the relief request lifecycle is unchanged until later package/dispatch events occur
+- `Return for Adjustments` does not change the relief request lifecycle state; the request remains visible for fulfillment work while open quantities remain
+- `Reject` does not change the relief request lifecycle state; the rejected package attempt closes, but the request remains fulfillable through a separate package draft while open quantities remain
 
 #### 13. Dispatch Queue
 
@@ -672,6 +701,8 @@ Page must:
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for `DIRECT` package | Authorized supervisor | `COMMITTED` | Reserve stock | No self-approval; direct mode follows the direct dispatch lane |
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for staged package with off-staging source stock | Authorized supervisor | `CONSOLIDATING` | Reserve stock | No self-approval; create or retain consolidation plan and legs |
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for staged package when all allocated stock is already at selected staging hub | Authorized supervisor | `READY_FOR_PICKUP` or `READY_FOR_DISPATCH` | Reserve stock | No self-approval; apply the same staged-ready bypass rule used for compliant staged commit |
+| `PENDING_OVERRIDE_APPROVAL` | Return override package for adjustments | Logistics Manager | `DRAFT` | None | Reason required; keep allocation rows editable on the same package; remove from override queue and return to fulfillment work |
+| `PENDING_OVERRIDE_APPROVAL` | Reject override package | Logistics Manager | `REJECTED` | None | Reason required; keep allocation rows as read-only rejected evidence; the request stays fulfillable through a separate package draft if open quantities remain |
 | `COMMITTED` | Finalize transport prep | Dispatch role | `READY_FOR_DISPATCH` | None | Transport artifact required where applicable |
 | `CONSOLIDATING` | All required stock received at staging for pickup mode | System | `READY_FOR_PICKUP` | None | Package-level consolidation status becomes `ALL_RECEIVED` |
 | `CONSOLIDATING` | All required stock received at staging for deliver-from-staging mode | System | `READY_FOR_DISPATCH` | None | Final dispatch source becomes staging hub |
@@ -721,7 +752,9 @@ Internal workflow notifications are in scope.
 | Relief Request rejected / ineligible | Approver | Request owner | Close or remove active work item | Yes |
 | Package lock acquired | Fulfillment actor | Fulfillment team as needed | Show locked state | Yes |
 | Override requested | Fulfillment actor | Override approver cohort | Add to override approval queue | Yes |
-| Override approved | Supervisor approver | Fulfillment actor | Return item to active fulfillment flow | Yes |
+| Override approved | Supervisor approver | Fulfillment actor | Remove from override queue; then follow normal package-commit routing for the resulting package state | Yes |
+| Override returned for adjustments | Supervisor approver | Fulfillment actor | Remove from override queue and return the same package to active fulfillment work | Yes |
+| Override rejected | Supervisor approver | Fulfillment actor | Remove from override queue; close the rejected package work item; request remains visible for a separate package draft if open quantities remain | Yes |
 | Staged package committed | Fulfillment actor | Consolidation-capable roles | Add to consolidation queue | Yes |
 | Direct package committed | Fulfillment actor | Dispatch-capable roles | Add to dispatch queue | Yes |
 | Consolidation leg dispatched | Dispatch-capable role | Staging receipt actors, package owner roles | Add to staging receipt queue | Yes |
@@ -750,6 +783,10 @@ Internal workflow notifications are in scope.
 | Staging receiver / releasing actor | Staging hub operational scope | `operations.consolidation.leg.receive`, `operations.pickup_release.execute`, `operations.artifact.view`, `operations.notification.receive`, limited `operations.queue.view` |
 | Receiver / receiving agency actor | Receiving tenant | `operations.receipt.confirm`, `operations.waybill.view`, `operations.notification.receive`, limited `operations.queue.view` |
 | Auditor / read-only oversight | Authorized read-only scope | Read-only Operations and artifact view permissions only |
+
+Permission note:
+
+- `operations.package.override.approve` is the Phase 1 permission gate for the full FR05.08 override-review decision surface: approve, return for adjustments, and reject
 
 Freeze rule:
 
@@ -874,9 +911,9 @@ operations_package
 - staging_override_reason nullable
 - destination_tenant_id FK tenant nullable
 - destination_agency_id FK agency nullable
-- status_code
+- status_code  # package lifecycle includes terminal REJECTED for override-review rejection
 - consolidation_status_code nullable
-- override_status_code nullable
+- override_status_code (PENDING_APPROVAL / APPROVED / RETURNED_FOR_ADJUSTMENT / REJECTED) nullable
 - committed_at nullable
 - dispatched_at nullable
 - received_at nullable
@@ -1126,7 +1163,7 @@ operations_status_history
 Schema note:
 
 - `operations_status_history` is the authoritative transition ledger for lifecycle status changes
-- `operations_action_audit` is the authoritative immutable evidence ledger for staged and consolidation actions
+- `operations_action_audit` is the authoritative immutable evidence ledger for override, staged, and consolidation actions
 - implementation planning must treat the two tables as complementary, not interchangeable
 
 ## Impacted Areas

@@ -75,6 +75,7 @@ Publish the real Operations backend contract before frontend work proceeds.
 - [ ] Request create/edit/detail contract finalized
 - [ ] Eligibility queue/detail/decision contract finalized
 - [ ] Package queue/detail/allocation/override contract finalized
+  - [ ] FR05.08 override review outcomes frozen for approve / return for adjustments / reject, including package state, reservation effect, queue routing, and audit expectations
 - [ ] Dispatch queue/detail/handoff/waybill contract finalized
 - [ ] Receipt confirmation contract finalized or explicitly stubbed with frozen shape
 - [ ] Notification / queue payload shape finalized
@@ -129,6 +130,7 @@ Build the live Angular Operations path on top of the frozen backend contract and
 - [ ] Build role-correct queues and screens for:
   - [ ] eligibility
   - [ ] package fulfillment
+  - [ ] override review with approve / return / reject on one manager review surface
   - [ ] dispatch
   - [ ] receipt confirmation
 - [ ] Show notifications and next-action tasks in the UI
