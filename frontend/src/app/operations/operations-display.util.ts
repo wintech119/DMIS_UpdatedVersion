@@ -1,3 +1,5 @@
+import { HttpErrorResponse } from '@angular/common/http';
+
 import { PackageLegSummary, PackageSummary, RequestSummary } from './models/operations.model';
 
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
@@ -502,6 +504,77 @@ export function extractOperationsErrorMessage(value: unknown): string | null {
     if (isOperationsRecord(value['errors'])) {
       const nested = Object.values(value['errors']).map(extractOperationsErrorMessage).find(Boolean);
       return nested ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Translate an {@link HttpErrorResponse} into a user-facing message.
+ *
+ * For 429 responses, the backend sends a `Retry-After` header (seconds). We
+ * surface it in the toast so Kemar knows when to try again, rather than
+ * seeing a generic "Too many requests" line.
+ */
+export function extractOperationsHttpErrorMessage(
+  error: HttpErrorResponse,
+  fallback: string,
+): string {
+  if (error.status === 429) {
+    const retrySeconds = parseRetryAfterSeconds(error.headers?.get?.('Retry-After'));
+    const base = extractOperationsErrorMessage(error.error) ?? 'Too many requests.';
+    return retrySeconds > 0 ? `${base} Try again in ${retrySeconds}s.` : base;
+  }
+  const errorMap = isOperationsRecord(error.error)
+    ? error.error['errors']
+    : null;
+  if (isOperationsRecord(errorMap)) {
+    const messages = Object.values(errorMap)
+      .flatMap((value) => Array.isArray(value) ? value : [value])
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean);
+    if (messages.length) {
+      return messages[0];
+    }
+  }
+  return extractOperationsErrorMessage(error.error) ?? fallback;
+}
+
+function parseRetryAfterSeconds(headerValue: string | null | undefined): number {
+  if (!headerValue) {
+    return 0;
+  }
+  const parsed = Number(headerValue);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.round(parsed);
+  }
+  const parsedDate = Date.parse(headerValue);
+  if (Number.isFinite(parsedDate)) {
+    return Math.max(0, Math.round((parsedDate - Date.now()) / 1000));
+  }
+  return 0;
+}
+
+/**
+ * Attempt to read an audit correlation id from either the response body
+ * (action_id / audit_log_id) or the HTTP headers (X-Request-Id /
+ * X-Correlation-Id). Returns null when neither is present so callers can
+ * omit the reference row rather than fabricate one.
+ */
+export function readOperationsAuditReferenceId(
+  error: HttpErrorResponse | null,
+  body: { action_id?: string | number | null; audit_log_id?: string | number | null } | null | undefined,
+  headers?: { get: (name: string) => string | null } | null,
+): string | null {
+  const bodyRef = body?.action_id ?? body?.audit_log_id ?? null;
+  if (bodyRef != null && String(bodyRef).trim()) {
+    return String(bodyRef).trim();
+  }
+  const source = headers ?? error?.headers ?? null;
+  if (source && typeof source.get === 'function') {
+    const requestId = source.get('X-Request-Id') ?? source.get('X-Correlation-Id');
+    if (requestId && requestId.trim()) {
+      return requestId.trim();
     }
   }
   return null;

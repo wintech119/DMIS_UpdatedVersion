@@ -1,8 +1,9 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { PackageQueueItem } from '../models/operations.model';
@@ -100,5 +101,71 @@ describe('PackageFulfillmentQueueComponent', () => {
         }),
       ),
     ).toBeFalse();
+  });
+
+  it('excludes DISPATCHED, RECEIVED, and REJECTED rows from the active-work queue', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 1, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({ reliefrqst_id: 2, status_code: 'DISPATCHED' }),
+          buildQueueItem({ reliefrqst_id: 3, status_code: 'RECEIVED' }),
+          buildQueueItem({ reliefrqst_id: 4, status_code: 'REJECTED' }),
+          buildQueueItem({ reliefrqst_id: 5, package_status: 'D' }),
+          buildQueueItem({ reliefrqst_id: 6, package_status: 'C' }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const ids = component.filteredItems().map((row) => row.reliefrqst_id);
+    expect(ids).toContain(1);
+    expect(ids).not.toContain(2);
+    expect(ids).not.toContain(3);
+    expect(ids).not.toContain(4);
+    expect(ids).not.toContain(5);
+    expect(ids).not.toContain(6);
+  });
+
+  it('does not expose a Dispatched option in filterOptions', () => {
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const values = component.filterOptions.map((option) => option.value);
+    expect(values).not.toContain('dispatched' as never);
+    expect(values).toEqual(jasmine.arrayContaining(['all', 'awaiting', 'drafts', 'preparing', 'ready']));
+  });
+
+  it('renders the error branch with a working Retry CTA when the queue fails to load', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 503, statusText: 'Service Unavailable' })),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.errored()).toBeTrue();
+    expect(component.loadError()).toBeTruthy();
+
+    const errorEl = fixture.nativeElement.querySelector('dmis-empty-state[icon="error_outline"]');
+    expect(errorEl).not.toBeNull();
+
+    operationsService.getPackagesQueue.calls.reset();
+    operationsService.getPackagesQueue.and.returnValue(
+      of({ results: [buildQueueItem({ reliefrqst_id: 42 })] }),
+    );
+
+    component.refreshQueue();
+    fixture.detectChanges();
+
+    expect(operationsService.getPackagesQueue).toHaveBeenCalled();
+    expect(component.errored()).toBeFalse();
+    expect(component.loadError()).toBeNull();
+    expect(component.filteredItems().length).toBe(1);
   });
 });

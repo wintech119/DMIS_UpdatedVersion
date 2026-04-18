@@ -17,6 +17,11 @@ import {
   ConfirmDialogData,
   DmisConfirmDialogComponent,
 } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import {
+  DmisReasonDialogComponent,
+  DmisReasonDialogData,
+  DmisReasonDialogResult,
+} from '../../replenishment/shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
@@ -29,6 +34,7 @@ import { OperationsService } from '../services/operations.service';
 import { OperationsWorkspaceStateService } from '../services/operations-workspace-state.service';
 import {
   AllocationCommitResponse,
+  OverrideReviewResponse,
   PackageAbandonDraftResponse,
   PackageLockReleaseResponse,
 } from '../models/operations.model';
@@ -38,12 +44,28 @@ import {
   formatPackageStatus,
   formatUrgency,
 } from '../models/operations-status.util';
-import { isFulfillmentCancellationAllowed } from '../operations-display.util';
+import {
+  extractOperationsHttpErrorMessage,
+  isFulfillmentCancellationAllowed,
+  readOperationsAuditReferenceId,
+} from '../operations-display.util';
+
+type FulfillmentConfirmationOutcome =
+  | 'committed'
+  | 'consolidating'
+  | 'ready_for_pickup'
+  | 'ready_for_dispatch'
+  | 'pending_override'
+  | 'override_approved'
+  | 'override_returned'
+  | 'override_rejected';
 
 interface FulfillmentConfirmationState {
   title: string;
   message: string;
   hint: string;
+  outcome: FulfillmentConfirmationOutcome;
+  referenceId?: string;
 }
 
 @Component({
@@ -72,11 +94,13 @@ interface FulfillmentConfirmationState {
 })
 export class PackageFulfillmentWorkspaceComponent {
   private static readonly OPERATIONS_ACCESS_PERMISSIONS = [
-    'replenishment.needs_list.execute',
-    'replenishment.needs_list.approve',
+    'operations.package.allocate',
+    'operations.package.override.request',
+    'operations.package.override.approve',
   ] as const;
 
   @ViewChild('stepper') stepper?: MatStepper;
+  @ViewChild(FulfillmentReviewStepComponent) reviewStep?: FulfillmentReviewStepComponent;
 
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -178,7 +202,7 @@ export class PackageFulfillmentWorkspaceComponent {
       if (!this.canApprovePendingOverride()) {
         return 'This plan is waiting for override approval. Review the details and request approval or return it through an authorised approver.';
       }
-      return 'This plan is waiting for override approval. Review the details, then approve or return it.';
+      return 'Review the details, then approve to proceed, return for rework, or reject this package attempt.';
     }
     if (this.store.planNeedsApproval()) {
       if (this.canCommitManagerOverrideDirectly()) {
@@ -304,7 +328,7 @@ export class PackageFulfillmentWorkspaceComponent {
             // Lock conflict is rendered as a first-class blocker card.
             return;
           }
-          this.notifications.showError(this.extractError(error, 'Failed to save draft. Please try again.'));
+          this.notifications.showError(extractOperationsHttpErrorMessage(error, 'Failed to save draft. Please try again.'));
         },
       });
   }
@@ -373,7 +397,7 @@ export class PackageFulfillmentWorkspaceComponent {
         },
         error: (error: HttpErrorResponse) => {
           this.notifications.showError(
-            this.extractError(error, 'Failed to cancel fulfillment. Please try again.'),
+            extractOperationsHttpErrorMessage(error, 'Failed to cancel fulfillment. Please try again.'),
           );
         },
       });
@@ -463,21 +487,14 @@ export class PackageFulfillmentWorkspaceComponent {
     }
 
     if (this.store.hasPendingOverride() && !this.canApprovePendingOverride()) {
-      this.notifications.showWarning('This reservation is locked while narrow override approval is pending.');
+      this.notifications.showWarning('This reservation is locked while manager override review is pending.');
       return;
     }
 
     if (this.store.hasPendingOverride() && this.canApprovePendingOverride()) {
-      const { payload, errors } = this.store.buildOverrideApprovalPayload();
-      if (!payload || errors.length) {
-        this.submissionErrors.set(errors);
-        this.notifications.showError(errors[0] || 'Override approval details are incomplete.');
-        return;
-      }
-      this.runAllocationAction(
-        this.operationsService.approveOverride(reliefrqstId, payload),
-        'override_approved'
-      );
+      // Approve is now driven by the review step's three-action surface.
+      // Route through onApproveOverride() so approve, return, and reject share one path.
+      this.onApproveOverride();
       return;
     }
 
@@ -501,9 +518,112 @@ export class PackageFulfillmentWorkspaceComponent {
     this.runAllocationAction(this.operationsService.commitAllocations(reliefrqstId, payload), 'commit');
   }
 
+  onApproveOverride(): void {
+    const reliefrqstId = this.reliefrqstId();
+    if (
+      !reliefrqstId
+      || !this.store.hasPendingOverride()
+      || !this.canApprovePendingOverride()
+      || this.store.submitting()
+    ) {
+      return;
+    }
+    const { payload, errors } = this.store.buildOverrideApprovalPayload();
+    if (!payload || errors.length) {
+      this.submissionErrors.set(errors);
+      this.notifications.showError(errors[0] || 'Override approval details are incomplete.');
+      return;
+    }
+    const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+    this.runAllocationAction(
+      this.operationsService.approveOverride(reliefrqstId, payload, idempotencyKey),
+      'override_approved',
+      () => this.reviewStep?.focusApprove(),
+    );
+  }
+
+  onReturnOverride(): void {
+    const reliefrqstId = this.reliefrqstId();
+    if (
+      !reliefrqstId
+      || !this.store.hasPendingOverride()
+      || !this.canApprovePendingOverride()
+      || this.store.submitting()
+    ) {
+      return;
+    }
+    this.openOverrideReasonDialog({
+      title: 'Return override for adjustments',
+      actionLabel: 'Return for Adjustments',
+      actionColor: 'primary',
+      reasonLabel: 'Reason for returning for adjustments',
+      reasonPlaceholder: 'Explain what the officer needs to adjust before resubmission.',
+      maxLength: 500,
+    })
+      .then((result) => {
+        if (!result) {
+          this.reviewStep?.focusReturn();
+          return;
+        }
+        const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+        this.runOverrideReview(
+          this.operationsService.returnOverride(reliefrqstId, { reason: result.reason }, idempotencyKey),
+          'returned',
+          () => this.reviewStep?.focusReturn(),
+        );
+      });
+  }
+
+  onRejectOverride(): void {
+    const reliefrqstId = this.reliefrqstId();
+    if (
+      !reliefrqstId
+      || !this.store.hasPendingOverride()
+      || !this.canApprovePendingOverride()
+      || this.store.submitting()
+    ) {
+      return;
+    }
+    this.openOverrideReasonDialog({
+      title: 'Reject this override',
+      actionLabel: 'Reject',
+      actionColor: 'warn',
+      reasonLabel: 'Reason for rejection',
+      reasonPlaceholder: 'Explain why this package attempt is being rejected. The relief request stays in the queue.',
+      maxLength: 500,
+    })
+      .then((result) => {
+        if (!result) {
+          this.reviewStep?.focusReject();
+          return;
+        }
+        const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+        this.runOverrideReview(
+          this.operationsService.rejectOverride(reliefrqstId, { reason: result.reason }, idempotencyKey),
+          'rejected',
+          () => this.reviewStep?.focusReject(),
+        );
+      });
+  }
+
+  private openOverrideReasonDialog(
+    data: DmisReasonDialogData,
+  ): Promise<DmisReasonDialogResult | undefined> {
+    const ref = this.dialog.open<
+      DmisReasonDialogComponent,
+      DmisReasonDialogData,
+      DmisReasonDialogResult
+    >(DmisReasonDialogComponent, {
+      width: '520px',
+      data,
+    });
+    return ref.afterClosed().toPromise();
+  }
+
   private runAllocationAction(
     request$: ReturnType<OperationsService['commitAllocations']>,
-    mode: 'commit' | 'override_approved'
+    mode: 'commit' | 'override_approved',
+    onErrorRestoreFocus?: () => void,
   ): void {
     this.store.setSubmitting(true);
     request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -531,6 +651,7 @@ export class PackageFulfillmentWorkspaceComponent {
         this.store.setSubmitting(false);
         if (this.store.captureLockConflict(error)) {
           // Lock conflict is rendered as a first-class blocker card.
+          onErrorRestoreFocus?.();
           return;
         }
         const integrityWarning = this.store.extractReservationIntegrityWarning(error);
@@ -538,9 +659,53 @@ export class PackageFulfillmentWorkspaceComponent {
           this.submissionErrors.set([]);
           this.reservationIntegrityWarning.set(integrityWarning);
           this.notifications.showWarning(integrityWarning);
+          onErrorRestoreFocus?.();
           return;
         }
-        this.notifications.showError(this.extractError(error, 'Failed to save reservation.'));
+        this.notifications.showError(extractOperationsHttpErrorMessage(error, 'Failed to save reservation.'));
+        onErrorRestoreFocus?.();
+      },
+    });
+  }
+
+  private runOverrideReview(
+    request$: ReturnType<OperationsService['returnOverride']>,
+    mode: 'returned' | 'rejected',
+    onErrorRestoreFocus?: () => void,
+  ): void {
+    this.store.setSubmitting(true);
+    request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (response: OverrideReviewResponse) => {
+        this.store.setSubmitting(false);
+        this.submissionErrors.set([]);
+        this.reservationIntegrityWarning.set(null);
+        this.confirmationState.set(this.buildOverrideReviewConfirmation(response, mode));
+        this.store.refreshPackage();
+        if (mode === 'returned') {
+          this.notifications.showSuccess('Override returned for adjustments. Package is back in draft.');
+        } else {
+          this.notifications.showSuccess('Override rejected. The relief request remains queued for a new attempt.');
+        }
+        queueMicrotask(() => {
+          if (this.stepper) {
+            this.stepper.selectedIndex = 3;
+            this.currentStepIndex.set(3);
+          }
+        });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.store.setSubmitting(false);
+        if (this.store.captureLockConflict(error)) {
+          onErrorRestoreFocus?.();
+          return;
+        }
+        this.notifications.showError(
+          extractOperationsHttpErrorMessage(
+            error,
+            mode === 'returned' ? 'Failed to return override.' : 'Failed to reject override.',
+          ),
+        );
+        onErrorRestoreFocus?.();
       },
     });
   }
@@ -600,7 +765,7 @@ export class PackageFulfillmentWorkspaceComponent {
         },
         error: (error: HttpErrorResponse) => {
           this.notifications.showError(
-            this.extractError(error, 'Failed to release package lock. Please try again.'),
+            extractOperationsHttpErrorMessage(error, 'Failed to release package lock. Please try again.'),
           );
         },
       });
@@ -648,24 +813,83 @@ export class PackageFulfillmentWorkspaceComponent {
     response: AllocationCommitResponse,
     mode: 'commit' | 'override_approved'
   ): FulfillmentConfirmationState {
+    const referenceId =
+      readOperationsAuditReferenceId(null, response, null) ?? undefined;
     if (mode === 'override_approved') {
       return {
+        outcome: 'override_approved',
         title: 'Override Approved',
         message: 'The pending bypass has been approved and the reservation can now move into dispatch preparation.',
         hint: 'Stock remains reserved. Physical deduction still happens only when dispatch is recorded.',
+        referenceId,
       };
     }
     if (response.status === 'PENDING_OVERRIDE_APPROVAL' || response.override_required) {
       return {
+        outcome: 'pending_override',
         title: 'Override Routed',
-        message: 'The reservation plan is visible for narrow override approval. Dispatch remains blocked until that review is completed.',
+        message: 'The reservation plan is visible for manager override review. Dispatch remains blocked until that review is completed.',
         hint: 'No self-approval is allowed. A different authorized approver must complete the override review.',
+        referenceId,
+      };
+    }
+    if (response.status === 'CONSOLIDATING') {
+      return {
+        outcome: 'consolidating',
+        title: 'Consolidating Stock',
+        message: 'Stock is being consolidated from multiple warehouses for this reservation. It will become available for dispatch shortly.',
+        hint: 'Reservation freezes stock. Physical deduction and the waybill reference happen on dispatch.',
+        referenceId,
+      };
+    }
+    if (response.status === 'READY_FOR_PICKUP') {
+      return {
+        outcome: 'ready_for_pickup',
+        title: 'Ready For Pickup',
+        message: 'Reserved stock is staged and ready for pickup at the source warehouse.',
+        hint: 'Physical deduction and the waybill reference are recorded when dispatch is confirmed.',
+        referenceId,
+      };
+    }
+    if (response.status === 'READY_FOR_DISPATCH') {
+      return {
+        outcome: 'ready_for_dispatch',
+        title: 'Ready For Dispatch',
+        message: 'Reserved stock is ready for dispatch handoff from the dispatch workspace.',
+        hint: 'Physical deduction happens on dispatch. The waybill reference is generated at that time.',
+        referenceId,
       };
     }
     return {
+      outcome: 'committed',
       title: 'Reservation Committed',
       message: 'Stock is now reserved against this request and is ready for the dispatch workspace when operations are ready.',
       hint: 'Reservation freezes stock. Physical deduction and the waybill reference happen on dispatch.',
+      referenceId,
+    };
+  }
+
+  private buildOverrideReviewConfirmation(
+    response: OverrideReviewResponse,
+    mode: 'returned' | 'rejected',
+  ): FulfillmentConfirmationState {
+    const referenceId =
+      readOperationsAuditReferenceId(null, response, null) ?? undefined;
+    if (mode === 'returned') {
+      return {
+        outcome: 'override_returned',
+        title: 'Returned for Adjustments',
+        message: 'This package is back in draft. The officer can resume and adjust the reservation plan.',
+        hint: 'Stock is not reserved while the package is in draft. Resume the draft to continue reservation work.',
+        referenceId,
+      };
+    }
+    return {
+      outcome: 'override_rejected',
+      title: 'Override Rejected',
+      message: 'This package attempt is closed and preserved as evidence. No stock is reserved under this attempt.',
+      hint: 'The relief request remains queued. A fresh package can be started for a new reservation attempt.',
+      referenceId,
     };
   }
 
@@ -681,19 +905,4 @@ export class PackageFulfillmentWorkspaceComponent {
     return false;
   }
 
-  private extractError(error: HttpErrorResponse, fallback: string): string {
-    const errorMap = error.error?.errors;
-    if (errorMap && typeof errorMap === 'object') {
-      const messages = Object.values(errorMap)
-        .flatMap((value) => Array.isArray(value) ? value : [value])
-        .map((value) => String(value ?? '').trim())
-        .filter(Boolean);
-      if (messages.length) {
-        return messages[0];
-      }
-    }
-    const directMessage = typeof error.error?.message === 'string' ? error.error.message.trim() : '';
-    const detail = typeof error.error?.detail === 'string' ? error.error.detail.trim() : '';
-    return directMessage || detail || fallback;
-  }
 }

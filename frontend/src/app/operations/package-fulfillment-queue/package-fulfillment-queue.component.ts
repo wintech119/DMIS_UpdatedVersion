@@ -6,6 +6,7 @@ import {
   signal,
   OnInit,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -27,6 +28,7 @@ import {
   formatOperationsLineCount,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
+  extractOperationsHttpErrorMessage,
   getOperationsPackageTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
@@ -38,7 +40,11 @@ import {
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
-type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready' | 'dispatched';
+export type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready';
+type FulfillmentStage = FulfillmentFilter | 'excluded';
+
+const OUT_OF_CONTRACT_STATUSES = new Set(['DISPATCHED', 'RECEIVED', 'REJECTED']);
+const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
 
 @Component({
   selector: 'app-package-fulfillment-queue',
@@ -63,17 +69,19 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   private readonly seenStorageScope = 'package-fulfillment';
 
   readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
   readonly items = signal<PackageQueueItem[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<FulfillmentFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+
+  readonly errored = computed(() => !this.loading() && this.loadError() !== null);
 
   readonly filterOptions: readonly { label: string; value: FulfillmentFilter }[] = [
     { label: 'Awaiting', value: 'awaiting' },
     { label: 'Drafts', value: 'drafts' },
     { label: 'Preparing', value: 'preparing' },
     { label: 'Ready', value: 'ready' },
-    { label: 'Dispatched', value: 'dispatched' },
     { label: 'All', value: 'all' },
   ];
 
@@ -82,7 +90,11 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     const filter = this.activeFilter();
 
     return this.items().filter((row) => {
-      if (filter !== 'all' && this.getFulfillmentStage(row) !== filter) {
+      const stage = this.getFulfillmentStage(row);
+      if (stage === 'excluded') {
+        return false;
+      }
+      if (filter !== 'all' && stage !== filter) {
         return false;
       }
       if (!term) {
@@ -148,7 +160,6 @@ export class PackageFulfillmentQueueComponent implements OnInit {
       drafts: countOperationsUnreadIds(this.getFilterRequestIds('drafts', rows), seen['drafts']),
       preparing: countOperationsUnreadIds(this.getFilterRequestIds('preparing', rows), seen['preparing']),
       ready: countOperationsUnreadIds(this.getFilterRequestIds('ready', rows), seen['ready']),
-      dispatched: countOperationsUnreadIds(this.getFilterRequestIds('dispatched', rows), seen['dispatched']),
     };
   });
 
@@ -198,6 +209,9 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   isReady(row: PackageQueueItem): boolean {
+    // DISPATCHED / RECEIVED rows are excluded by getFulfillmentStage() as
+    // out-of-contract for the active-work queue — the legacy branches from
+    // the pre-FR05.08 queue have been removed.
     const normalizedStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
     return (
       normalizedStatus === 'COMMITTED'
@@ -241,9 +255,27 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
   }
 
-  getFulfillmentStage(row: PackageQueueItem): FulfillmentFilter {
+  getFulfillmentStage(row: PackageQueueItem): FulfillmentStage {
     const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
+    const rowStatus = String(row.status_code ?? '').trim().toUpperCase();
     const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
+
+    // TODO(FR05.08-FE-DEFENSIVE-FILTER): sunset after backend contract confirmed
+    // clean in staging for 2 weeks. Tracking issue logged in PR body.
+    if (
+      OUT_OF_CONTRACT_STATUSES.has(currentStatus)
+      || OUT_OF_CONTRACT_STATUSES.has(rowStatus)
+      || OUT_OF_CONTRACT_LEGACY_STATUSES.has(legacyStatus)
+    ) {
+      console.warn('[fulfillment-queue] backend leaked out-of-contract row', {
+        reliefrqst_id: row.reliefrqst_id,
+        status_code: row.status_code,
+        package_status: row.package_status,
+        package_current_status: row.current_package?.status_code ?? null,
+      });
+      return 'excluded';
+    }
+
     if (!currentStatus && !legacyStatus) return 'awaiting';
     if (currentStatus === 'DRAFT') return 'drafts';
     if (currentStatus === 'PENDING_OVERRIDE_APPROVAL') return 'preparing';
@@ -254,23 +286,29 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     ) {
       return 'ready';
     }
-    if (currentStatus === 'DISPATCHED' || currentStatus === 'RECEIVED') return 'dispatched';
     if (legacyStatus === 'P') return this.isOverridePending(row) ? 'preparing' : 'ready';
-    if (legacyStatus === 'D' || legacyStatus === 'C') return 'dispatched';
     return row.current_package ? 'preparing' : 'awaiting';
   }
 
   private loadQueue(): void {
     this.loading.set(true);
+    this.loadError.set(null);
 
     this.operationsService.getPackagesQueue().subscribe({
       next: (response) => {
         this.items.set(response.results);
+        this.loadError.set(null);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
-      error: () => {
+      error: (error: HttpErrorResponse) => {
         this.items.set([]);
+        this.loadError.set(
+          extractOperationsHttpErrorMessage(
+            error,
+            "We couldn't load the fulfillment queue. Check your connection and try again.",
+          ),
+        );
         this.loading.set(false);
       },
     });
@@ -311,7 +349,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     rows: readonly PackageQueueItem[] = this.items(),
   ): number[] {
     return rows
-      .filter((row) => this.getFulfillmentStage(row) === filter)
+      .filter((row) => {
+        const stage = this.getFulfillmentStage(row);
+        return stage !== 'excluded' && stage === filter;
+      })
       .map((row) => row.reliefrqst_id);
   }
 }

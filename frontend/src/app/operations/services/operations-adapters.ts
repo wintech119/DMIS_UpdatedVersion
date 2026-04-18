@@ -1,5 +1,6 @@
 import {
   AllocationCandidate,
+  AllocationCommitResponse,
   AllocationItemGroup,
   AllocationLine,
   AllocationOptionsResponse,
@@ -22,6 +23,7 @@ import {
   OperationsEntityType,
   OperationsTask,
   OperationsTaskListResponse,
+  OverrideReviewResponse,
   PackageDetailResponse,
   PackageLegSummary,
   PackageQueueItem,
@@ -373,6 +375,70 @@ export function normalizeAllocationSummary(raw: unknown): AllocationSummary {
       ),
     },
     waybill_no: asNullableString(source['waybill_no']),
+  };
+}
+
+function asReferenceId(value: unknown): string | number | null {
+  if (value == null || value === '') {
+    return null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const text = String(value).trim();
+  return text === '' ? null : text;
+}
+
+export function normalizeAllocationCommitResponse(raw: unknown): AllocationCommitResponse {
+  const source = asRecord(raw);
+  const status = normalizeEnumStatus(
+    source['status'],
+    ['COMMITTED', 'PENDING_OVERRIDE_APPROVAL', 'CONSOLIDATING', 'READY_FOR_PICKUP', 'READY_FOR_DISPATCH'],
+    'COMMITTED',
+  );
+  const overrideCode = asNullableString(source['override_status_code'])?.trim().toUpperCase();
+  return {
+    status,
+    reliefrqst_id: asNumber(source['reliefrqst_id']),
+    reliefpkg_id: asNumber(source['reliefpkg_id']),
+    request_tracking_no: asString(source['request_tracking_no']),
+    package_tracking_no: asString(source['package_tracking_no']),
+    override_required: asBoolean(source['override_required']),
+    override_markers: asStringArray(source['override_markers']),
+    allocation_lines: asArray(source['allocation_lines']).map(normalizeAllocationLine),
+    override_status_code: overrideCode === 'APPROVED' ? 'APPROVED' : null,
+    action_id: asReferenceId(source['action_id']),
+    audit_log_id: asReferenceId(source['audit_log_id']),
+  };
+}
+
+export function normalizeOverrideReviewResponse(raw: unknown): OverrideReviewResponse {
+  const source = asRecord(raw);
+  const status = normalizeEnumStatus(
+    source['status'],
+    ['RETURNED_FOR_ADJUSTMENT', 'REJECTED'],
+    'RETURNED_FOR_ADJUSTMENT',
+  );
+  const overrideStatus = normalizeEnumStatus(
+    source['override_status_code'],
+    ['RETURNED_FOR_ADJUSTMENT', 'REJECTED'],
+    status,
+  );
+  const packageStatus = normalizeEnumStatus(
+    source['package_status_code'],
+    ['DRAFT', 'REJECTED'],
+    status === 'REJECTED' ? 'REJECTED' : 'DRAFT',
+  );
+  return {
+    status,
+    reliefrqst_id: asNumber(source['reliefrqst_id']),
+    reliefpkg_id: asNumber(source['reliefpkg_id']),
+    override_status_code: overrideStatus,
+    package_status_code: packageStatus,
+    request_status: asNullableString(source['request_status']),
+    package: source['package'] ? normalizePackageSummary(source['package']) : null,
+    action_id: asReferenceId(source['action_id']),
+    audit_log_id: asReferenceId(source['audit_log_id']),
   };
 }
 

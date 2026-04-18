@@ -12,6 +12,9 @@ export interface DmisReasonDialogData {
   actionColor?: 'primary' | 'accent' | 'warn';
   reasonCodeLabel?: string;
   reasonCodeOptions?: readonly { value: string; label: string }[];
+  reasonLabel?: string;
+  reasonPlaceholder?: string;
+  maxLength?: number;
 }
 
 export interface DmisReasonDialogResult {
@@ -50,11 +53,26 @@ export interface DmisReasonDialogResult {
         }
 
         <mat-form-field appearance="outline" class="dialog-field">
-          <mat-label>Reason</mat-label>
-          <textarea matInput rows="3" formControlName="reason"></textarea>
-          @if (form.controls.reason.invalid && form.controls.reason.touched) {
-            <mat-error>Reason is required.</mat-error>
+          <mat-label>{{ data.reasonLabel ?? 'Reason' }}</mat-label>
+          <textarea
+            matInput
+            rows="3"
+            formControlName="reason"
+            [attr.maxlength]="data.maxLength ?? null"
+            [attr.placeholder]="data.reasonPlaceholder ?? null"
+            [attr.aria-describedby]="data.maxLength ? 'dmis-reason-count' : null"></textarea>
+          @if (data.maxLength) {
+            <mat-hint id="dmis-reason-count" align="end">
+              {{ form.controls.reason.value.length }} / {{ data.maxLength }}
+            </mat-hint>
           }
+          <mat-error aria-live="polite">
+            @if (form.controls.reason.hasError('required')) {
+              <span>{{ data.reasonLabel ?? 'Reason' }} is required.</span>
+            } @else if (form.controls.reason.hasError('maxlength')) {
+              <span>Keep the reason to {{ data.maxLength }} characters or fewer.</span>
+            }
+          </mat-error>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="dialog-field">
@@ -97,6 +115,10 @@ export class DmisReasonDialogComponent {
       if (this.data.reasonCodeOptions.length === 1) {
         this.form.controls.reason_code.setValue(this.data.reasonCodeOptions[0].value);
       }
+    }
+    if (typeof this.data.maxLength === 'number' && this.data.maxLength > 0) {
+      this.form.controls.reason.addValidators(Validators.maxLength(this.data.maxLength));
+      this.form.controls.reason.updateValueAndValidity({ emitEvent: false });
     }
   }
 

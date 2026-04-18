@@ -24,6 +24,9 @@ import {
   EligibilityDetailResponse,
   OperationsTaskListResponse,
   OverrideApprovalPayload,
+  OverrideRejectPayload,
+  OverrideReturnPayload,
+  OverrideReviewResponse,
   PackageAbandonDraftResponse,
   PackageDetailResponse,
   PackageDraftPayload,
@@ -45,6 +48,7 @@ import {
 } from '../models/operations.model';
 import {
   createDispatchDetailFallback,
+  normalizeAllocationCommitResponse,
   normalizeAllocationItemGroup,
   normalizeAllocationOptions,
   normalizeConsolidationLegDispatchResponse,
@@ -54,6 +58,7 @@ import {
   normalizeDispatchDetail,
   normalizeDispatchQueueItem,
   normalizeEligibilityDetail,
+  normalizeOverrideReviewResponse,
   normalizePackageDetail,
   normalizePackageQueueItem,
   normalizePartialReleaseApproveResponse,
@@ -236,20 +241,46 @@ export class OperationsService {
     reliefrqstId: number,
     payload: AllocationCommitPayload,
   ): Observable<AllocationCommitResponse> {
-    return this.http.post<AllocationCommitResponse>(
+    return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocations/commit`,
       payload,
-    );
+    ).pipe(map(normalizeAllocationCommitResponse));
   }
 
   approveOverride(
     reliefrqstId: number,
     payload: OverrideApprovalPayload,
+    idempotencyKey: string,
   ): Observable<AllocationCommitResponse> {
-    return this.http.post<AllocationCommitResponse>(
+    return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-approve`,
       payload,
-    );
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeAllocationCommitResponse));
+  }
+
+  returnOverride(
+    reliefrqstId: number,
+    payload: OverrideReturnPayload,
+    idempotencyKey: string,
+  ): Observable<OverrideReviewResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-return`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeOverrideReviewResponse));
+  }
+
+  rejectOverride(
+    reliefrqstId: number,
+    payload: OverrideRejectPayload,
+    idempotencyKey: string,
+  ): Observable<OverrideReviewResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-reject`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeOverrideReviewResponse));
   }
 
   getDispatchQueue(): Observable<DispatchQueueResponse> {
@@ -405,9 +436,12 @@ export class OperationsService {
     );
   }
 
-  private createIdempotencyKey(scope: 'dispatch' | 'receipt', reliefpkgId: number): string {
+  createIdempotencyKey(scope: 'dispatch' | 'receipt' | 'override', reliefpkgId: number): string {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (scope === 'override') {
+      return `override:${reliefpkgId}:${randomId}`;
+    }
     return `${scope}-${reliefpkgId}-${randomId}`;
   }
 
