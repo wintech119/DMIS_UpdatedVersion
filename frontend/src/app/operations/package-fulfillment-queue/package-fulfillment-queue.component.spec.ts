@@ -6,7 +6,7 @@ import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
-import { PackageQueueItem } from '../models/operations.model';
+import { PackageQueueItem, PackageSummary } from '../models/operations.model';
 import { OperationsService } from '../services/operations.service';
 import { PackageFulfillmentQueueComponent } from './package-fulfillment-queue.component';
 
@@ -53,6 +53,30 @@ describe('PackageFulfillmentQueueComponent', () => {
       beneficiary_tenant_id: null,
       beneficiary_agency_id: null,
       current_package: null,
+      ...overrides,
+    };
+  }
+
+  function buildPackageSummary(overrides: Partial<PackageSummary> = {}): PackageSummary {
+    return {
+      reliefpkg_id: 77001,
+      tracking_no: 'PKG-77001',
+      reliefrqst_id: 95009,
+      agency_id: 1,
+      eligible_event_id: null,
+      source_warehouse_id: 9001,
+      to_inventory_id: 9002,
+      destination_warehouse_name: 'Destination WH',
+      status_code: 'D',
+      status_label: 'Dispatched',
+      dispatch_dtime: null,
+      received_dtime: null,
+      transport_mode: null,
+      comments_text: null,
+      version_nbr: 1,
+      execution_status: null,
+      needs_list_id: null,
+      compatibility_bridge: false,
       ...overrides,
     };
   }
@@ -108,9 +132,20 @@ describe('PackageFulfillmentQueueComponent', () => {
       of({
         results: [
           buildQueueItem({ reliefrqst_id: 1, status_code: 'APPROVED_FOR_FULFILLMENT' }),
-          buildQueueItem({ reliefrqst_id: 2, status_code: 'DISPATCHED' }),
-          buildQueueItem({ reliefrqst_id: 3, status_code: 'RECEIVED' }),
+          // DISPATCHED / RECEIVED belong on PackageStatusCode — route via current_package.
+          buildQueueItem({
+            reliefrqst_id: 2,
+            status_code: 'APPROVED_FOR_FULFILLMENT',
+            current_package: buildPackageSummary({ status_code: 'DISPATCHED' }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 3,
+            status_code: 'APPROVED_FOR_FULFILLMENT',
+            current_package: buildPackageSummary({ status_code: 'RECEIVED' }),
+          }),
+          // REJECTED is valid on RequestStatusCode — keep on the request.
           buildQueueItem({ reliefrqst_id: 4, status_code: 'REJECTED' }),
+          // Legacy D / C live on package_status (PackageStatusCode | null).
           buildQueueItem({ reliefrqst_id: 5, package_status: 'D' }),
           buildQueueItem({ reliefrqst_id: 6, package_status: 'C' }),
         ],

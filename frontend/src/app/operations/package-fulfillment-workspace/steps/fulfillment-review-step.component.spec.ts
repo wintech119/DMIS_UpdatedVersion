@@ -32,11 +32,9 @@ describe('FulfillmentReviewStepComponent — FR05.08 override actions', () => {
 
   it('renders Reject, Return for Adjustments, and Approve when canApproveOverride is true', () => {
     const fixture = createFixtureWithPendingOverride(true);
-    const buttons = fixture.debugElement.queryAll(By.css('.ops-review-actions__btn'));
-    const labels = buttons.map((b) => (b.nativeElement as HTMLElement).textContent?.trim());
-    expect(labels).toContain('Reject');
-    expect(labels).toContain('Return for Adjustments');
-    expect(labels).toContain('Approve');
+    expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--reject'))).not.toBeNull();
+    expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--return'))).not.toBeNull();
+    expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--approve'))).not.toBeNull();
   });
 
   it('hides the three-action row when canApproveOverride is false', () => {
@@ -52,13 +50,9 @@ describe('FulfillmentReviewStepComponent — FR05.08 override actions', () => {
     const returnSpy = spyOn(cmp.returnOverride, 'emit');
     const rejectSpy = spyOn(cmp.rejectOverride, 'emit');
 
-    const buttons = fixture.debugElement.queryAll(By.css('.ops-review-actions__btn'));
-    const byLabel = (label: string) =>
-      buttons.find((b) => (b.nativeElement as HTMLElement).textContent?.trim() === label);
-
-    byLabel('Approve')!.nativeElement.click();
-    byLabel('Return for Adjustments')!.nativeElement.click();
-    byLabel('Reject')!.nativeElement.click();
+    fixture.debugElement.query(By.css('.ops-review-actions__btn--approve')).nativeElement.click();
+    fixture.debugElement.query(By.css('.ops-review-actions__btn--return')).nativeElement.click();
+    fixture.debugElement.query(By.css('.ops-review-actions__btn--reject')).nativeElement.click();
 
     expect(approveSpy).toHaveBeenCalledTimes(1);
     expect(returnSpy).toHaveBeenCalledTimes(1);
@@ -67,7 +61,7 @@ describe('FulfillmentReviewStepComponent — FR05.08 override actions', () => {
 
   it('disables all three buttons while submitting', () => {
     const fixture = createFixtureWithPendingOverride(true);
-    fixture.componentInstance.submitting = true;
+    fixture.componentRef.setInput('submitting', true);
     fixture.detectChanges();
     const buttons = fixture.debugElement.queryAll(By.css('.ops-review-actions__btn'));
     for (const b of buttons) {

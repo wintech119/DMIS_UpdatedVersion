@@ -22,6 +22,9 @@ import {
   DmisConfirmDialogComponent,
 } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import {
+  AllocationCommitResponse,
+  OverrideApprovalPayload,
+  OverrideReviewResponse,
   PackageAbandonDraftResponse,
   PackageDetailResponse,
   PackageLockConflict,
@@ -871,6 +874,35 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     permissions: ReturnType<typeof signal<readonly string[]>>;
   };
 
+  function buildCommitResponse(
+    overrides: Partial<AllocationCommitResponse> = {},
+  ): AllocationCommitResponse {
+    return {
+      status: 'COMMITTED',
+      reliefrqst_id: 95009,
+      reliefpkg_id: 77001,
+      request_tracking_no: 'RQ-95009',
+      package_tracking_no: 'PKG-77001',
+      override_required: false,
+      override_markers: [],
+      allocation_lines: [],
+      ...overrides,
+    };
+  }
+
+  function buildOverrideReviewResponse(
+    overrides: Partial<OverrideReviewResponse> = {},
+  ): OverrideReviewResponse {
+    return {
+      status: 'RETURNED_FOR_ADJUSTMENT',
+      reliefrqst_id: 95009,
+      reliefpkg_id: 77001,
+      override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+      package_status_code: 'DRAFT',
+      ...overrides,
+    };
+  }
+
   function configureManager(allowed: readonly string[] = [
     'operations.package.allocate',
     'operations.package.override.approve',
@@ -882,6 +914,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
   }
 
   function primePendingOverride(): void {
+    component.reliefrqstId.set(95009);
     component.store.reliefrqstId.set(95009);
     component.store.reliefpkgId.set(77001);
     component.store.packageDetail.set({
@@ -947,7 +980,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     });
     spyOn(component.store, 'hasPendingOverride').and.returnValue(true);
     spyOn(component.store, 'buildOverrideApprovalPayload').and.returnValue({
-      payload: { allocations: [] } as never,
+      payload: { allocations: [] } satisfies OverrideApprovalPayload,
       errors: [],
     });
     spyOn(component.store, 'refreshPackage').and.returnValue(undefined);
@@ -1058,13 +1091,9 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
   it('approves the override with the idempotency key from createIdempotencyKey("override")', () => {
     configureManager();
     primePendingOverride();
-    operationsService.approveOverride.and.returnValue(of({
-      status: 'COMMITTED',
-      override_required: false,
-      reliefrqst_id: 95009,
-      reliefpkg_id: 77001,
-      override_status_code: 'APPROVED',
-    } as never));
+    operationsService.approveOverride.and.returnValue(
+      of(buildCommitResponse({ status: 'COMMITTED', override_status_code: 'APPROVED' })),
+    );
 
     component.onApproveOverride();
 
@@ -1075,21 +1104,22 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(notifications.showSuccess).toHaveBeenCalled();
   });
 
-  it('opens the reason dialog with maxLength 500 and calls returnOverride on confirm', () => {
+  it('opens the reason dialog with maxLength 500 and calls returnOverride on confirm', async () => {
     configureManager();
     primePendingOverride();
     dialog.open.and.returnValue({
       afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
     } as ReturnType<MatDialog['open']>);
-    operationsService.returnOverride.and.returnValue(of({
-      status: 'RETURNED_FOR_ADJUSTMENT',
-      reliefrqst_id: 95009,
-      reliefpkg_id: 77001,
-      override_status_code: 'RETURNED_FOR_ADJUSTMENT',
-      package_status_code: 'DRAFT',
-    } as never));
+    operationsService.returnOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+      })),
+    );
 
     component.onReturnOverride();
+    await fixture.whenStable();
 
     const dialogArgs = dialog.open.calls.mostRecent().args[1] as { data: { maxLength?: number } };
     expect(dialogArgs.data.maxLength).toBe(500);
@@ -1113,21 +1143,22 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(operationsService.returnOverride).not.toHaveBeenCalled();
   });
 
-  it('routes reject through rejectOverride with the reason and a fresh idempotency key', () => {
+  it('routes reject through rejectOverride with the reason and a fresh idempotency key', async () => {
     configureManager();
     primePendingOverride();
     dialog.open.and.returnValue({
       afterClosed: () => of({ reason: 'Wrong warehouse' }),
     } as ReturnType<MatDialog['open']>);
-    operationsService.rejectOverride.and.returnValue(of({
-      status: 'REJECTED',
-      reliefrqst_id: 95009,
-      reliefpkg_id: 77001,
-      override_status_code: 'REJECTED',
-      package_status_code: 'REJECTED',
-    } as never));
+    operationsService.rejectOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'REJECTED',
+        override_status_code: 'REJECTED',
+        package_status_code: 'REJECTED',
+      })),
+    );
 
     component.onRejectOverride();
+    await fixture.whenStable();
 
     expect(operationsService.rejectOverride).toHaveBeenCalledTimes(1);
     const rejectArgs = operationsService.rejectOverride.calls.mostRecent().args;
@@ -1160,7 +1191,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(component.store.submitting()).toBeFalse();
   });
 
-  it('surfaces backend 429 with Retry-After on return', () => {
+  it('surfaces backend 429 with Retry-After on return', async () => {
     configureManager();
     primePendingOverride();
     dialog.open.and.returnValue({
@@ -1172,43 +1203,70 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     );
 
     component.onReturnOverride();
+    await fixture.whenStable();
 
     expect(notifications.showError).toHaveBeenCalled();
     const message = notifications.showError.calls.mostRecent().args[0] as string;
     expect(message).toContain('12');
   });
 
-  it('builds a COMMITTED confirmation only for status=COMMITTED approve responses', () => {
+  it('maps approve confirmation outcome from the backend response status', () => {
     configureManager();
     primePendingOverride();
-    operationsService.approveOverride.and.returnValue(of({
-      status: 'CONSOLIDATING',
-      override_required: false,
-      reliefrqst_id: 95009,
-      reliefpkg_id: 77001,
-    } as never));
-
-    component.onApproveOverride();
-
-    expect(component.confirmationState()?.outcome).toBe('override_approved');
+    const cases = [
+      {
+        status: 'COMMITTED',
+        outcome: 'committed',
+        title: 'Override Approved — Reservation Committed',
+      },
+      {
+        status: 'CONSOLIDATING',
+        outcome: 'consolidating',
+        title: 'Override Approved — Consolidating Stock',
+      },
+      {
+        status: 'READY_FOR_PICKUP',
+        outcome: 'ready_for_pickup',
+        title: 'Override Approved — Ready For Pickup',
+      },
+      {
+        status: 'READY_FOR_DISPATCH',
+        outcome: 'ready_for_dispatch',
+        title: 'Override Approved — Ready For Dispatch',
+      },
+    ] as const satisfies readonly {
+      status: AllocationCommitResponse['status'];
+      outcome: string;
+      title: string;
+    }[];
+    for (const c of cases) {
+      operationsService.approveOverride.and.returnValue(
+        of(buildCommitResponse({ status: c.status })),
+      );
+      component.onApproveOverride();
+      const confirmation = component.confirmationState();
+      expect(confirmation?.outcome).toBe(c.outcome);
+      expect(confirmation?.title).toBe(c.title);
+    }
   });
 
-  it('captures reference IDs from response body fields into confirmationState.referenceId', () => {
+  it('captures reference IDs from response body fields into confirmationState.referenceId', async () => {
     configureManager();
     primePendingOverride();
     dialog.open.and.returnValue({
       afterClosed: () => of({ reason: 'Back for rework' }),
     } as ReturnType<MatDialog['open']>);
-    operationsService.returnOverride.and.returnValue(of({
-      status: 'RETURNED_FOR_ADJUSTMENT',
-      reliefrqst_id: 95009,
-      reliefpkg_id: 77001,
-      override_status_code: 'RETURNED_FOR_ADJUSTMENT',
-      package_status_code: 'DRAFT',
-      action_id: 'AUDIT-42',
-    } as never));
+    operationsService.returnOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+        action_id: 'AUDIT-42',
+      })),
+    );
 
     component.onReturnOverride();
+    await fixture.whenStable();
 
     expect(component.confirmationState()?.referenceId).toBe('AUDIT-42');
   });

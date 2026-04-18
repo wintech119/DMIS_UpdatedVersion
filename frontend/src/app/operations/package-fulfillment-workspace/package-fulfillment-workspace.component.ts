@@ -56,7 +56,6 @@ type FulfillmentConfirmationOutcome =
   | 'ready_for_pickup'
   | 'ready_for_dispatch'
   | 'pending_override'
-  | 'override_approved'
   | 'override_returned'
   | 'override_rejected';
 
@@ -811,19 +810,12 @@ export class PackageFulfillmentWorkspaceComponent {
 
   private buildConfirmationState(
     response: AllocationCommitResponse,
-    mode: 'commit' | 'override_approved'
+    mode: 'commit' | 'override_approved',
   ): FulfillmentConfirmationState {
     const referenceId =
       readOperationsAuditReferenceId(null, response, null) ?? undefined;
-    if (mode === 'override_approved') {
-      return {
-        outcome: 'override_approved',
-        title: 'Override Approved',
-        message: 'The pending bypass has been approved and the reservation can now move into dispatch preparation.',
-        hint: 'Stock remains reserved. Physical deduction still happens only when dispatch is recorded.',
-        referenceId,
-      };
-    }
+    const approvalPrefix = mode === 'override_approved' ? 'Override Approved — ' : '';
+
     if (response.status === 'PENDING_OVERRIDE_APPROVAL' || response.override_required) {
       return {
         outcome: 'pending_override',
@@ -836,7 +828,7 @@ export class PackageFulfillmentWorkspaceComponent {
     if (response.status === 'CONSOLIDATING') {
       return {
         outcome: 'consolidating',
-        title: 'Consolidating Stock',
+        title: `${approvalPrefix}Consolidating Stock`,
         message: 'Stock is being consolidated from multiple warehouses for this reservation. It will become available for dispatch shortly.',
         hint: 'Reservation freezes stock. Physical deduction and the waybill reference happen on dispatch.',
         referenceId,
@@ -845,7 +837,7 @@ export class PackageFulfillmentWorkspaceComponent {
     if (response.status === 'READY_FOR_PICKUP') {
       return {
         outcome: 'ready_for_pickup',
-        title: 'Ready For Pickup',
+        title: `${approvalPrefix}Ready For Pickup`,
         message: 'Reserved stock is staged and ready for pickup at the source warehouse.',
         hint: 'Physical deduction and the waybill reference are recorded when dispatch is confirmed.',
         referenceId,
@@ -854,7 +846,7 @@ export class PackageFulfillmentWorkspaceComponent {
     if (response.status === 'READY_FOR_DISPATCH') {
       return {
         outcome: 'ready_for_dispatch',
-        title: 'Ready For Dispatch',
+        title: `${approvalPrefix}Ready For Dispatch`,
         message: 'Reserved stock is ready for dispatch handoff from the dispatch workspace.',
         hint: 'Physical deduction happens on dispatch. The waybill reference is generated at that time.',
         referenceId,
@@ -862,7 +854,7 @@ export class PackageFulfillmentWorkspaceComponent {
     }
     return {
       outcome: 'committed',
-      title: 'Reservation Committed',
+      title: `${approvalPrefix}Reservation Committed`,
       message: 'Stock is now reserved against this request and is ready for the dispatch workspace when operations are ready.',
       hint: 'Reservation freezes stock. Physical deduction and the waybill reference happen on dispatch.',
       referenceId,
