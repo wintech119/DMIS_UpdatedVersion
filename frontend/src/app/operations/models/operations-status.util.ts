@@ -63,6 +63,7 @@ const PKG_STATUS_LABELS: Record<string, string> = {
   // Operations-layer status codes
   DRAFT: 'Draft',
   PENDING_OVERRIDE_APPROVAL: 'Override Pending',
+  REJECTED: 'Rejected',
   COMMITTED: 'Ready for Dispatch',
   READY_FOR_DISPATCH: 'Ready for Dispatch',
   DISPATCHED: 'Dispatched',
@@ -91,6 +92,7 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'READY_FOR_PICKUP':
     case 'CONSOLIDATING':
     case 'PENDING_OVERRIDE_APPROVAL': return 'status-awaiting';
+    case 'REJECTED': return 'status-denied';
     case 'D':
     case 'DISPATCHED': return 'status-submitted';
     case 'C':

@@ -50,6 +50,7 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   // Operations-layer status codes
   DRAFT: 'Draft',
   PENDING_OVERRIDE_APPROVAL: 'Override Pending',
+  REJECTED: 'Rejected',
   COMMITTED: 'Ready for Dispatch',
   READY_FOR_DISPATCH: 'Ready for Dispatch',
   DISPATCHED: 'Dispatched',
@@ -71,6 +72,7 @@ const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Operations-layer status codes
   DRAFT: 'draft',
   PENDING_OVERRIDE_APPROVAL: 'warning',
+  REJECTED: 'danger',
   COMMITTED: 'success',
   READY_FOR_DISPATCH: 'success',
   DISPATCHED: 'warning',

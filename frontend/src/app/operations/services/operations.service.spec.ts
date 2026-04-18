@@ -128,6 +128,8 @@ describe('OperationsService', () => {
     }));
     expect(formatPackageStatus('V')).toBe('Ready for Dispatch');
     expect(formatOperationsPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(formatPackageStatus('REJECTED')).toBe('Rejected');
+    expect(formatOperationsPackageStatus('REJECTED')).toBe('Rejected');
     expect(getOperationsDispatchStage({ status_code: 'V' })).toBe('ready');
     expect(formatStagingSelectionBasis('ALPHABETICAL_FALLBACK')).toBe('Alphabetical fallback');
   });

@@ -43,7 +43,8 @@ import {
 export type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready';
 type FulfillmentStage = FulfillmentFilter | 'excluded';
 
-const OUT_OF_CONTRACT_STATUSES = new Set(['DISPATCHED', 'RECEIVED', 'REJECTED']);
+const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
+const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
 
 @Component({
@@ -263,8 +264,8 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     // TODO(FR05.08-FE-DEFENSIVE-FILTER): sunset after backend contract confirmed
     // clean in staging for 2 weeks. Tracking issue logged in PR body.
     if (
-      OUT_OF_CONTRACT_STATUSES.has(currentStatus)
-      || OUT_OF_CONTRACT_STATUSES.has(rowStatus)
+      OUT_OF_CONTRACT_PACKAGE_STATUSES.has(currentStatus)
+      || OUT_OF_CONTRACT_REQUEST_STATUSES.has(rowStatus)
       || OUT_OF_CONTRACT_LEGACY_STATUSES.has(legacyStatus)
     ) {
       console.warn('[fulfillment-queue] backend leaked out-of-contract row', {

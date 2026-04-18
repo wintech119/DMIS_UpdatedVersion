@@ -127,12 +127,13 @@ describe('PackageFulfillmentQueueComponent', () => {
     ).toBeFalse();
   });
 
-  it('excludes DISPATCHED, RECEIVED, and REJECTED rows from the active-work queue', () => {
+  it('excludes dispatched, received, and legacy closed rows from the active-work queue', () => {
+    spyOn(console, 'warn');
     operationsService.getPackagesQueue.and.returnValue(
       of({
         results: [
           buildQueueItem({ reliefrqst_id: 1, status_code: 'APPROVED_FOR_FULFILLMENT' }),
-          // DISPATCHED / RECEIVED belong on PackageStatusCode — route via current_package.
+          // DISPATCHED / RECEIVED belong on PackageStatusCode, routed via current_package.
           buildQueueItem({
             reliefrqst_id: 2,
             status_code: 'APPROVED_FOR_FULFILLMENT',
@@ -143,11 +144,9 @@ describe('PackageFulfillmentQueueComponent', () => {
             status_code: 'APPROVED_FOR_FULFILLMENT',
             current_package: buildPackageSummary({ status_code: 'RECEIVED' }),
           }),
-          // REJECTED is valid on RequestStatusCode — keep on the request.
-          buildQueueItem({ reliefrqst_id: 4, status_code: 'REJECTED' }),
           // Legacy D / C live on package_status (PackageStatusCode | null).
-          buildQueueItem({ reliefrqst_id: 5, package_status: 'D' }),
-          buildQueueItem({ reliefrqst_id: 6, package_status: 'C' }),
+          buildQueueItem({ reliefrqst_id: 4, package_status: 'D' }),
+          buildQueueItem({ reliefrqst_id: 5, package_status: 'C' }),
         ],
       }),
     );
@@ -162,7 +161,28 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(ids).not.toContain(3);
     expect(ids).not.toContain(4);
     expect(ids).not.toContain(5);
-    expect(ids).not.toContain(6);
+  });
+
+  it('keeps override-rejected package attempts visible for a fresh fulfillment attempt', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({
+            reliefrqst_id: 7,
+            status_code: 'APPROVED_FOR_FULFILLMENT',
+            current_package: buildPackageSummary({ status_code: 'REJECTED' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const [row] = component.filteredItems();
+    expect(row?.reliefrqst_id).toBe(7);
+    expect(component.getFulfillmentStage(row!)).toBe('preparing');
   });
 
   it('does not expose a Dispatched option in filterOptions', () => {

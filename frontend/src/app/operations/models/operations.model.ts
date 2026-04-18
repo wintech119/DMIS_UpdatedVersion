@@ -16,6 +16,7 @@ export type LegacyPackageStatusCode = 'A' | 'P' | 'D' | 'C' | 'V';
 export type StagedPackageStatusCode =
   | 'DRAFT'
   | 'PENDING_OVERRIDE_APPROVAL'
+  | 'REJECTED'
   | 'COMMITTED'
   | 'CONSOLIDATING'
   | 'READY_FOR_PICKUP'
