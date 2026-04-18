@@ -933,6 +933,47 @@ operations_package_override_approve.required_permission = PERM_OPERATIONS_PACKAG
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
+def operations_package_override_return(request, reliefrqst_id: int):
+    try:
+        idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="package_override_return",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
+        rate_limited = _rate_limit_response(
+            request,
+            scope="package_override_return",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
+        return Response(
+            operations_service.return_override(
+                reliefrqst_id,
+                payload=_payload_object(request.data),
+                actor_id=actor_id,
+                actor_roles=_roles(request),
+                tenant_context=tenant_context,
+                idempotency_key=idempotency_key,
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_package_override_return.required_permission = PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_override_reject(request, reliefrqst_id: int):
     try:
         idempotency_key = _required_idempotency_key(request)

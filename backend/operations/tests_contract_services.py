@@ -33,6 +33,7 @@ from operations.constants import (
     PACKAGE_STATUS_DISPATCHED,
     PACKAGE_STATUS_DRAFT,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_REJECTED,
     PACKAGE_STATUS_READY_FOR_DISPATCH,
     PACKAGE_STATUS_READY_FOR_PICKUP,
     PACKAGE_STATUS_RECEIVED,
@@ -59,6 +60,7 @@ from operations.constants import (
 from operations.exceptions import OperationValidationError
 from operations.models import (
     OperationsAllocationLine,
+    OperationsActionAudit,
     OperationsConsolidationLeg,
     OperationsConsolidationLegItem,
     OperationsDispatch,
@@ -888,7 +890,7 @@ class OperationsWorkflowContractTests(TestCase):
             destination_tenant_id=20,
             destination_agency_id=501,
             status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
             create_by_id="seed-user",
             update_by_id="seed-user",
             update_dtime=original_updated_at,
@@ -903,12 +905,12 @@ class OperationsWorkflowContractTests(TestCase):
         record.refresh_from_db()
 
         self.assertEqual(record.status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
-        self.assertEqual(record.override_status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
+        self.assertEqual(record.override_status_code, contract_services.OVERRIDE_STATUS_PENDING_APPROVAL)
         self.assertEqual(record.version_nbr, 5)
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
 
-    def test_package_sync_clears_override_status_when_override_is_approved(self) -> None:
+    def test_package_sync_records_frozen_override_status_when_override_is_approved(self) -> None:
         self._create_operations_request_record()
         OperationsPackage.objects.create(
             package_id=90,
@@ -917,7 +919,7 @@ class OperationsWorkflowContractTests(TestCase):
             destination_tenant_id=20,
             destination_agency_id=501,
             status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
             create_by_id="seed-user",
             update_by_id="seed-user",
             version_nbr=5,
@@ -928,12 +930,12 @@ class OperationsWorkflowContractTests(TestCase):
             request_record=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
             actor_id="sync-1",
             status_code=PACKAGE_STATUS_COMMITTED,
-            override_status_code=None,
+            override_status_code=contract_services.OVERRIDE_STATUS_APPROVED,
         )
         record.refresh_from_db()
 
         self.assertEqual(record.status_code, PACKAGE_STATUS_COMMITTED)
-        self.assertIsNone(record.override_status_code)
+        self.assertEqual(record.override_status_code, contract_services.OVERRIDE_STATUS_APPROVED)
 
     def test_package_sync_uses_legacy_package_timestamps_when_present(self) -> None:
         self._create_operations_request_record()
@@ -1075,12 +1077,78 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.approve_override")
+    def test_approve_override_preserves_no_self_approval_for_actual_override_submitter(
+        self,
+        approve_override_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        request_record.create_by_id = "requester-1"
+        request_record.save(update_fields=["create_by_id"])
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
+            create_by_id="manager-1",
+            update_by_id="manager-1",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="manager-1",
+        )
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        request.create_by_id = "requester-1"
+        load_request_mock.return_value = request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="P",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(contract_services.OverrideApprovalError):
+            contract_services.approve_override(
+                70,
+                payload={
+                    "allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}],
+                    "override_reason_code": "FEFO_BYPASS",
+                    "override_note": "Supervisor approved.",
+                },
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-approve-70",
+            )
+
+        approve_override_mock.assert_not_called()
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.approve_override")
     def test_approve_override_completes_override_queue_and_routes_direct_package_to_dispatch(
         self,
         approve_override_mock,
         load_request_mock,
         current_package_mock,
         get_agency_scope_mock,
+        _mock_request_level_tenant,
     ) -> None:
         request_record = self._create_operations_request_record()
         package_record = OperationsPackage.objects.create(
@@ -1091,9 +1159,16 @@ class OperationsWorkflowContractTests(TestCase):
             destination_tenant_id=20,
             destination_agency_id=501,
             status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
             create_by_id="fulfiller-1",
             update_by_id="fulfiller-1",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="fulfiller-1",
         )
         OperationsQueueAssignment.objects.create(
             queue_code=QUEUE_CODE_OVERRIDE,
@@ -1127,15 +1202,19 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
         package_record.refresh_from_db()
+        request_record.refresh_from_db()
         override_assignment = OperationsQueueAssignment.objects.get(
             queue_code=QUEUE_CODE_OVERRIDE,
             entity_type="RELIEF_REQUEST",
             entity_id=70,
             assigned_role_code=ROLE_LOGISTICS_MANAGER,
         )
-        self.assertEqual(result["status"], "COMMITTED")
+        self.assertEqual(result["status"], PACKAGE_STATUS_COMMITTED)
+        self.assertEqual(result["request_status"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_COMMITTED)
         self.assertEqual(package_record.status_code, PACKAGE_STATUS_COMMITTED)
-        self.assertIsNone(package_record.override_status_code)
+        self.assertEqual(package_record.override_status_code, contract_services.OVERRIDE_STATUS_APPROVED)
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
         self.assertEqual(override_assignment.assignment_status, "COMPLETED")
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(
@@ -1155,6 +1234,230 @@ class OperationsWorkflowContractTests(TestCase):
                 queue_code=QUEUE_CODE_DISPATCH,
             ).exists()
         )
+        self.assertTrue(
+            OperationsNotification.objects.filter(
+                event_code=contract_services.EVENT_OVERRIDE_APPROVED,
+                entity_type="PACKAGE",
+                entity_id=90,
+                recipient_user_id="fulfiller-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=90,
+                from_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+                to_status_code=PACKAGE_STATUS_COMMITTED,
+                changed_by_id="manager-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsActionAudit.objects.filter(
+                package_id=90,
+                action_code=contract_services.ACTION_OVERRIDE_APPROVED,
+                action_reason="Supervisor approved.",
+                acted_by_user_id="manager-1",
+            ).exists()
+        )
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.approve_override")
+    def test_approve_override_routes_staged_off_hub_package_to_consolidation(
+        self,
+        approve_override_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+        _mock_request_level_tenant,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            staging_warehouse_id=8,
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="fulfiller-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="P",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+        approve_override_mock.return_value = {"reliefrqst_id": 70, "status": "COMMITTED"}
+
+        result = contract_services.approve_override(
+            70,
+            payload={
+                "allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Approved for staging flow.",
+            },
+            actor_id="manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="override-stage-70",
+        )
+
+        package_record.refresh_from_db()
+        request_record.refresh_from_db()
+        self.assertEqual(result["status"], PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(result["request_status"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(package_record.override_status_code, contract_services.OVERRIDE_STATUS_APPROVED)
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertEqual(package_record.consolidation_status, CONSOLIDATION_STATUS_AWAITING_LEGS)
+        self.assertEqual(package_record.consolidation_legs.count(), 1)
+        leg = package_record.consolidation_legs.get()
+        self.assertEqual(leg.source_warehouse_id, 4)
+        self.assertEqual(leg.staging_warehouse_id, 8)
+        self.assertTrue(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                entity_type="CONSOLIDATION_LEG",
+                entity_id=leg.leg_id,
+                assigned_tenant_id=20,
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsActionAudit.objects.filter(
+                package_id=90,
+                action_code=contract_services.ACTION_OVERRIDE_APPROVED,
+            ).exists()
+        )
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.approve_override")
+    def test_approve_override_routes_staged_at_hub_package_to_pickup_release(
+        self,
+        approve_override_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+        _mock_request_level_tenant,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=8,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
+            fulfillment_mode=FULFILLMENT_MODE_PICKUP_AT_STAGING,
+            staging_warehouse_id=8,
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=8,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="fulfiller-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="P",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+        approve_override_mock.return_value = {"reliefrqst_id": 70, "status": "COMMITTED"}
+
+        result = contract_services.approve_override(
+            70,
+            payload={
+                "allocations": [{"item_id": 101, "inventory_id": 8, "batch_id": 1001, "quantity": "2"}],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Approved for pickup.",
+            },
+            actor_id="manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="override-pickup-70",
+        )
+
+        package_record.refresh_from_db()
+        request_record.refresh_from_db()
+        self.assertEqual(result["status"], PACKAGE_STATUS_READY_FOR_PICKUP)
+        self.assertEqual(result["request_status"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_READY_FOR_PICKUP)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_READY_FOR_PICKUP)
+        self.assertEqual(package_record.override_status_code, contract_services.OVERRIDE_STATUS_APPROVED)
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertTrue(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_PICKUP_RELEASE,
+                entity_type="PACKAGE",
+                entity_id=90,
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertFalse(package_record.consolidation_legs.exists())
 
     @patch("operations.contract_services._save_package_allocation")
     @patch("operations.contract_services._current_package_for_request")
@@ -1226,7 +1529,7 @@ class OperationsWorkflowContractTests(TestCase):
             destination_tenant_id=20,
             destination_agency_id=501,
             status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
             create_by_id="manager-1",
             update_by_id="manager-1",
         )
@@ -1272,16 +1575,32 @@ class OperationsWorkflowContractTests(TestCase):
                 idempotency_key="override-reject-70",
             )
 
-    @patch("operations.contract_services.reset_package_allocations")
+    def test_return_override_requires_reason(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.return_override(
+                70,
+                payload={"reason": "   "},
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-return-70",
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"reason": "Reason is required when returning an override for adjustments."},
+        )
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
-    def test_reject_override_blocks_unfrozen_return_for_adjustments_semantics(
+    def test_return_override_returns_same_package_to_draft_and_reopens_fulfillment_work(
         self,
         load_request_mock,
         current_package_mock,
         get_agency_scope_mock,
-        reset_package_allocations_mock,
+        _mock_request_level_tenant,
     ) -> None:
         request_record = self._create_operations_request_record()
         package_record = OperationsPackage.objects.create(
@@ -1292,7 +1611,213 @@ class OperationsWorkflowContractTests(TestCase):
             destination_tenant_id=20,
             destination_agency_id=501,
             status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            reason_text="FEFO_BYPASS",
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="fulfiller-1",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        result = contract_services.return_override(
+            70,
+            payload={"reason": "Adjust allocations to match compliant stock order."},
+            actor_id="manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="override-return-70",
+        )
+
+        package_record.refresh_from_db()
+        request_record.refresh_from_db()
+        override_assignment = OperationsQueueAssignment.objects.get(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        self.assertEqual(result["status"], PACKAGE_STATUS_DRAFT)
+        self.assertEqual(result["override_status_code"], contract_services.OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_DRAFT)
+        self.assertEqual(
+            package_record.override_status_code,
+            contract_services.OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT,
+        )
+        self.assertTrue(OperationsAllocationLine.objects.filter(package_id=90).exists())
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertEqual(override_assignment.assignment_status, "COMPLETED")
+        self.assertTrue(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_FULFILLMENT,
+                entity_type="RELIEF_REQUEST",
+                entity_id=70,
+                assigned_role_code=ROLE_LOGISTICS_OFFICER,
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code__in=[
+                    QUEUE_CODE_DISPATCH,
+                    QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    QUEUE_CODE_PICKUP_RELEASE,
+                ],
+                entity_id=90,
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsNotification.objects.filter(
+                event_code=contract_services.EVENT_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+                entity_type="PACKAGE",
+                entity_id=90,
+                recipient_user_id="fulfiller-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=90,
+                from_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+                to_status_code=PACKAGE_STATUS_DRAFT,
+                changed_by_id="manager-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsActionAudit.objects.filter(
+                package_id=90,
+                action_code=contract_services.ACTION_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+                action_reason="Adjust allocations to match compliant stock order.",
+                acted_by_user_id="manager-1",
+            ).exists()
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_return_override_preserves_no_self_approval_for_actual_override_submitter(
+        self,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        request_record.create_by_id = "requester-1"
+        request_record.save(update_fields=["create_by_id"])
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
+            create_by_id="manager-1",
+            update_by_id="manager-1",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="manager-1",
+        )
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        request.create_by_id = "requester-1"
+        load_request_mock.return_value = request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(contract_services.OverrideApprovalError):
+            contract_services.return_override(
+                70,
+                payload={"reason": "Sending my own override back."},
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-return-self-70",
+            )
+
+    def test_reject_override_requires_reason(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.reject_override(
+                70,
+                payload={"reason": "   "},
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-reject-70",
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"reason": "Reason is required when rejecting an override."},
+        )
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
+    @patch("operations.contract_services.reset_package_allocations")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_reject_override_marks_package_rejected_and_preserves_evidence(
+        self,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+        reset_package_allocations_mock,
+        _mock_request_level_tenant,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=contract_services.OVERRIDE_STATUS_PENDING_APPROVAL,
             create_by_id="fulfiller-1",
             update_by_id="fulfiller-1",
         )
@@ -1307,20 +1832,25 @@ class OperationsWorkflowContractTests(TestCase):
             update_by_id="fulfiller-1",
         )
         OperationsQueueAssignment.objects.create(
-            queue_code=QUEUE_CODE_FULFILLMENT,
-            entity_type="RELIEF_REQUEST",
-            entity_id=70,
-            assigned_role_code=ROLE_LOGISTICS_OFFICER,
-            assigned_tenant_id=20,
-            assignment_status="OPEN",
-        )
-        OperationsQueueAssignment.objects.create(
             queue_code=QUEUE_CODE_OVERRIDE,
             entity_type="RELIEF_REQUEST",
             entity_id=70,
             assigned_role_code=ROLE_LOGISTICS_MANAGER,
             assigned_tenant_id=20,
             assignment_status="OPEN",
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="PACKAGE",
+            entity_id=90,
+            from_status_code=PACKAGE_STATUS_DRAFT,
+            to_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            changed_by_id="fulfiller-1",
+        )
+        OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="fulfiller-1",
+            lock_owner_role_code=ROLE_LOGISTICS_OFFICER,
+            lock_status="ACTIVE",
         )
         package = self._package_stub(
             reliefpkg_id=90,
@@ -1332,15 +1862,14 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock.return_value = package
         get_agency_scope_mock.return_value = self.agency_scope
 
-        with self.assertRaises(OperationValidationError) as raised:
-            contract_services.reject_override(
-                70,
-                payload={"reason": "Rebuild with compliant stock order."},
-                actor_id="manager-1",
-                actor_roles=[ROLE_LOGISTICS_MANAGER],
-                tenant_context=self.dispatch_ready_context,
-                idempotency_key="override-reject-70",
-            )
+        result = contract_services.reject_override(
+            70,
+            payload={"reason": "Rebuild with compliant stock order."},
+            actor_id="manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="override-reject-70",
+        )
 
         package_record.refresh_from_db()
         request_record.refresh_from_db()
@@ -1350,26 +1879,145 @@ class OperationsWorkflowContractTests(TestCase):
             entity_id=70,
             assigned_role_code=ROLE_LOGISTICS_MANAGER,
         )
-        fulfillment_assignment = OperationsQueueAssignment.objects.get(
-            queue_code=QUEUE_CODE_FULFILLMENT,
-            entity_type="RELIEF_REQUEST",
-            entity_id=70,
-            assigned_role_code=ROLE_LOGISTICS_OFFICER,
-        )
-        self.assertEqual(
-            raised.exception.errors["override"],
-            contract_services.OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE,
-        )
+        package_lock = OperationsPackageLock.objects.get(package_id=90)
+        self.assertEqual(result["status"], PACKAGE_STATUS_REJECTED)
+        self.assertEqual(result["override_status_code"], contract_services.OVERRIDE_STATUS_REJECTED)
         reset_package_allocations_mock.assert_not_called()
-        self.assertEqual(package_record.status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
-        self.assertEqual(
-            package_record.override_status_code,
-            PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-        )
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_REJECTED)
+        self.assertEqual(package_record.override_status_code, contract_services.OVERRIDE_STATUS_REJECTED)
         self.assertTrue(OperationsAllocationLine.objects.filter(package_id=90).exists())
         self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
-        self.assertEqual(override_assignment.assignment_status, "OPEN")
-        self.assertEqual(fulfillment_assignment.assignment_status, "OPEN")
+        self.assertEqual(override_assignment.assignment_status, "COMPLETED")
+        self.assertEqual(package_lock.lock_status, "RELEASED")
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code__in=[
+                    QUEUE_CODE_FULFILLMENT,
+                    QUEUE_CODE_DISPATCH,
+                    QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    QUEUE_CODE_PICKUP_RELEASE,
+                ],
+                entity_id__in=[70, 90],
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsNotification.objects.filter(
+                event_code=contract_services.EVENT_OVERRIDE_REJECTED,
+                entity_type="PACKAGE",
+                entity_id=90,
+                recipient_user_id="fulfiller-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=90,
+                from_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+                to_status_code=PACKAGE_STATUS_REJECTED,
+                changed_by_id="manager-1",
+            ).exists()
+        )
+        self.assertTrue(
+            OperationsActionAudit.objects.filter(
+                package_id=90,
+                action_code=contract_services.ACTION_OVERRIDE_REJECTED,
+                action_reason="Rebuild with compliant stock order.",
+                acted_by_user_id="manager-1",
+            ).exists()
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_save_package_creates_fresh_package_after_rejected_current_package(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=81, agency_id=501)
+        rejected_package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_REJECTED,
+            override_status_code=contract_services.OVERRIDE_STATUS_REJECTED,
+            create_by_id="fulfiller-1",
+            update_by_id="manager-1",
+        )
+        OperationsAllocationLine.objects.create(
+            package=rejected_package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            reason_text="FEFO_BYPASS",
+            create_by_id="fulfiller-1",
+            update_by_id="manager-1",
+        )
+        request = self._request_stub(
+            reliefrqst_id=81,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        old_package = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=81,
+            agency_id=501,
+            status_code="A",
+        )
+        new_package = self._package_stub(
+            reliefpkg_id=91,
+            reliefrqst_id=81,
+            agency_id=501,
+            status_code="P",
+        )
+        load_request_mock.return_value = request
+        current_package_mock.side_effect = [old_package, new_package, new_package]
+        get_agency_scope_mock.return_value = self.agency_scope
+        save_package_mock.return_value = {
+            "status": "COMMITTED",
+            "reliefpkg_id": 91,
+            "allocation_lines": [
+                {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2.0000"},
+            ],
+        }
+
+        contract_services.save_package(
+            81,
+            payload={
+                "allocations": [
+                    {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2.0000"},
+                ],
+            },
+            actor_id="fulfiller-2",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        rejected_package_record.refresh_from_db()
+        new_package_record = OperationsPackage.objects.get(package_id=91)
+        self.assertEqual(rejected_package_record.status_code, PACKAGE_STATUS_REJECTED)
+        self.assertEqual(
+            list(
+                OperationsAllocationLine.objects.filter(package_id=90).values_list("item_id", flat=True)
+            ),
+            [101],
+        )
+        self.assertEqual(new_package_record.status_code, PACKAGE_STATUS_COMMITTED)
+        self.assertEqual(
+            list(
+                OperationsAllocationLine.objects.filter(package_id=91).values_list("item_id", flat=True)
+            ),
+            [101],
+        )
 
     def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:
         self._create_operations_request_record()

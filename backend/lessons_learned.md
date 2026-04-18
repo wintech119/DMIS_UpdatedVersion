@@ -86,10 +86,14 @@ create_role_notifications(
 ### Root Cause
 - Queue selection applied the 200-row cap before filtering out rows that were no longer active fulfillment work.
 - Override approval and rejection fallback logic used creator fields as a proxy for the override submitter even when workflow history contained a better signal.
+- Override approval response assembly reused the legacy pre-transition result instead of rebuilding from the final post-review package state.
+- Override approval also treated a review decision as physical fulfillment and advanced the request lifecycle too early.
 
 ### Invariant
 - Workflow-sensitive queue limits must apply after status, authorization, and active-work filters.
 - Workflow-sensitive approval guards must prefer persisted workflow actors such as execution links or status-history transitions over creator heuristics.
+- Review-only approval decisions must not advance request fulfillment lifecycle state before downstream dispatch or receipt work occurs.
+- Workflow responses and cached idempotent payloads must reflect the final persisted post-transition state, not an intermediate legacy result captured before downstream routing logic runs.
 
 ### Correct Architectural Rule
 - Treat queue assignment rows and creator fields as hints, not authoritative workflow truth, when later workflow state can invalidate them.
@@ -100,6 +104,8 @@ create_role_notifications(
 - The fulfillment queue still returns active work when 200+ stale fulfilled assignments exist ahead of it.
 - Override approval passes the actual pending-override submitter into downstream no-self-approval validation.
 - Override rejection blocks self-approval for the actual pending-override submitter, not merely the request creator.
+- Override approval keeps the request at `APPROVED_FOR_FULFILLMENT` until downstream dispatch or receipt transitions advance it.
+- Staged override approval responses return `CONSOLIDATING`, `READY_FOR_PICKUP`, or `READY_FOR_DISPATCH` when those are the final package outcomes, and the response matches persisted package state.
 
 ### Closeout Expectation
 - If a change touches fulfillment queue visibility, override approval, or override rejection, mention this lesson in the closeout and confirm the related regression tests were run.

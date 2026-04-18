@@ -317,6 +317,44 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.data_access.get_active_event", return_value=None)
+    @patch(
+        "operations.views.operations_service.return_override",
+        return_value={
+            "reliefrqst_id": 70,
+            "status": "DRAFT",
+            "override_status_code": "RETURNED_FOR_ADJUSTMENT",
+        },
+    )
+    def test_package_override_return_forwards_payload_actor_tenant_and_idempotency_key(
+        self,
+        mock_return_override,
+        _mock_active_event,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-return",
+            {"reason": "Adjust allocations to follow compliant stock order."},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="override-return-70",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_return_override.call_args.args[0], 70)
+        self.assertEqual(
+            mock_return_override.call_args.kwargs["payload"]["reason"],
+            "Adjust allocations to follow compliant stock order.",
+        )
+        self.assertEqual(mock_return_override.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_return_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_return_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_return_override.call_args.kwargs["idempotency_key"], "override-return-70")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch(
         "operations.views.operations_service.save_package",
         side_effect=InventoryDriftError(
@@ -1337,20 +1375,15 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.data_access.get_active_event", return_value=None)
     @patch(
         "operations.views.operations_service.reject_override",
-        side_effect=OperationValidationError(
-            {
-                "override": (
-                    "Override rejection outcome is not yet defined by the frozen design; "
-                    "return-for-adjustments remains unresolved."
-                )
-            }
-        ),
+        return_value={"reliefrqst_id": 70, "status": "REJECTED", "override_status_code": "REJECTED"},
     )
-    def test_package_override_reject_surfaces_design_gap_without_success_semantics(
+    def test_package_override_reject_forwards_payload_actor_tenant_and_idempotency_key(
         self,
         mock_reject_override,
+        _mock_active_event,
         _mock_roles,
         _mock_permission,
         _mock_tenant_context,
@@ -1362,23 +1395,33 @@ class OperationsApiTests(SimpleTestCase):
             HTTP_IDEMPOTENCY_KEY="override-reject-70",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            {
-                "errors": {
-                    "override": (
-                        "Override rejection outcome is not yet defined by the frozen design; "
-                        "return-for-adjustments remains unresolved."
-                    )
-                }
-            },
-        )
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_reject_override.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_reject_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_reject_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_reject_override.call_args.kwargs["payload"]["reason"], "Rebuild with compliant stock order.")
         self.assertEqual(mock_reject_override.call_args.kwargs["idempotency_key"], "override-reject-70")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.return_override")
+    def test_package_override_return_requires_idempotency_key(
+        self,
+        mock_return_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-return",
+            {"reason": "Adjust allocations to follow compliant stock order."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_return_override.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1420,6 +1463,40 @@ class OperationsApiTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_reject_override.assert_not_called()
+
+    @patch("operations.views.operations_service.return_override")
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=False)
+    def test_package_override_return_permission_guard_blocks_service_call(
+        self,
+        _mock_permission,
+        mock_return_override,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-return",
+            {"reason": "Adjust allocations to follow compliant stock order."},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="override-return-guard-70",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        mock_return_override.assert_not_called()
+
+    @patch("operations.views.operations_service.reject_override")
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=False)
+    def test_package_override_reject_permission_guard_blocks_service_call(
+        self,
+        _mock_permission,
+        mock_reject_override,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-reject",
+            {"reason": "Rebuild with compliant stock order."},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="override-reject-guard-70",
+        )
+
+        self.assertEqual(response.status_code, 403)
         mock_reject_override.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
@@ -1515,6 +1592,37 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response["Retry-After"], "17")
         self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
         mock_request_partial_release.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.return_override")
+    def test_package_override_return_returns_429_when_rate_limited(
+        self,
+        mock_return_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/70/allocations/override-return",
+                {"reason": "Adjust allocations to follow compliant stock order."},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="override-return-70",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_return_override.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)

@@ -24,6 +24,9 @@ from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
 from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
+    ACTION_OVERRIDE_APPROVED,
+    ACTION_OVERRIDE_REJECTED,
+    ACTION_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -42,7 +45,9 @@ from operations.constants import (
     EVENT_CONSOLIDATION_PLANNED,
     EVENT_DISPATCH_COMPLETED,
     EVENT_OVERRIDE_APPROVED,
+    EVENT_OVERRIDE_REJECTED,
     EVENT_OVERRIDE_REQUESTED,
+    EVENT_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
     EVENT_PACKAGE_CANCELLED,
     EVENT_PACKAGE_COMMITTED,
     EVENT_PACKAGE_LOCKED,
@@ -69,10 +74,15 @@ from operations.constants import (
     PACKAGE_STATUS_DRAFT,
     PACKAGE_STATUS_DISPATCHED,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_REJECTED,
     PACKAGE_STATUS_READY_FOR_DISPATCH,
     PACKAGE_STATUS_READY_FOR_PICKUP,
     PACKAGE_STATUS_RECEIVED,
     PACKAGE_STATUS_SPLIT,
+    OVERRIDE_STATUS_APPROVED,
+    OVERRIDE_STATUS_PENDING_APPROVAL,
+    OVERRIDE_STATUS_REJECTED,
+    OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_CONSOLIDATION_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
@@ -122,6 +132,7 @@ from operations.workflow import (
     assign_roles_to_queue,
     assign_user_to_queue,
     complete_queue_assignments,
+    record_action_audit,
     create_role_notifications,
     create_user_notification,
     record_status_transition,
@@ -190,6 +201,7 @@ _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
         PACKAGE_STATUS_CONSOLIDATING,
         PACKAGE_STATUS_READY_FOR_DISPATCH,
         PACKAGE_STATUS_READY_FOR_PICKUP,
+        PACKAGE_STATUS_REJECTED,
         PACKAGE_STATUS_SPLIT,
         PACKAGE_STATUS_CANCELLED,
     }
@@ -596,6 +608,66 @@ def _override_submitter_user_id(
         or ""
     ).strip()
     return fallback_submitter or None
+
+
+def _override_actor_role_code(actor_roles: Iterable[str] | None) -> str:
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_LOGISTICS_MANAGER in normalized_roles:
+        return ROLE_LOGISTICS_MANAGER
+    if normalized_roles:
+        return normalized_roles[0]
+    return ROLE_SYSTEM_ADMINISTRATOR
+
+
+def _notify_override_originator(
+    *,
+    event_code: str,
+    package: ReliefPkg,
+    request: ReliefRqst,
+    request_record: OperationsReliefRequest,
+    message_text: str,
+) -> None:
+    recipient_user_id = (
+        _override_submitter_user_id(
+            reliefrqst_id=int(request.reliefrqst_id),
+            request=request,
+            package=package,
+        )
+        or request_record.submitted_by_id
+        or request.create_by_id
+        or ""
+    ).strip()
+    if not recipient_user_id:
+        return
+    create_user_notification(
+        event_code=event_code,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package.reliefpkg_id),
+        recipient_user_id=recipient_user_id,
+        message_text=message_text,
+        tenant_id=_resolve_request_level_fulfillment_tenant_id(),
+    )
+
+
+def _record_override_action_audit(
+    *,
+    package_record: OperationsPackage,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    action_code: str,
+    action_reason: str | None = None,
+) -> None:
+    record_action_audit(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        package_id=int(package_record.package_id),
+        tenant_id=_resolve_request_level_fulfillment_tenant_id(),
+        warehouse_id=package_record.source_warehouse_id,
+        action_code=action_code,
+        action_reason=action_reason,
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
+    )
 
 
 def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
@@ -3018,6 +3090,15 @@ def _update_existing_package(
     return package
 
 
+def _touch_legacy_package(package: ReliefPkg, *, actor_id: str) -> None:
+    now = timezone.now()
+    package.update_by_id = actor_id
+    package.update_dtime = now
+    package.version_nbr = int(package.version_nbr or 0) + 1
+    if hasattr(package, "save"):
+        package.save(update_fields=["update_by_id", "update_dtime", "version_nbr"])
+
+
 def _create_package_for_request(
     request: ReliefRqst,
     *,
@@ -3060,6 +3141,14 @@ def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, 
             }
         )
     if package is not None:
+        package_record = OperationsPackage.objects.filter(package_id=int(package.reliefpkg_id)).only("status_code").first()
+        if package_record is not None and package_record.status_code == PACKAGE_STATUS_REJECTED:
+            return _create_package_for_request(
+                request,
+                actor_id=actor_id,
+                raw_destination=raw_destination,
+                payload=payload,
+            )
         if (
             int(request.status_code or STATUS_DRAFT) == STATUS_PART_FILLED
             and _current_package_status(package) == PKG_STATUS_DISPATCHED
@@ -5021,7 +5110,10 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
         "compatibility_only": False,
     }
     if package is not None:
-        if package_record is not None and package_record.status_code == PACKAGE_STATUS_DRAFT:
+        if package_record is not None and package_record.status_code in {
+            PACKAGE_STATUS_DRAFT,
+            PACKAGE_STATUS_REJECTED,
+        }:
             payload["package"]["allocation"] = _operations_allocation_payload(package, package_record)
         else:
             payload["package"]["allocation"] = legacy_service._package_detail(package)["allocation"]
@@ -5104,6 +5196,7 @@ def reset_package_allocations(
     if package_record.status_code in {
         PACKAGE_STATUS_DISPATCHED,
         PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_REJECTED,
         PACKAGE_STATUS_SPLIT,
         PACKAGE_STATUS_CANCELLED,
     }:
@@ -5283,6 +5376,7 @@ def abandon_package_draft(
         PACKAGE_STATUS_READY_FOR_PICKUP,
         PACKAGE_STATUS_DISPATCHED,
         PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_REJECTED,
         PACKAGE_STATUS_SPLIT,
         PACKAGE_STATUS_CANCELLED,
     }:
@@ -5571,7 +5665,11 @@ def save_package(
     package_locked_before_save = package is not None
     if package_locked_before_save:
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
-        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
+        if package_record.status_code == PACKAGE_STATUS_REJECTED:
+            package_locked_before_save = False
+            package_record = None
+        else:
+            _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     else:
         package_record = None
         # No package yet - acquire lock immediately after save creates one.
@@ -5628,7 +5726,7 @@ def save_package(
     if not draft_save:
         if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
             status_code = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
-            override_status = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
+            override_status = OVERRIDE_STATUS_PENDING_APPROVAL
         elif result.get("status") == "COMMITTED":
             status_code = PACKAGE_STATUS_COMMITTED
     package_record = _sync_operations_package(
@@ -5654,7 +5752,9 @@ def save_package(
     # ── Dual-write: sync allocation lines to new operations table ──
     if validated_allocations is not None:
         override_reason_code = None
-        if (
+        if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
+            override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
+        elif (
             result.get("status") == "COMMITTED"
             and "allocation_order_override" in (result.get("override_markers") or [])
             and not result.get("override_required")
@@ -5871,6 +5971,17 @@ def approve_override(
         )
         return result
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
+    approval_comment = (
+        str(
+            payload.get("comment")
+            or payload.get("approval_comment")
+            or payload.get("override_note")
+            or ""
+        ).strip()
+        or None
+    )
+    if approval_comment and len(approval_comment) > 500:
+        raise OperationValidationError({"comment": "Comment must be 500 characters or fewer."})
     request = legacy_service._load_request(reliefrqst_id)
     request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
@@ -5881,20 +5992,54 @@ def approve_override(
     package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
     if package_record.status_code != PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         raise OperationValidationError({"override": "Package is not awaiting override approval."})
-    result = legacy_service.approve_override(reliefrqst_id, payload=payload, actor_id=actor_id, actor_roles=normalized_roles)
+    allocator_user_id = _override_submitter_user_id(
+        reliefrqst_id=reliefrqst_id,
+        request=request,
+        package=package,
+    ) or actor_id
+    validate_override_approval(
+        approver_user_id=actor_id,
+        approver_role_codes=normalized_roles,
+        submitter_user_id=allocator_user_id,
+        needs_list_submitted_by=allocator_user_id,
+    )
+    legacy_result = legacy_service.approve_override(
+        reliefrqst_id,
+        payload=payload,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+    )
+    request = legacy_service._load_request(reliefrqst_id)
+    current_request_status = request_record.status_code
+    request_record = _sync_operations_request(
+        request,
+        actor_id=actor_id,
+        status_code=current_request_status,
+    )
     package = legacy_service._current_package_for_request(reliefrqst_id)
+    result = {
+        **legacy_result,
+        "request_status": request_record.status_code,
+    }
     if package is not None:
-        package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id, status_code=PACKAGE_STATUS_COMMITTED, override_status_code=None)
+        package_record = _sync_operations_package(
+            package,
+            request_record=request_record,
+            actor_id=actor_id,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            override_status_code=OVERRIDE_STATUS_APPROVED,
+            status_transition_reason=approval_comment,
+        )
         complete_queue_assignments(entity_type=ENTITY_REQUEST, entity_id=reliefrqst_id, queue_code=QUEUE_CODE_OVERRIDE, actor_id=actor_id)
         if _is_staged_fulfillment_mode(package_record.fulfillment_mode):
             legs = _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
             if legs:
-                _sync_operations_package(
+                package_record = _sync_operations_package(
                     package,
                     request_record=request_record,
                     actor_id=actor_id,
                     status_code=PACKAGE_STATUS_CONSOLIDATING,
-                    override_status_code=None,
+                    override_status_code=OVERRIDE_STATUS_APPROVED,
                 )
                 _update_package_workflow_fields(
                     package_record,
@@ -5916,8 +6061,8 @@ def approve_override(
                     message_text=f"Override approved for staged package {package.tracking_no}.",
                     role_codes=DISPATCH_ROLE_CODES,
                     tenant_id=request_record.beneficiary_tenant_id,
-                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
-                )
+                        queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    )
             else:
                 package_record = _transition_staged_package_ready(
                     package=package,
@@ -5970,6 +6115,28 @@ def approve_override(
                 tenant_id=request_record.beneficiary_tenant_id,
                 queue_code=QUEUE_CODE_DISPATCH,
             )
+        _notify_override_originator(
+            event_code=EVENT_OVERRIDE_APPROVED,
+            package=package,
+            request=request,
+            request_record=request_record,
+            message_text=f"Override approved for package {package.tracking_no}.",
+        )
+        _record_override_action_audit(
+            package_record=package_record,
+            actor_id=actor_id,
+            actor_roles=normalized_roles,
+            action_code=ACTION_OVERRIDE_APPROVED,
+            action_reason=approval_comment,
+        )
+        result = {
+            **legacy_result,
+            "reliefrqst_id": reliefrqst_id,
+            "status": package_record.status_code,
+            "override_status_code": package_record.override_status_code,
+            "request_status": request_record.status_code,
+            "package": _package_summary_payload(package, package_record),
+        }
     _cache_idempotent_response_after_commit(
         idempotency.cache_key,
         result,
@@ -5979,10 +6146,113 @@ def approve_override(
     return result
 
 
-OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE = (
-    "Override rejection outcome is not yet defined by the frozen design; "
-    "return-for-adjustments remains unresolved."
-)
+@_release_idempotency_reservation_on_error
+@transaction.atomic
+def return_override(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    idempotency = _begin_idempotent_write(
+        endpoint="package_override_return",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
+    )
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
+    normalized_roles = _require_roles(
+        actor_roles,
+        [ROLE_LOGISTICS_MANAGER],
+        message="Only Logistics Managers may return overrides for adjustments.",
+    )
+    reason_text = str(payload.get("reason") or payload.get("return_reason") or "").strip()
+    if not reason_text:
+        raise OperationValidationError({"reason": "Reason is required when returning an override for adjustments."})
+    if len(reason_text) > 500:
+        raise OperationValidationError({"reason": "Reason must be 500 characters or fewer."})
+    request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(
+        request_probe,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    package = legacy_service._current_package_for_request(reliefrqst_id)
+    if package is None:
+        raise OperationValidationError({"override": "No package exists for this request."})
+    package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+    if package_record.status_code != PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
+        raise OperationValidationError({"override": "Package is not awaiting override approval."})
+    allocator_user_id = _override_submitter_user_id(
+        reliefrqst_id=reliefrqst_id,
+        request=request,
+        package=package,
+    ) or actor_id
+    validate_override_approval(
+        approver_user_id=actor_id,
+        approver_role_codes=normalized_roles,
+        submitter_user_id=allocator_user_id,
+        needs_list_submitted_by=allocator_user_id,
+    )
+    _touch_legacy_package(package, actor_id=actor_id)
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_DRAFT,
+        override_status_code=OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT,
+        status_transition_reason=reason_text,
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_REQUEST,
+        entity_id=reliefrqst_id,
+        queue_code=QUEUE_CODE_OVERRIDE,
+        actor_id=actor_id,
+    )
+    assign_roles_to_queue(
+        queue_code=QUEUE_CODE_FULFILLMENT,
+        entity_type=ENTITY_REQUEST,
+        entity_id=reliefrqst_id,
+        role_codes=FULFILLMENT_ROLE_CODES,
+        tenant_id=_resolve_request_level_fulfillment_tenant_id(),
+    )
+    _notify_override_originator(
+        event_code=EVENT_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+        package=package,
+        request=request,
+        request_record=request_record,
+        message_text=f"Override returned for adjustments on package {package.tracking_no}.",
+    )
+    _record_override_action_audit(
+        package_record=package_record,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+        action_code=ACTION_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+        action_reason=reason_text,
+    )
+    result = {
+        "status": PACKAGE_STATUS_DRAFT,
+        "override_status_code": OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT,
+        "reliefrqst_id": reliefrqst_id,
+        "request_status": request_record.status_code,
+        "package": _package_summary_payload(package, package_record),
+    }
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
+    return result
 
 
 @_release_idempotency_reservation_on_error
@@ -6042,12 +6312,56 @@ def reject_override(
         submitter_user_id=allocator_user_id,
         needs_list_submitted_by=allocator_user_id,
     )
-    # The current freeze allows supervisor rejection but does not freeze the
-    # resulting package/request workflow outcome. Do not smuggle an unfrozen
-    # return-for-adjustments reset path behind the word "reject".
-    raise OperationValidationError(
-        {"override": OVERRIDE_REJECTION_DESIGN_GAP_MESSAGE}
+    _touch_legacy_package(package, actor_id=actor_id)
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_REJECTED,
+        override_status_code=OVERRIDE_STATUS_REJECTED,
+        status_transition_reason=reason_text,
     )
+    complete_queue_assignments(
+        entity_type=ENTITY_REQUEST,
+        entity_id=reliefrqst_id,
+        queue_code=QUEUE_CODE_OVERRIDE,
+        actor_id=actor_id,
+    )
+    OperationsPackageLock.objects.filter(
+        package_id=int(package_record.package_id),
+        lock_status="ACTIVE",
+    ).update(
+        lock_status="RELEASED",
+        lock_expires_at=timezone.now(),
+    )
+    _notify_override_originator(
+        event_code=EVENT_OVERRIDE_REJECTED,
+        package=package,
+        request=request,
+        request_record=request_record,
+        message_text=f"Override rejected for package {package.tracking_no}.",
+    )
+    _record_override_action_audit(
+        package_record=package_record,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+        action_code=ACTION_OVERRIDE_REJECTED,
+        action_reason=reason_text,
+    )
+    result = {
+        "status": PACKAGE_STATUS_REJECTED,
+        "override_status_code": OVERRIDE_STATUS_REJECTED,
+        "reliefrqst_id": reliefrqst_id,
+        "request_status": request_record.status_code,
+        "package": _package_summary_payload(package, package_record),
+    }
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
+    return result
 
 
 @_release_idempotency_reservation_on_error
@@ -6948,6 +7262,7 @@ def cancel_package(
     if package_record.status_code in {
         PACKAGE_STATUS_DISPATCHED,
         PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_REJECTED,
         PACKAGE_STATUS_SPLIT,
         PACKAGE_STATUS_CANCELLED,
     }:
