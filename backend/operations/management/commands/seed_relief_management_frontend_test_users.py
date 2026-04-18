@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
@@ -19,19 +20,19 @@ from operations.relief_test_data import (
 
 class Command(BaseCommand):
     help = (
-        "Seed temporary local-harness frontend test users, including national ODPEM logistics personas "
+        "Seed temporary local-harness frontend test users, including ODPEM national logistics personas "
         "and a target-tenant requester profile for Relief Management. Dry-run by default."
     )
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--tenant-id", type=int, default=None, help="Existing target tenant ID.")
         parser.add_argument("--tenant-code", type=str, default="JRC", help="Existing target tenant code. Defaults to JRC.")
-        parser.add_argument("--national-tenant-id", type=int, default=None, help="Existing ODPEM/NEOC tenant ID for the local system-admin profile.")
+        parser.add_argument("--national-tenant-id", type=int, default=None, help="Existing ODPEM national tenant ID for the local system-admin and ODPEM logistics profiles.")
         parser.add_argument(
             "--national-tenant-code",
             type=str,
             default=None,
-            help="Existing ODPEM/NEOC tenant code for the local system-admin profile. Auto-resolves when omitted.",
+            help="Existing ODPEM national tenant code for the local system-admin and ODPEM logistics profiles. Auto-resolves from ODPEM_TENANT_ID when omitted.",
         )
         parser.add_argument("--agency-id", type=int, default=None, help="Existing beneficiary agency ID.")
         parser.add_argument(
@@ -188,6 +189,9 @@ class Command(BaseCommand):
     def _resolve_national_tenant(self, tenant_id: Any, tenant_code: Any) -> dict[str, Any]:
         parsed_tenant_id = self._safe_int(tenant_id)
         normalized_code = str(tenant_code or "").strip().upper()
+        configured_tenant_id = self._safe_int(getattr(settings, "ODPEM_TENANT_ID", None))
+        if parsed_tenant_id is None and not normalized_code and configured_tenant_id is not None:
+            parsed_tenant_id = configured_tenant_id
         try:
             with connection.cursor() as cursor:
                 if parsed_tenant_id is not None:
@@ -243,7 +247,7 @@ class Command(BaseCommand):
             raise CommandError("National/local system-admin tenant does not exist or is inactive.")
         tenant_type = str(row[3] or "").strip().upper()
         if not self._is_odpem_tenant_code(row[1]) and tenant_type != "NEOC":
-            raise CommandError("The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.")
+            raise CommandError("The national/local system-admin tenant must resolve to an ODPEM national tenant.")
         return {
             "tenant_id": int(row[0]),
             "tenant_code": str(row[1] or "").strip(),
