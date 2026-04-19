@@ -68,6 +68,14 @@ interface FulfillmentConfirmationState {
   referenceId?: string;
 }
 
+type PendingOverrideAction = 'approve' | 'return' | 'reject';
+
+interface PendingOverrideSubmission {
+  action: PendingOverrideAction;
+  key: string;
+  signature: string;
+}
+
 @Component({
   selector: 'app-package-fulfillment-workspace',
   standalone: true,
@@ -126,6 +134,7 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly confirmationState = signal<FulfillmentConfirmationState | null>(null);
   readonly savingDraft = signal(false);
   private overrideDialogOpen = false;
+  private pendingOverrideSubmission: PendingOverrideSubmission | null = null;
 
   readonly packageDetail = this.store.packageDetail;
 
@@ -294,6 +303,7 @@ export class PackageFulfillmentWorkspaceComponent {
       this.reliefrqstId.set(reliefrqstId);
       this.confirmationState.set(null);
       this.submissionErrors.set([]);
+      this.pendingOverrideSubmission = null;
       if (reliefrqstId) {
         this.store.load(reliefrqstId, true);
       }
@@ -535,7 +545,11 @@ export class PackageFulfillmentWorkspaceComponent {
       this.notifications.showError(errors[0] || 'Override approval details are incomplete.');
       return;
     }
-    const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+    const idempotencyKey = this.resolveOverrideIdempotencyKey(
+      'approve',
+      { allocations: payload.allocations, override_note: payload.override_note, override_reason_code: payload.override_reason_code },
+      reliefrqstId,
+    );
     this.runAllocationAction(
       this.operationsService.approveOverride(reliefrqstId, payload, idempotencyKey),
       'override_approved',
@@ -568,9 +582,14 @@ export class PackageFulfillmentWorkspaceComponent {
           this.reviewStep?.focusReturn();
           return;
         }
-        const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+        const reason = result.reason.trim();
+        const idempotencyKey = this.resolveOverrideIdempotencyKey(
+          'return',
+          { reason },
+          reliefrqstId,
+        );
         this.runOverrideReview(
-          this.operationsService.returnOverride(reliefrqstId, { reason: result.reason }, idempotencyKey),
+          this.operationsService.returnOverride(reliefrqstId, { reason }, idempotencyKey),
           'returned',
           () => this.reviewStep?.focusReturn(),
         );
@@ -608,9 +627,14 @@ export class PackageFulfillmentWorkspaceComponent {
           this.reviewStep?.focusReject();
           return;
         }
-        const idempotencyKey = this.operationsService.createIdempotencyKey('override', reliefrqstId);
+        const reason = result.reason.trim();
+        const idempotencyKey = this.resolveOverrideIdempotencyKey(
+          'reject',
+          { reason },
+          reliefrqstId,
+        );
         this.runOverrideReview(
-          this.operationsService.rejectOverride(reliefrqstId, { reason: result.reason }, idempotencyKey),
+          this.operationsService.rejectOverride(reliefrqstId, { reason }, idempotencyKey),
           'rejected',
           () => this.reviewStep?.focusReject(),
         );
@@ -646,6 +670,9 @@ export class PackageFulfillmentWorkspaceComponent {
     request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (response: AllocationCommitResponse) => {
         this.store.setSubmitting(false);
+        if (mode === 'override_approved') {
+          this.pendingOverrideSubmission = null;
+        }
         this.submissionErrors.set([]);
         this.reservationIntegrityWarning.set(null);
         this.confirmationState.set(this.buildConfirmationState(response, mode));
@@ -694,6 +721,7 @@ export class PackageFulfillmentWorkspaceComponent {
     request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (response: OverrideReviewResponse) => {
         this.store.setSubmitting(false);
+        this.pendingOverrideSubmission = null;
         this.submissionErrors.set([]);
         this.reservationIntegrityWarning.set(null);
         this.confirmationState.set(this.buildOverrideReviewConfirmation(response, mode));
@@ -913,6 +941,20 @@ export class PackageFulfillmentWorkspaceComponent {
     // The backend enforces this — the frontend provides a best-effort hint
     // by checking if the current user appears in the request metadata
     return false;
+  }
+
+  private resolveOverrideIdempotencyKey(
+    action: PendingOverrideAction,
+    payload: Record<string, unknown>,
+    reliefrqstId: number,
+  ): string {
+    const signature = JSON.stringify(payload);
+    const key = this.pendingOverrideSubmission?.action === action
+      && this.pendingOverrideSubmission.signature === signature
+      ? this.pendingOverrideSubmission.key
+      : this.operationsService.createIdempotencyKey('override', reliefrqstId);
+    this.pendingOverrideSubmission = { action, key, signature };
+    return key;
   }
 
 }

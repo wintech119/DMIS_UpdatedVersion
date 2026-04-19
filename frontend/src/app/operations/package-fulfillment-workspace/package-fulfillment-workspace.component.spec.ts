@@ -1104,6 +1104,84 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(notifications.showSuccess).toHaveBeenCalled();
   });
 
+  it('reuses the same idempotency key when the same override approval is retried after an ambiguous failure', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.approveOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onApproveOverride();
+    component.onApproveOverride();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.approveOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { allocations: [] },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.approveOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { allocations: [] },
+      'override-95009-fixed-uuid',
+    ]);
+  });
+
+  it('mints a new idempotency key when the override approval payload changes after a failed attempt', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.createIdempotencyKey.and.returnValues(
+      'override-95009-first',
+      'override-95009-second',
+    );
+    (component.store.buildOverrideApprovalPayload as jasmine.Spy).and.returnValues(
+      {
+        payload: {
+          allocations: [],
+          override_reason_code: 'STOCK_EXCEPTION',
+          override_note: 'Initial note',
+        } satisfies OverrideApprovalPayload,
+        errors: [],
+      },
+      {
+        payload: {
+          allocations: [],
+          override_reason_code: 'STOCK_EXCEPTION',
+          override_note: 'Updated note',
+        } satisfies OverrideApprovalPayload,
+        errors: [],
+      },
+    );
+    operationsService.approveOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onApproveOverride();
+    component.onApproveOverride();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(2);
+    expect(operationsService.approveOverride.calls.argsFor(0)).toEqual([
+      95009,
+      {
+        allocations: [],
+        override_reason_code: 'STOCK_EXCEPTION',
+        override_note: 'Initial note',
+      },
+      'override-95009-first',
+    ]);
+    expect(operationsService.approveOverride.calls.argsFor(1)).toEqual([
+      95009,
+      {
+        allocations: [],
+        override_reason_code: 'STOCK_EXCEPTION',
+        override_note: 'Updated note',
+      },
+      'override-95009-second',
+    ]);
+  });
+
   it('opens the reason dialog with maxLength 500 and calls returnOverride on confirm', async () => {
     configureManager();
     primePendingOverride();
@@ -1131,6 +1209,40 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(component.confirmationState()?.outcome).toBe('override_returned');
   });
 
+  it('reuses the same idempotency key when returning an override is retried after an ambiguous failure', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValues(
+      {
+        afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
+      } as ReturnType<MatDialog['open']>,
+      {
+        afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
+      } as ReturnType<MatDialog['open']>,
+    );
+    operationsService.returnOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onReturnOverride();
+    await fixture.whenStable();
+    component.onReturnOverride();
+    await fixture.whenStable();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.returnOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { reason: 'Qty off for batch 1001' },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.returnOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { reason: 'Qty off for batch 1001' },
+      'override-95009-fixed-uuid',
+    ]);
+  });
+
   it('skips submission when the reason dialog is cancelled (returnOverride not called)', () => {
     configureManager();
     primePendingOverride();
@@ -1156,7 +1268,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(dialog.open).toHaveBeenCalledTimes(1);
   });
 
-  it('routes reject through rejectOverride with the reason and a fresh idempotency key', async () => {
+  it('routes reject through rejectOverride with the reason and the override idempotency key', async () => {
     configureManager();
     primePendingOverride();
     dialog.open.and.returnValue({
@@ -1179,6 +1291,40 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(rejectArgs[2]).toBe('override-95009-fixed-uuid');
     expect(component.confirmationState()?.outcome).toBe('override_rejected');
     expect(component.confirmationState()?.title).toBe('Override Rejected');
+  });
+
+  it('reuses the same idempotency key when rejecting an override is retried after an ambiguous failure', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValues(
+      {
+        afterClosed: () => of({ reason: 'Wrong warehouse' }),
+      } as ReturnType<MatDialog['open']>,
+      {
+        afterClosed: () => of({ reason: 'Wrong warehouse' }),
+      } as ReturnType<MatDialog['open']>,
+    );
+    operationsService.rejectOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onRejectOverride();
+    await fixture.whenStable();
+    component.onRejectOverride();
+    await fixture.whenStable();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.rejectOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { reason: 'Wrong warehouse' },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.rejectOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { reason: 'Wrong warehouse' },
+      'override-95009-fixed-uuid',
+    ]);
   });
 
   it('guards against double-submit when submitting() is true', () => {
