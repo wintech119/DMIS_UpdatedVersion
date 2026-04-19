@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 
 import { WarehouseAllocationCard } from '../../models/operations.model';
 
@@ -37,7 +38,7 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
 @Component({
   selector: 'app-warehouse-allocation-card',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, MatButtonModule, MatIconModule],
+  imports: [DatePipe, DecimalPipe, MatButtonModule, MatIconModule, MatMenuModule],
   template: `
     <article
       class="wh-card"
@@ -91,17 +92,42 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
             <mat-icon aria-hidden="true">{{ statusIcon() }}</mat-icon>
             {{ statusLabel() }}
           </span>
-          @if (canRemove() && !readOnly()) {
+          @if (!readOnly()) {
             <button
               mat-icon-button
               type="button"
-              class="wh-card__remove"
+              class="wh-card__menu-trigger"
+              [matMenuTriggerFor]="cardMenu"
               [attr.aria-label]="
-                'Remove ' + warehouse().warehouse_name + ' from this item'
-              "
-              (click)="onRemoveClick()">
-              <mat-icon aria-hidden="true">close</mat-icon>
+                'More actions for ' + warehouse().warehouse_name
+              ">
+              <mat-icon aria-hidden="true">more_vert</mat-icon>
             </button>
+            <mat-menu #cardMenu="matMenu" xPosition="before">
+              <button
+                mat-menu-item
+                type="button"
+                (click)="onUseMax()">
+                <mat-icon aria-hidden="true">vertical_align_top</mat-icon>
+                <span>Use max available here</span>
+              </button>
+              <button
+                mat-menu-item
+                type="button"
+                (click)="onClear()">
+                <mat-icon aria-hidden="true">clear</mat-icon>
+                <span>Clear allocation</span>
+              </button>
+              <button
+                mat-menu-item
+                type="button"
+                [disabled]="!canRemove()"
+                [attr.aria-label]="removeMenuAriaLabel()"
+                (click)="onRemoveClick()">
+                <mat-icon aria-hidden="true">delete_outline</mat-icon>
+                <span>Remove warehouse</span>
+              </button>
+            </mat-menu>
           }
         </div>
       </header>
@@ -483,12 +509,16 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         color: var(--color-warning-text, #6e4200);
       }
 
-      .wh-card__remove {
+      .wh-card__menu-trigger {
         flex-shrink: 0;
         color: var(--color-text-secondary, #787774);
       }
 
-      .wh-card__remove:focus-visible {
+      .wh-card__menu-trigger:hover:not([disabled]) {
+        color: var(--color-text-primary, #37352f);
+      }
+
+      .wh-card__menu-trigger:focus-visible {
         outline: 2px solid var(--color-focus-ring, #1565c0);
         outline-offset: 2px;
         border-radius: 50%;
@@ -1030,6 +1060,17 @@ export class WarehouseAllocationCardComponent {
     // reasonLine is a non-empty string by contract; append unconditionally.
     return `${base}. ${this.reasonLine()}`;
   });
+
+  /**
+   * ARIA label for the "Remove warehouse" menu item. When disabled (primary,
+   * rank-0 card), supplies a spoken reason so AT users hear *why* the action is
+   * unavailable rather than just "disabled".
+   */
+  readonly removeMenuAriaLabel = computed(() =>
+    this.canRemove()
+      ? 'Remove warehouse'
+      : 'Remove warehouse (unavailable — the primary warehouse cannot be removed)',
+  );
 
   readonly qtyHintId = computed(() => `wh-qty-hint-${this.warehouse().warehouse_id}`);
   readonly qtyErrorId = computed(() => `wh-qty-error-${this.warehouse().warehouse_id}`);

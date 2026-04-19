@@ -318,7 +318,7 @@ describe('FulfillmentItemDetailComponent', () => {
       expect(trigger.disabled).toBeFalse();
       // In desktop mode the mat-menu trigger is wired; on narrow it's a plain
       // click-handler. We verify the label is consistent across both modes.
-      expect(trigger.textContent).toContain('Add next warehouse');
+      expect(trigger.textContent).toContain('Add another warehouse');
       expect(trigger.textContent).toContain('1 available');
     });
 

@@ -60,7 +60,7 @@ interface AddWarehouseSheetData {
   imports: [DecimalPipe, MatButtonModule, MatIconModule, MatBottomSheetModule],
   template: `
     <div class="bs" role="dialog" aria-labelledby="add-wh-title">
-      <h3 id="add-wh-title" class="bs__title">Add next warehouse</h3>
+      <h3 id="add-wh-title" class="bs__title">Add another warehouse</h3>
       <ul class="bs__list" role="list">
         @for (alt of data.alternates; track alt.warehouse_id; let idx = $index) {
           <li>
@@ -337,20 +337,34 @@ export class AddWarehouseBottomSheetComponent {
           @if (isNarrow()) {
             <button
               type="button"
-              mat-stroked-button
+              class="detail__add-btn"
               [disabled]="readOnly() || visibleAlternateWarehouses().length === 0 || addingWarehouse()"
               (click)="openBottomSheet()">
               <mat-icon aria-hidden="true">add</mat-icon>
-              Add next warehouse ({{ visibleAlternateWarehouses().length }} available)
+              <span class="detail__add-btn-label">
+                Add another warehouse
+                @if (visibleAlternateWarehouses().length > 0) {
+                  <span class="detail__add-btn-count"
+                    >({{ visibleAlternateWarehouses().length }} available)</span
+                  >
+                }
+              </span>
             </button>
           } @else {
             <button
               type="button"
-              mat-stroked-button
+              class="detail__add-btn"
               [matMenuTriggerFor]="addMenu"
               [disabled]="readOnly() || visibleAlternateWarehouses().length === 0 || addingWarehouse()">
               <mat-icon aria-hidden="true">add</mat-icon>
-              Add next warehouse ({{ visibleAlternateWarehouses().length }} available)
+              <span class="detail__add-btn-label">
+                Add another warehouse
+                @if (visibleAlternateWarehouses().length > 0) {
+                  <span class="detail__add-btn-count"
+                    >({{ visibleAlternateWarehouses().length }} available)</span
+                  >
+                }
+              </span>
             </button>
             <mat-menu #addMenu="matMenu" class="detail__add-menu">
               @for (alt of visibleAlternateWarehouses(); track alt.warehouse_id; let idx = $index) {
@@ -760,8 +774,79 @@ export class AddWarehouseBottomSheetComponent {
     /* ── Add-next row ── */
     .detail__add-row {
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: stretch;
       gap: 8px;
+    }
+
+    /*
+     * Full-width dashed-border add-another-warehouse affordance.
+     * Intentionally NOT a mat-stroked-button — the ghost/dashed look matches the
+     * frozen mockup and does not use Material's pill-sized stroked-button token.
+     */
+    .detail__add-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 16px;
+      border: 1.5px dashed
+        color-mix(in srgb, var(--color-text-secondary, #787774) 40%, #d6d3cb);
+      border-radius: 12px;
+      background: transparent;
+      color: var(--color-text-secondary, #787774);
+      font-size: 0.9rem;
+      font-weight: var(--weight-medium, 500);
+      cursor: pointer;
+      transition: border-color 160ms ease, background-color 160ms ease,
+        color 160ms ease;
+    }
+
+    .detail__add-btn mat-icon {
+      flex-shrink: 0;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    .detail__add-btn-label {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .detail__add-btn-count {
+      color: var(--color-text-secondary, #787774);
+      font-weight: var(--weight-regular, 400);
+      font-size: 0.82rem;
+    }
+
+    .detail__add-btn:hover:not([disabled]),
+    .detail__add-btn:focus-visible:not([disabled]) {
+      border-color: var(--color-text-primary, #37352f);
+      color: var(--color-text-primary, #37352f);
+      background: color-mix(
+        in srgb,
+        var(--color-surface-subtle, #f7f6f3) 60%,
+        transparent
+      );
+    }
+
+    .detail__add-btn:focus-visible {
+      outline: 2px solid var(--color-focus-ring, #1565c0);
+      outline-offset: 2px;
+    }
+
+    .detail__add-btn[disabled] {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .detail__add-btn {
+        transition: none;
+      }
     }
 
     .detail__add-row-eyebrow {
@@ -1187,7 +1272,7 @@ export class FulfillmentItemDetailComponent {
   }
 
   onRemoveCard(warehouseId: number): void {
-    this.store().setItemWarehouseQty(this.item().item_id, warehouseId, 0);
+    this.store().removeItemWarehouse(this.item().item_id, warehouseId);
   }
 
   onAddWarehouse(warehouseId: number): void {

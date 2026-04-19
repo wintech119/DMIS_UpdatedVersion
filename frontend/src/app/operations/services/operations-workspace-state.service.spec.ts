@@ -2728,6 +2728,58 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 0);
     expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
   });
+
+  describe('removeItemWarehouse (FR05.06 kebab-menu redesign)', () => {
+    it('removes draft selections, drops the loaded tracker entry, and strips the rank card', () => {
+      const service = makeService();
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+      expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(45);
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      // Draft selections cleared
+      expect(service.selectedRowsByItem()[ITEM_ID]).toEqual([]);
+      // Loaded tracker no longer lists the removed warehouse
+      expect(service.loadedWarehousesByItem()[ITEM_ID] ?? []).toEqual([]);
+      // warehouse_cards + candidates filtered in the cached options
+      const item = service
+        .options()
+        ?.items.find((entry) => entry.item_id === ITEM_ID);
+      expect(item?.warehouse_cards ?? []).toEqual([]);
+      expect(item?.candidates.filter((c) => c.inventory_id === WAREHOUSE_ID)).toEqual([]);
+    });
+
+    it('is a no-op when warehouseId is 0 / negative / missing', () => {
+      const service = makeService();
+      service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 20);
+      const before = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+
+      service.removeItemWarehouse(ITEM_ID, 0);
+      service.removeItemWarehouse(ITEM_ID, -5);
+
+      expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(before);
+      expect(service.selectedRowsByItem()[ITEM_ID]?.length).toBeGreaterThan(0);
+    });
+
+    it('clears the per-item override when the removed warehouse matches the override', () => {
+      const service = makeService();
+      service.itemWarehouseOverrides.set({ [ITEM_ID]: String(WAREHOUSE_ID) });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(service.itemWarehouseOverrides()[ITEM_ID]).toBeUndefined();
+    });
+
+    it('preserves the per-item override when a different warehouse is removed', () => {
+      const service = makeService();
+      service.itemWarehouseOverrides.set({ [ITEM_ID]: '9999' });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(service.itemWarehouseOverrides()[ITEM_ID]).toBe('9999');
+    });
+  });
 });
 
 describe('OperationsWorkspaceStateService.getItemFillStatus (FR05.06 redesign)', () => {

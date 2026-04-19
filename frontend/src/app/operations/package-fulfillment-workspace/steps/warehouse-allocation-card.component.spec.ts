@@ -362,7 +362,20 @@ describe('WarehouseAllocationCardComponent', () => {
     });
   });
 
-  it('emits removeCard with warehouse_id when the remove button is clicked', async () => {
+  it('exposes a kebab trigger wired to matMenuTriggerFor when not readOnly', async () => {
+    const fixture = await render({
+      warehouse: buildCard({ warehouse_id: 9007 }),
+      canRemove: true,
+    });
+    const trigger = fixture.nativeElement.querySelector(
+      '.wh-card__menu-trigger',
+    ) as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
+    // Angular Material sets aria-haspopup on the mat-menu trigger host element.
+    expect(trigger!.getAttribute('aria-haspopup')).toBe('menu');
+  });
+
+  it('onRemoveClick() emits removeCard with the warehouse_id', async () => {
     const fixture = await render({
       warehouse: buildCard({ warehouse_id: 9007 }),
       canRemove: true,
@@ -370,23 +383,42 @@ describe('WarehouseAllocationCardComponent', () => {
     const emitted: number[] = [];
     fixture.componentInstance.removeCard.subscribe((id) => emitted.push(id));
 
-    (fixture.nativeElement.querySelector('.wh-card__remove') as HTMLButtonElement).click();
+    // Invoke the menu-wired handler directly — the template bindings
+    // ((click)="onRemoveClick()") are covered by Angular's compiler.
+    fixture.componentInstance.onRemoveClick();
     expect(emitted).toEqual([9007]);
   });
 
-  it('hides the remove button when canRemove is false', async () => {
+  it('exposes canRemove() === false to the template so the Remove menu item can disable', async () => {
     const fixture = await render({ warehouse: buildCard(), canRemove: false });
-    expect(fixture.nativeElement.querySelector('.wh-card__remove')).toBeNull();
+    expect(fixture.componentInstance.canRemove()).toBeFalse();
+    // The kebab trigger is still visible — only the Remove menu item disables.
+    const trigger = fixture.nativeElement.querySelector(
+      '.wh-card__menu-trigger',
+    ) as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
   });
 
-  it('hides the remove button and disables the qty input in read-only mode', async () => {
+  it('exposes a plain "Remove warehouse" aria-label when canRemove is true', async () => {
+    const fixture = await render({ warehouse: buildCard(), canRemove: true });
+    expect(fixture.componentInstance.removeMenuAriaLabel()).toBe('Remove warehouse');
+  });
+
+  it('explains *why* Remove is disabled via aria-label on the primary (rank-0) card', async () => {
+    const fixture = await render({ warehouse: buildCard(), canRemove: false });
+    const label = fixture.componentInstance.removeMenuAriaLabel();
+    expect(label).toContain('unavailable');
+    expect(label).toContain('primary');
+  });
+
+  it('hides the kebab menu trigger and disables the qty input in read-only mode', async () => {
     const fixture = await render({
       warehouse: buildCard(),
       readOnly: true,
       canRemove: true,
     });
 
-    expect(fixture.nativeElement.querySelector('.wh-card__remove')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.wh-card__menu-trigger')).toBeNull();
     const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
     expect(input.disabled).toBeTrue();
   });

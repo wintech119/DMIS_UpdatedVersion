@@ -1195,6 +1195,91 @@ export class OperationsWorkspaceStateService {
   }
 
   /**
+   * Remove a warehouse from an item's allocation, clearing its draft selections,
+   * dropping it from the loaded-warehouses tracker (so it re-surfaces in the
+   * add-warehouse menu), and filtering its candidates + rank card out of the
+   * cached options. Frontend-only mutation — no backend call; the commit payload
+   * naturally excludes the removed rows.
+   *
+   * The caller is responsible for gating removal of the primary (rank 0) card;
+   * this helper is a pure state operation and does not enforce rank policy.
+   *
+   * Race-safety: bumps the latest add-request id for this item so any in-flight
+   * {@link addItemWarehouse} response cannot re-insert the just-removed warehouse.
+   */
+  removeItemWarehouse(itemId: number, warehouseId: number): void {
+    if (!warehouseId || warehouseId <= 0) {
+      return;
+    }
+
+    // 0. Invalidate any in-flight addItemWarehouse response for this item so it
+    //    cannot re-insert the warehouse we're about to remove.
+    this.latestItemAddRequestIds[itemId] =
+      (this.latestItemAddRequestIds[itemId] ?? 0) + 1;
+
+    // 1. Drop any draft selections for this warehouse.
+    this.selectedRowsByItem.update((map) => {
+      const rows = map[itemId] ?? [];
+      const filtered = rows.filter((row) => row.inventory_id !== warehouseId);
+      if (filtered.length === rows.length) {
+        return map;
+      }
+      return { ...map, [itemId]: filtered };
+    });
+
+    // 2. Remove from the loaded-warehouses tracker so the add-menu can offer it again.
+    this.loadedWarehousesByItem.update((map) => {
+      const loaded = map[itemId] ?? [];
+      if (!loaded.includes(warehouseId)) {
+        return map;
+      }
+      return { ...map, [itemId]: loaded.filter((id) => id !== warehouseId) };
+    });
+
+    // 3. Clear the per-item warehouse override if it pointed at the removed
+    //    warehouse — otherwise `effectiveWarehouseForItem` would keep returning
+    //    the stale id and the next preview would target a now-missing card.
+    this.itemWarehouseOverrides.update((overrides) => {
+      const current = overrides[itemId];
+      if (current == null || Number(current) !== warehouseId) {
+        return overrides;
+      }
+      const next = { ...overrides };
+      delete next[itemId];
+      return next;
+    });
+
+    // 4. Filter out this warehouse's candidates + rank card from the cached options
+    //    so the stack no longer renders it and the alternate-warehouse menu can
+    //    re-surface it on demand.
+    const currentOptions = this.options();
+    if (!currentOptions) {
+      return;
+    }
+    const hasItem = currentOptions.items.some((entry) => entry.item_id === itemId);
+    if (!hasItem) {
+      return;
+    }
+    this.options.set({
+      ...currentOptions,
+      items: currentOptions.items.map((entry) => {
+        if (entry.item_id !== itemId) {
+          return entry;
+        }
+        return {
+          ...entry,
+          candidates: entry.candidates.filter(
+            (candidate) => candidate.inventory_id !== warehouseId,
+          ),
+          warehouse_cards: (entry.warehouse_cards ?? []).filter(
+            (card) => card.warehouse_id !== warehouseId,
+          ),
+        };
+      }),
+    });
+  }
+
+  /**
    * Recompute the draft-aware continuation metrics for a single item against the
    * currently-selected draft allocations. Only continuation fields are merged into
    * the cached item group — candidates and selections are user-driven and untouched.
