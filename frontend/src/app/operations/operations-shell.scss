@@ -98,6 +98,148 @@
   gap: 0.65rem;
 }
 
+// ── Notion-style hero with live context strip ──────────────────────────
+.ops-hero--with-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "lead actions"
+    "context context";
+  align-items: flex-start;
+  gap: 1.1rem 1.5rem;
+  padding: 1.6rem 1.75rem 1.4rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 0;
+}
+
+.ops-hero--with-context .ops-hero__lead {
+  grid-area: lead;
+  min-width: 0;
+}
+
+.ops-hero--with-context .ops-hero__actions {
+  grid-area: actions;
+  align-items: flex-start;
+}
+
+.ops-hero--with-context .ops-hero__context {
+  grid-area: context;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.ops-hero--with-context .ops-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #908d87;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow mat-icon {
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  line-height: 0.95rem;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow > span {
+  white-space: nowrap;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow .ops-hero__eyebrow-sep {
+  color: #908d87;
+  opacity: 0.5;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow .ops-hero__eyebrow-current {
+  color: var(--color-text-primary);
+}
+
+.ops-hero--with-context .ops-hero__title {
+  font-size: clamp(1.6rem, 2.4vw, 2.05rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin: 0 0 0.4rem;
+}
+
+.ops-hero--with-context .ops-hero__copy {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.92rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.36rem 0.75rem 0.36rem 0.62rem;
+  border-radius: 999px;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  font-size: 0.78rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.ops-live-pill__dot {
+  width: 0.44rem;
+  height: 0.44rem;
+  border-radius: 50%;
+  background: #e9a23b;
+  box-shadow: 0 0 0 3px rgba(233, 162, 59, 0.18);
+  animation: ops-live-pulse 2.4s ease-in-out infinite;
+}
+
+.ops-live-pill__label {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium, 500);
+}
+
+.ops-live-pill__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-live-pill__sep {
+  color: #908d87;
+  opacity: 0.5;
+}
+
+.ops-hero__default-warehouse {
+  color: #908d87;
+  font-size: 0.78rem;
+}
+
+.ops-hero__default-warehouse strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+@keyframes ops-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-live-pill__dot {
+    animation: none;
+  }
+}
+
 .ops-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -435,6 +577,220 @@ button.ops-chip.ops-chip--active:focus-visible {
   gap: 0.5rem;
 }
 
+// ── Notion-style row tiers (identity → flags → meta) ──────────────────
+.ops-row--tiered {
+  padding: 0.9rem 1rem 0.9rem 1.1rem;
+  position: relative;
+}
+
+.ops-row--tiered .ops-row__lead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.ops-row__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.ops-row--tiered .ops-row__title {
+  margin: 0;
+  font-size: 0.97rem;
+  font-weight: var(--weight-bold, 700);
+  letter-spacing: -0.015em;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.ops-row__title .pkg {
+  font-size: 0.75rem;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text-secondary);
+  letter-spacing: 0;
+  padding: 0.12rem 0.44rem;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ops-row__primary-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+  padding-left: 0.75rem;
+  border-left: 1px solid rgba(55, 53, 47, 0.12);
+}
+
+.ops-row__flags {
+  display: flex;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ops-row__flags:empty {
+  display: none;
+}
+
+.ops-row--tiered .ops-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  line-height: 1.3;
+}
+
+.ops-row__meta .meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  white-space: nowrap;
+}
+
+.ops-row__meta .meta-sep {
+  color: #908d87;
+  opacity: 0.45;
+}
+
+.ops-row__meta .meta-icon {
+  font-size: 0.82rem;
+  width: 0.82rem;
+  height: 0.82rem;
+  line-height: 0.82rem;
+  opacity: 0.55;
+}
+
+.ops-row__meta strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+// ── Secondary flags (outlined, quieter than chips) ────────────────────
+.ops-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.69rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.ops-flag mat-icon {
+  font-size: 0.82rem;
+  width: 0.82rem;
+  height: 0.82rem;
+  line-height: 0.82rem;
+}
+
+.ops-flag--locked {
+  background: #f5f2ea;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.25);
+}
+
+.ops-flag--draft {
+  background: #f2efe8;
+  color: #7a5a2a;
+  border-color: rgba(122, 90, 42, 0.25);
+}
+
+.ops-flag--override {
+  background: #fdecce;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.3);
+}
+
+.ops-flag--ready {
+  background: #edf7ef;
+  color: #286a36;
+  border-color: rgba(40, 106, 54, 0.25);
+}
+
+// ── State rail (left-edge 3px stripe colored by package state) ────────
+.ops-row--tiered::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+  border-radius: 2px;
+  background: rgba(55, 53, 47, 0.14);
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.ops-row--tiered.ops-row--interactive:hover::before {
+  opacity: 1;
+}
+
+.ops-row--drafts::before {
+  background: #b7833f;
+  opacity: 0.8;
+}
+
+.ops-row--preparing::before {
+  background: #7a4fd1;
+  opacity: 0.8;
+}
+
+.ops-row--ready::before {
+  background: #2e8a48;
+  opacity: 0.9;
+}
+
+.ops-row--awaiting::before {
+  background: #b7833f;
+  opacity: 0;
+}
+
+// ── Age pill tone variants ────────────────────────────────────────────
+.ops-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.3rem 0.62rem;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-age--fresh {
+  background: #edf7ef;
+  color: #286a36;
+  border-color: rgba(40, 106, 54, 0.18);
+}
+
+.ops-age--old {
+  background: #fde8b1;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.18);
+}
+
 .ops-status-chip {
   display: inline-flex;
   align-items: center;
@@ -740,6 +1096,16 @@ button.ops-chip.ops-chip--active:focus-visible {
     justify-content: flex-start;
   }
 
+  .ops-hero--with-context {
+    grid-template-columns: 1fr;
+    grid-template-areas: "lead" "actions" "context";
+    padding: 1.25rem;
+  }
+
+  .ops-hero--with-context .ops-hero__actions {
+    justify-content: flex-start;
+  }
+
   .ops-kpi-grid,
   .ops-summary-grid,
   .ops-detail-meta {
@@ -748,5 +1114,18 @@ button.ops-chip.ops-chip--active:focus-visible {
 
   .ops-row {
     grid-template-columns: 1fr;
+  }
+
+  .ops-row--tiered .ops-row__actions {
+    justify-content: space-between;
+    align-self: start;
+    padding-top: 0.4rem;
+    border-top: 1px dashed rgba(55, 53, 47, 0.14);
+  }
+
+  .ops-row__primary-chips {
+    padding-left: 0;
+    border-left: 0;
+    width: 100%;
   }
 }

@@ -128,6 +128,43 @@
   border-color: var(--ops-outline-strong);
 }
 
+.ops-flow-strip__card--interactive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ops-flow-strip__card--active {
+  background: #ffffff;
+  border-color: var(--ops-ink, #37352F);
+  box-shadow: 0 0 0 1px var(--ops-ink, #37352F), 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 18px rgba(0, 0, 0, 0.04);
+}
+
+.ops-flow-strip__card--active:hover {
+  border-color: var(--ops-ink, #37352F);
+  transform: none;
+}
+
+.ops-flow-strip__eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ops-flow-strip__eyebrow .ops-flow-strip__label {
+  margin-bottom: 0;
+}
+
+.ops-flow-strip__icon {
+  font-size: 0.9rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  line-height: 0.9rem;
+  opacity: 0.6;
+  color: var(--ops-ink-muted);
+}
+
 .ops-flow-strip__label {
   display: block;
   margin-bottom: 8px;

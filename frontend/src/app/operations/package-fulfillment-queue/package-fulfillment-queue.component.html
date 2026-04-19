@@ -1,30 +1,46 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
+  <header class="ops-hero ops-hero--with-context" aria-label="Page header">
+    <div class="ops-hero__lead">
       <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">inventory_2</mat-icon>
-        Operations / Package Fulfillment
+        <mat-icon aria-hidden="true">menu</mat-icon>
+        <span>Operations</span>
+        <span class="ops-hero__eyebrow-sep" aria-hidden="true">/</span>
+        <span class="ops-hero__eyebrow-current">Package Fulfillment</span>
       </p>
       <h1 class="ops-hero__title">Package Fulfillment Queue</h1>
       <p class="ops-hero__copy">
-        Active work queue for stock reservation, packing, and dispatch preparation.
+        Active work queue for stock reservation, packing, and dispatch handoff. Dispatched and received packages move to the Dispatch queue.
       </p>
-      <app-ops-status-chip label="Active Work" tone="warning" />
     </div>
 
     <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('drafts')">
+      <button mat-stroked-button type="button" (click)="setFilter('drafts')">
         <mat-icon>drafts</mat-icon>
         Show Drafts
       </button>
-      <button mat-stroked-button type="button" (click)="refreshQueue()">
+      <button mat-flat-button color="primary" type="button" (click)="refreshQueue()">
         <mat-icon>refresh</mat-icon>
         Refresh Queue
       </button>
     </div>
+
+    <div class="ops-hero__context">
+      <span class="ops-live-pill" aria-live="polite">
+        <span class="ops-live-pill__dot" aria-hidden="true"></span>
+        <span class="ops-live-pill__label">Active work</span>
+        <span class="ops-live-pill__sep" aria-hidden="true">·</span>
+        <span class="ops-live-pill__value">{{ activeQueueCount() }} in queue</span>
+        <span class="ops-live-pill__sep" aria-hidden="true">·</span>
+        <span class="ops-live-pill__label">Updated</span>
+        <span class="ops-live-pill__value">just now</span>
+      </span>
+      <span class="ops-hero__default-warehouse">
+        Default warehouse: <strong>{{ defaultWarehouseLabel() }}</strong>
+      </span>
+    </div>
   </header>
 
-  <app-ops-metric-strip [items]="queueMetrics()" />
+  <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="onMetricClick($event)" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
@@ -89,53 +105,85 @@
             message="Nothing is awaiting reservation or draft work right now. New requests approved for fulfillment will appear here."
           />
         } @else {
-          <div class="ops-row-list">
+          <div class="ops-row-list" role="list">
             @for (row of filteredItems(); track trackByRequestId($index, row)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-row--tiered"
+                [class]="stageClass(row)"
                 tabindex="0"
-                role="button"
+                role="listitem"
                 (click)="fulfillRequest(row)"
                 (keydown.enter)="fulfillRequest(row)"
                 (keydown.space)="fulfillRequest(row); $event.preventDefault()">
                 <div class="ops-row__lead">
-                  <div class="ops-row__header">
-                    <p class="ops-row__title">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</p>
-                    <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
-                    <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
-                    @if (row.package_status) {
-                      <app-ops-status-chip [label]="formatPackageStatus(row.package_status, row.current_package?.execution_status ?? row.execution_status)" [tone]="chipTone(getPackageTone(row.package_status, row.current_package?.execution_status ?? row.execution_status))" />
-                    }
-                    @if (isLocked(row)) {
-                      <app-ops-status-chip label="Locked" tone="success" />
-                    }
-                    @if (isDraft(row)) {
-                      <app-ops-status-chip label="Resume Draft" tone="info" />
-                    }
-                    @if (isOverridePending(row)) {
-                      <app-ops-status-chip label="Override Pending" tone="warning" />
-                    }
-                    @if (isReady(row)) {
-                      <app-ops-status-chip label="Ready" tone="success" />
-                    }
+                  <div class="ops-row__identity">
+                    <p class="ops-row__title">
+                      <span>{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>
+                      @if (row.current_package?.tracking_no; as pkgNo) {
+                        <span class="pkg">PKG {{ pkgNo }}</span>
+                      }
+                    </p>
+                    <div class="ops-row__primary-chips">
+                      <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
+                      <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
+                      @if (row.package_status) {
+                        <app-ops-status-chip [label]="formatPackageStatus(row.package_status, row.current_package?.execution_status ?? row.execution_status)" [tone]="chipTone(getPackageTone(row.package_status, row.current_package?.execution_status ?? row.execution_status))" />
+                      }
+                    </div>
                   </div>
+                  @if (isLocked(row) || isDraft(row) || isOverridePending(row) || isReady(row)) {
+                    <div class="ops-row__flags">
+                      @if (isLocked(row)) {
+                        <span class="ops-flag ops-flag--locked">
+                          <mat-icon aria-hidden="true">lock</mat-icon>
+                          <span>Locked</span>
+                        </span>
+                      }
+                      @if (isDraft(row)) {
+                        <span class="ops-flag ops-flag--draft">
+                          <mat-icon aria-hidden="true">edit_note</mat-icon>
+                          <span>Resume Draft</span>
+                        </span>
+                      }
+                      @if (isOverridePending(row)) {
+                        <span class="ops-flag ops-flag--override">
+                          <mat-icon aria-hidden="true">pending_actions</mat-icon>
+                          <span>Override Pending</span>
+                        </span>
+                      }
+                      @if (isReady(row)) {
+                        <span class="ops-flag ops-flag--ready">
+                          <mat-icon aria-hidden="true">check_circle</mat-icon>
+                          <span>Ready</span>
+                        </span>
+                      }
+                    </div>
+                  }
                   <div class="ops-row__meta">
-                    <span>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatLineCount(row.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}</span>
-                    @if (row.current_package?.tracking_no; as pkgNo) {
-                      <span aria-hidden="true">|</span>
-                      <span>Pkg {{ pkgNo }}</span>
-                    }
+                    <span class="meta-item">
+                      <mat-icon class="meta-icon" aria-hidden="true">apartment</mat-icon>
+                      <strong>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</strong>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span class="meta-item">
+                      <mat-icon class="meta-icon" aria-hidden="true">bolt</mat-icon>
+                      <span>{{ row.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span class="meta-item">
+                      <mat-icon class="meta-icon" aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatLineCount(row.item_count) }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span class="meta-item">
+                      <mat-icon class="meta-icon" aria-hidden="true">event</mat-icon>
+                      <span>Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}</span>
+                    </span>
                   </div>
                 </div>
 
                 <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatAge(row.create_dtime ?? row.request_date)" tone="neutral" [showDot]="false" />
+                  <span class="ops-age" [class]="ageClass(row)">{{ formatAge(row.create_dtime ?? row.request_date) }}</span>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
               </article>

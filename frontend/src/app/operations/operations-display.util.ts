@@ -32,7 +32,7 @@ const REQUEST_STATUS_TONES: Record<string, OperationsTone> = {
   DRAFT: 'draft',
   SUBMITTED: 'review',
   UNDER_ELIGIBILITY_REVIEW: 'review',
-  APPROVED_FOR_FULFILLMENT: 'review',
+  APPROVED_FOR_FULFILLMENT: 'success',
   PARTIALLY_FULFILLED: 'warning',
   FULFILLED: 'success',
   INELIGIBLE: 'danger',
@@ -64,13 +64,13 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
 
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
-  A: 'draft',
+  A: 'muted',
   P: 'review',
   V: 'success',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
-  DRAFT: 'draft',
+  DRAFT: 'muted',
   PENDING_OVERRIDE_APPROVAL: 'warning',
   REJECTED: 'danger',
   COMMITTED: 'success',
@@ -130,8 +130,8 @@ const URGENCY_LABELS: Record<string, string> = {
 const URGENCY_TONES: Record<string, OperationsTone> = {
   C: 'danger',
   H: 'warning',
-  M: 'review',
-  L: 'muted',
+  M: 'warning',
+  L: 'review',
 };
 
 const FULFILLMENT_ENTRY_REQUEST_STATUSES = new Set([

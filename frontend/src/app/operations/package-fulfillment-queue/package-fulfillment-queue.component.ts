@@ -119,27 +119,39 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const total = items.length;
+    const total = items.filter((item) => this.getFulfillmentStage(item) !== 'excluded').length;
     const awaiting = items.filter((item) => this.getFulfillmentStage(item) === 'awaiting').length;
     const drafts = items.filter((item) => this.getFulfillmentStage(item) === 'drafts').length;
     const preparing = items.filter((item) => this.getFulfillmentStage(item) === 'preparing').length;
     const ready = items.filter((item) => this.getFulfillmentStage(item) === 'ready').length;
     return [
-      { label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue' },
-      { label: 'Drafts To Resume', value: drafts, note: 'Saved package work' },
-      { label: 'Preparing', value: preparing, note: 'Reservation in progress' },
-      { label: 'Ready to Dispatch', value: ready, note: 'Packages committed' },
-      { label: 'All Requests', value: total, note: 'Visible in the queue' },
+      { id: 'awaiting' as FulfillmentFilter, label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue', icon: 'pending_actions' },
+      { id: 'drafts' as FulfillmentFilter, label: 'Drafts To Resume', value: drafts, note: 'Saved package work', icon: 'drafts' },
+      { id: 'preparing' as FulfillmentFilter, label: 'Preparing', value: preparing, note: 'Reservation in progress', icon: 'inventory_2' },
+      { id: 'ready' as FulfillmentFilter, label: 'Ready to Dispatch', value: ready, note: 'Packages committed', icon: 'local_shipping' },
+      { id: 'all' as FulfillmentFilter, label: 'All Requests', value: total, note: 'Visible in the queue', icon: 'list_alt' },
     ];
   });
 
-  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() =>
-    this.queueStats().map((stat) => ({
+  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
+    const active = this.activeFilter();
+    return this.queueStats().map((stat) => ({
       label: stat.label,
       value: String(stat.value),
       hint: stat.note,
-    })),
+      interactive: true,
+      token: stat.id,
+      active: active === stat.id,
+      icon: stat.icon,
+      ariaLabel: `${stat.label}, ${stat.value}${active === stat.id ? ', active filter' : ''}`,
+    }));
+  });
+
+  readonly activeQueueCount = computed(() =>
+    this.items().filter((item) => this.getFulfillmentStage(item) !== 'excluded').length,
   );
+
+  readonly defaultWarehouseLabel = signal('All warehouses');
 
   readonly sidebarSummary = computed(() => {
     const rows = this.filteredItems();
@@ -237,8 +249,47 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     this.markFilterSeen(filter);
   }
 
+  onMetricClick(item: OpsMetricStripItem): void {
+    const token = item.token as FulfillmentFilter | undefined;
+    if (!token) {
+      return;
+    }
+    this.setFilter(token);
+  }
+
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  stageClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? '' : `ops-row--${stage}`;
+  }
+
+  ageClass(row: PackageQueueItem): string {
+    const days = this.ageInDays(row.create_dtime ?? row.request_date);
+    if (days === null) {
+      return '';
+    }
+    if (days >= 14) {
+      return 'ops-age--old';
+    }
+    if (days <= 3) {
+      return 'ops-age--fresh';
+    }
+    return '';
+  }
+
+  private ageInDays(value: string | null | undefined): number | null {
+    if (!value) {
+      return null;
+    }
+    const then = new Date(value).getTime();
+    if (Number.isNaN(then)) {
+      return null;
+    }
+    const diffMs = Date.now() - then;
+    return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
   }
 
   hasUnread(filter: FulfillmentFilter): boolean {
@@ -286,7 +337,6 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   getFulfillmentStage(row: PackageQueueItem): FulfillmentStage {
     const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
-    const rowStatus = String(row.status_code ?? '').trim().toUpperCase();
     const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
 
     // TODO(FR05.08-FE-DEFENSIVE-FILTER): sunset after backend contract confirmed

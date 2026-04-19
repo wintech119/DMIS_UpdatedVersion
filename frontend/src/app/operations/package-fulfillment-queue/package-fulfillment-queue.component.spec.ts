@@ -8,6 +8,11 @@ import { of, throwError } from 'rxjs';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { PackageQueueItem, PackageSummary } from '../models/operations.model';
 import { OperationsService } from '../services/operations.service';
+import {
+  getOperationsPackageTone,
+  getOperationsRequestTone,
+  getOperationsUrgencyTone,
+} from '../operations-display.util';
 import { PackageFulfillmentQueueComponent } from './package-fulfillment-queue.component';
 
 describe('PackageFulfillmentQueueComponent', () => {
@@ -223,5 +228,99 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(component.errored()).toBeFalse();
     expect(component.loadError()).toBeNull();
     expect(component.filteredItems().length).toBe(1);
+  });
+
+  it('routes metric-strip clicks through setFilter with the mapped token', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 10, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 11,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.onMetricClick({ label: 'Drafts', value: '1', interactive: true, token: 'drafts' });
+    expect(component.activeFilter()).toBe('drafts');
+
+    component.onMetricClick({ label: 'All', value: '2', interactive: true, token: 'all' });
+    expect(component.activeFilter()).toBe('all');
+  });
+
+  it('syncs queueMetrics.active with the lower filter chip selection (shared source of truth)', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 20, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 21,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.setFilter('preparing');
+    const preparingActive = component.queueMetrics().find((m) => m.token === 'preparing')?.active;
+    const othersActive = component.queueMetrics().filter((m) => m.token !== 'preparing').map((m) => m.active);
+    expect(preparingActive).toBeTrue();
+    expect(othersActive.every((a) => a === false)).toBeTrue();
+
+    component.setFilter('ready');
+    const readyActive = component.queueMetrics().find((m) => m.token === 'ready')?.active;
+    const preparingAfter = component.queueMetrics().find((m) => m.token === 'preparing')?.active;
+    expect(readyActive).toBeTrue();
+    expect(preparingAfter).toBeFalse();
+  });
+
+  it('produces identical filteredItems whether filter is set from the top strip or the chip row', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 30, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 31,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 32,
+            current_package: buildPackageSummary({ status_code: 'COMMITTED' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.onMetricClick({ label: 'Drafts', value: '1', interactive: true, token: 'drafts' });
+    const viaMetric = component.filteredItems().map((r) => r.reliefrqst_id);
+
+    component.setFilter('all');
+    component.setFilter('drafts');
+    const viaChip = component.filteredItems().map((r) => r.reliefrqst_id);
+
+    expect(viaMetric).toEqual(viaChip);
+    expect(viaChip).toEqual([31]);
+  });
+
+  it('resolves the redesigned queue tone palette for APPROVED / LOW / MEDIUM / DRAFT', () => {
+    expect(getOperationsRequestTone('APPROVED_FOR_FULFILLMENT')).toBe('success');
+    expect(getOperationsUrgencyTone('L')).toBe('review');
+    expect(getOperationsUrgencyTone('M')).toBe('warning');
+    expect(getOperationsPackageTone('DRAFT')).toBe('muted');
+    expect(getOperationsPackageTone('A')).toBe('muted');
   });
 });
