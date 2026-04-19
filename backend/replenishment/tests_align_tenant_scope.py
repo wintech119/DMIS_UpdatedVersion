@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from replenishment.management.commands.align_tenant_scope import Command
@@ -33,3 +37,105 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
         self.assertEqual(first_reset_params, [101])
         self.assertIn("SET is_primary_tenant = TRUE", first_set_sql)
         self.assertEqual(first_set_params, [101, 19])
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[1, 2])
+    def test_handle_supports_warehouse_reassignment_without_source_memberships(
+        self,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            reassign_owned_warehouses=True,
+            warehouse_ids="1,2",
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("owned warehouses to reassign: 2", text)
+        self.assertIn("warehouse scope: 1, 2", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch(
+        "replenishment.management.commands.align_tenant_scope.Command._active_memberships",
+        return_value=[object(), object()],
+    )
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[1, 2])
+    def test_handle_can_skip_membership_copy_for_warehouse_only_repairs(
+        self,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            skip_membership_copy=True,
+            reassign_owned_warehouses=True,
+            warehouse_ids="1,2",
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("copy source memberships: False", text)
+        self.assertIn("source active memberships: 0", text)
+        self.assertIn("new memberships to create: 0", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_owned_warehouse_ids_rejects_requested_ids_outside_source_tenant(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(1,), (2,)]
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Warehouses 3 are not currently owned by tenant 27.",
+        ):
+            Command()._owned_warehouse_ids(27, warehouse_ids=[1, 2, 3])
+
+    @patch("replenishment.management.commands.align_tenant_scope.timezone.localdate", return_value=datetime(2026, 4, 18).date())
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_reassign_owned_warehouses_replaces_source_scope_and_updates_owner(
+        self,
+        mock_connection,
+        _localdate_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        now = datetime(2026, 4, 18, 9, 30, 0)
+
+        Command()._reassign_owned_warehouses(
+            from_tenant_id=27,
+            to_tenant_id=1,
+            warehouse_ids=[1, 2],
+            actor_ref="SYSTEM",
+            now=now,
+        )
+
+        delete_sql, delete_params = cursor.execute.call_args_list[0].args
+        update_sql, update_params = cursor.execute.call_args_list[1].args
+        upsert_sql = cursor.executemany.call_args.args[0]
+        upsert_rows = cursor.executemany.call_args.args[1]
+
+        self.assertIn("DELETE FROM tenant_warehouse", delete_sql)
+        self.assertEqual(delete_params, [27, 1, 2])
+        self.assertIn("UPDATE warehouse", update_sql)
+        self.assertEqual(update_params, [1, "SYSTEM", now, 27, 1, 2])
+        self.assertIn("ON CONFLICT (tenant_id, warehouse_id) DO UPDATE", upsert_sql)
+        self.assertEqual(
+            upsert_rows,
+            [
+                [1, 1, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now],
+                [1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now],
+            ],
+        )

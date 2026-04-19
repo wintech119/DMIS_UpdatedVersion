@@ -17,6 +17,8 @@ from operations.relief_test_data import (
     temporary_local_harness_default_user,
 )
 
+_ODPEM_NATIONAL_TENANT_TYPES = {"NEOC", "NATIONAL", "NATIONAL_LEVEL"}
+
 
 class Command(BaseCommand):
     help = (
@@ -246,8 +248,10 @@ class Command(BaseCommand):
         if not row:
             raise CommandError("National/local system-admin tenant does not exist or is inactive.")
         tenant_type = str(row[3] or "").strip().upper()
-        if not self._is_odpem_tenant_code(row[1]) or tenant_type != "NEOC":
-            raise CommandError("The national/local system-admin tenant must resolve to an ODPEM national tenant.")
+        if not self._is_odpem_tenant_code(row[1]) or tenant_type not in _ODPEM_NATIONAL_TENANT_TYPES:
+            raise CommandError(
+                "The national/local system-admin tenant must resolve to an ODPEM national or NEOC tenant."
+            )
         return {
             "tenant_id": int(row[0]),
             "tenant_code": str(row[1] or "").strip(),
