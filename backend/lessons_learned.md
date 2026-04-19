@@ -132,3 +132,29 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches workflow outcomes whose labels appear in the freeze but whose state effects are incomplete, call out the design gap explicitly in the closeout instead of treating current code behavior as the requirement.
+
+## Item Allocation Discovery Must Stay Item-Scoped
+
+### Symptom
+- Allocation discovery exposed a package-level `source_warehouse_id` contract that could outrank the true FEFO/FIFO warehouse for a specific item and could present continuation warehouses in quantity order instead of item-rule order.
+
+### Root Cause
+- The backend already had item-level FEFO/FIFO ranking internally, but the public contract still treated a shared package/source warehouse as the main selector and reduced continuation to a secondary convenience list.
+- Draft reload logic and continuation previews then had to infer rank from mixed fields instead of one canonical item-scoped warehouse list.
+
+### Invariant
+- Package allocation discovery is item-scoped: the canonical warehouse order must be computed per item from FEFO/FIFO applicability before any default or continuation selection is exposed.
+
+### Correct Architectural Rule
+- Treat `warehouse_cards` as the authoritative ranked warehouse contract for an item, and derive recommendation, continuation, and draft rehydration from that rank order.
+- Package-level or request-level source warehouse fields may survive only as convenience aliases or downstream summaries; they must not be the authority for multi-warehouse item selection.
+- For continuation-only warehouses that are loaded outside the aggregate stock list, placeholder labels must stay fallback-only; authoritative warehouse metadata should come from the batch candidates when available.
+
+### Regression Tests That Must Exist
+- Package options recommend different rank-0 warehouses for different items when FEFO/FIFO rules differ.
+- Continuation warehouses follow the same ranked FEFO/FIFO order exposed in `warehouse_cards`, not quantity-first order.
+- Draft-aware previews that pull in additional selected warehouses preserve pre-draft batch visibility while still computing suggestions from allocatable quantities.
+- Continuation-only warehouses loaded through `additional_warehouse_ids` preserve the real warehouse name from batch metadata instead of surfacing a synthetic placeholder label.
+
+### Closeout Expectation
+- If a change touches allocation discovery, continuation, or draft warehouse rehydration, mention this lesson in the closeout and confirm the ranked-warehouse regression tests were run.

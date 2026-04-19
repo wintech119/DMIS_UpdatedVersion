@@ -306,6 +306,27 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
+def _positive_int_query_param_list(raw_values: list[str], field_name: str) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for index, raw_value in enumerate(raw_values):
+        if raw_value in (None, ""):
+            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
+        try:
+            parsed = int(str(raw_value).strip())
+        except (TypeError, ValueError) as exc:
+            raise OperationValidationError(
+                {f"{field_name}[{index}]": "Must be a positive integer."}
+            ) from exc
+        if parsed <= 0:
+            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
+
+
 def _required_positive_int_payload_value(raw_value: object, field_name: str) -> int:
     if raw_value in (None, ""):
         raise OperationValidationError({field_name: f"{field_name} is required."})
@@ -391,6 +412,22 @@ def _validated_item_preview_draft_allocations(raw_value: object) -> list[dict[st
     if errors:
         raise OperationValidationError(errors)
     return normalized_rows
+
+
+def _validated_positive_int_payload_list(raw_value: object, field_name: str) -> list[int]:
+    if raw_value in (None, ""):
+        return []
+    if not isinstance(raw_value, list):
+        raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for index, raw_entry in enumerate(raw_value):
+        parsed = _required_positive_int_payload_value(raw_entry, f"{field_name}[{index}]")
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
 
 
 def _payload_object(payload: object) -> dict[str, Any]:
@@ -788,8 +825,10 @@ operations_package_allocation_options.required_permission = PERM_OPERATIONS_PACK
 def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int):
     try:
         source_warehouse_id = request.query_params.get("source_warehouse_id")
-        if source_warehouse_id in (None, ""):
-            raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        additional_warehouse_ids = _positive_int_query_param_list(
+            request.query_params.getlist("additional_warehouse_ids"),
+            "additional_warehouse_ids",
+        )
         if request.query_params.get("draft_allocations") not in (None, ""):
             raise OperationValidationError(
                 {"draft_allocations": "Use the preview endpoint for draft-aware allocation guidance."}
@@ -800,6 +839,7 @@ def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int
                 item_id,
                 source_warehouse_id=_optional_positive_int_query_param(source_warehouse_id, "source_warehouse_id"),
                 draft_allocations=None,
+                additional_warehouse_ids=additional_warehouse_ids,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -818,16 +858,24 @@ operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE
 def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int):
     try:
         payload = _payload_object(request.data)
-        source_warehouse_id = _required_positive_int_payload_value(
-            payload.get("source_warehouse_id"),
-            "source_warehouse_id",
-        )
+        source_warehouse_id = None
+        if payload.get("source_warehouse_id") not in (None, ""):
+            source_warehouse_id = _required_positive_int_payload_value(
+                payload.get("source_warehouse_id"),
+                "source_warehouse_id",
+            )
         draft_allocations = _validated_item_preview_draft_allocations(payload.get("draft_allocations", []))
+        additional_warehouse_ids = _validated_positive_int_payload_list(
+            payload.get("additional_warehouse_ids", []),
+            "additional_warehouse_ids",
+        )
         normalized_payload = {
             **payload,
-            "source_warehouse_id": source_warehouse_id,
             "draft_allocations": draft_allocations,
+            "additional_warehouse_ids": additional_warehouse_ids,
         }
+        if source_warehouse_id is not None:
+            normalized_payload["source_warehouse_id"] = source_warehouse_id
         return Response(
             operations_service.get_item_allocation_preview(
                 reliefrqst_id,
@@ -835,6 +883,7 @@ def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int
                 payload=normalized_payload,
                 source_warehouse_id=source_warehouse_id,
                 draft_allocations=draft_allocations,
+                additional_warehouse_ids=additional_warehouse_ids,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),

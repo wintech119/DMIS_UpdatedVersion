@@ -992,6 +992,35 @@ def _optional_positive_int_payload_value(
     return parsed
 
 
+def _optional_positive_int_list_payload_value(
+    payload: Mapping[str, Any],
+    field_name: str,
+) -> list[int] | object:
+    if field_name not in payload:
+        return _UNSET
+    raw_value = payload.get(field_name)
+    if raw_value in (None, ""):
+        return []
+    if not isinstance(raw_value, list):
+        raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for index, raw_entry in enumerate(raw_value):
+        try:
+            parsed = int(raw_entry)
+        except (TypeError, ValueError) as exc:
+            raise OperationValidationError(
+                {f"{field_name}[{index}]": "Must be a positive integer."}
+            ) from exc
+        if parsed <= 0:
+            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
+
+
 def _required_positive_int_from_allocation_row(
     raw: Mapping[str, Any],
     *,
@@ -3488,6 +3517,37 @@ def _warehouse_usable_surplus_for_item(
     )
 
 
+def _unique_positive_ints(values: Iterable[Any]) -> list[int]:
+    result: list[int] = []
+    seen: set[int] = set()
+    for raw_value in values:
+        if raw_value in (None, ""):
+            continue
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if parsed <= 0 or parsed in seen:
+            continue
+        seen.add(parsed)
+        result.append(parsed)
+    return result
+
+
+def _warehouse_card_ranking_context(
+    first_batch: Mapping[str, Any],
+    *,
+    issuance_order: str,
+) -> dict[str, Any]:
+    return {
+        "basis": issuance_order,
+        "top_batch_id": int(first_batch.get("batch_id") or 0) or None,
+        "top_batch_no": first_batch.get("batch_no"),
+        "top_batch_date": _as_iso(first_batch.get("batch_date")),
+        "top_expiry_date": _as_iso(first_batch.get("expiry_date")),
+    }
+
+
 def build_item_warehouse_cards(
     *,
     item_id: int,
@@ -3496,6 +3556,7 @@ def build_item_warehouse_cards(
     tenant_context: TenantContext | None,
     as_of_date: date | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    additional_warehouse_ids: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Return every warehouse that holds stock of ``item_id``, ranked by the
     item's FEFO/FIFO rule, with a greedy ``suggested_qty`` pre-filled across
@@ -3518,7 +3579,18 @@ def build_item_warehouse_cards(
     # Pull every warehouse that has any stock for the item (exclude_warehouse_id=0
     # means no warehouse is excluded — 0 is never a valid warehouse id).
     warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], 0)
-    warehouse_entries = warehouse_rows.get(item_id, [])
+    warehouse_entries = list(warehouse_rows.get(item_id, []))
+    known_warehouse_ids = {
+        int(row["warehouse_id"])
+        for row in warehouse_entries
+        if row.get("warehouse_id") not in (None, "")
+    }
+    for warehouse_id in additional_warehouse_ids or ():
+        warehouse_int = int(warehouse_id)
+        if warehouse_int <= 0 or warehouse_int in known_warehouse_ids:
+            continue
+        known_warehouse_ids.add(warehouse_int)
+        warehouse_entries.append({"warehouse_id": warehouse_int})
 
     cards_raw: list[dict[str, Any]] = []
     for warehouse_row in warehouse_entries:
@@ -3528,21 +3600,30 @@ def build_item_warehouse_cards(
         ):
             continue
         raw_candidates = _fetch_batch_candidates(warehouse_id, item_id, as_of_date=as_of)
+        raw_sorted_batches = sort_batch_candidates(
+            item or {"issuance_order": issuance_order},
+            raw_candidates,
+            as_of_date=as_of,
+        )
+        display_total_available = sum(
+            (_quantize_qty(candidate.get("available_qty")) for candidate in raw_sorted_batches),
+            Decimal("0"),
+        )
         adjusted = _adjust_candidates_for_draft_allocations(
             raw_candidates, draft_allocations or ()
         )
-        sorted_batches = sort_batch_candidates(
+        adjusted_sorted_batches = sort_batch_candidates(
             item or {"issuance_order": issuance_order},
             adjusted,
             as_of_date=as_of,
         )
-        total_available = sum(
-            (_quantize_qty(c.get("available_qty")) for c in sorted_batches),
+        allocatable_total_available = sum(
+            (_quantize_qty(c.get("available_qty")) for c in adjusted_sorted_batches),
             Decimal("0"),
         )
-        if total_available <= 0 or not sorted_batches:
+        if display_total_available <= 0 or not raw_sorted_batches:
             continue
-        first_batch = sorted_batches[0]
+        first_batch = raw_sorted_batches[0]
         rank_key: tuple[Any, ...]
         if issuance_order == "FEFO":
             rank_key = (
@@ -3566,9 +3647,14 @@ def build_item_warehouse_cards(
                     or first_batch.get("warehouse_name")
                     or f"Warehouse {warehouse_id}"
                 ).strip(),
-                "total_available": total_available,
-                "batches": sorted_batches,
+                "total_available": display_total_available,
+                "allocatable_total_available": _quantize_qty(allocatable_total_available),
+                "batches": raw_sorted_batches,
                 "rank_key": rank_key,
+                "ranking_context": _warehouse_card_ranking_context(
+                    first_batch,
+                    issuance_order=issuance_order,
+                ),
             }
         )
 
@@ -3580,7 +3666,7 @@ def build_item_warehouse_cards(
 
     cards: list[dict[str, Any]] = []
     for rank_index, raw in enumerate(cards_raw):
-        suggested = min(raw["total_available"], remaining)
+        suggested = min(raw["allocatable_total_available"], remaining)
         if suggested < 0:
             suggested = Decimal("0")
         remaining = max(Decimal("0"), remaining - suggested)
@@ -3589,9 +3675,14 @@ def build_item_warehouse_cards(
                 "warehouse_id": raw["warehouse_id"],
                 "warehouse_name": raw["warehouse_name"],
                 "rank": rank_index,
+                "recommended": rank_index == 0,
                 "issuance_order": issuance_order,
                 "total_available": str(_quantize_qty(raw["total_available"])),
+                "allocatable_available_qty": str(
+                    _quantize_qty(raw["allocatable_total_available"])
+                ),
                 "suggested_qty": str(_quantize_qty(suggested)),
+                "ranking_context": raw["ranking_context"],
                 "batches": [
                     {
                         "batch_id": int(batch["batch_id"]),
@@ -3615,58 +3706,33 @@ def build_item_warehouse_cards(
 
 def _build_alternate_warehouse_options(
     *,
-    item_id: int,
-    item: Item | Mapping[str, Any] | None,
-    source_warehouse_id: int,
+    warehouse_cards: Sequence[Mapping[str, Any]],
     remaining_shortfall_qty: Decimal,
-    tenant_context: TenantContext | None,
-    as_of_date: date,
-    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
     excluded_warehouse_ids: Iterable[int] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_shortfall_qty <= 0:
         return []
 
-    warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], source_warehouse_id)
+    excluded_ids = set(_unique_positive_ints(excluded_warehouse_ids or ()))
     alternates: list[dict[str, Any]] = []
-    seen_warehouse_ids = {int(source_warehouse_id)}
-    if excluded_warehouse_ids:
-        seen_warehouse_ids.update(int(wid) for wid in excluded_warehouse_ids)
-    for warehouse_row in warehouse_rows.get(item_id, []):
-        warehouse_id = int(warehouse_row["warehouse_id"])
-        if warehouse_id in seen_warehouse_ids:
+    for warehouse_card in warehouse_cards:
+        warehouse_id = int(warehouse_card["warehouse_id"])
+        if warehouse_id in excluded_ids:
             continue
-        seen_warehouse_ids.add(warehouse_id)
-        if tenant_context is not None and not can_access_warehouse(tenant_context, warehouse_id, write=True):
-            continue
-        available_qty = _warehouse_usable_surplus_for_item(
-            warehouse_id,
-            item_id,
-            item=item,
-            as_of_date=as_of_date,
-            draft_allocations=draft_allocations,
-        )
+        available_qty = _quantize_qty(warehouse_card.get("allocatable_available_qty"))
         if available_qty <= 0:
             continue
         alternates.append(
             {
                 "warehouse_id": warehouse_id,
-                "warehouse_name": str(warehouse_row.get("warehouse_name") or "").strip() or f"Warehouse {warehouse_id}",
-                "available_qty_decimal": _quantize_qty(available_qty),
+                "warehouse_name": str(warehouse_card.get("warehouse_name") or "").strip()
+                or f"Warehouse {warehouse_id}",
+                "available_qty": str(available_qty),
+                "suggested_qty": str(min(available_qty, remaining_shortfall_qty)),
+                "can_fully_cover": available_qty >= remaining_shortfall_qty,
             }
         )
-
-    alternates.sort(key=lambda row: (-row["available_qty_decimal"], row["warehouse_id"]))
-    return [
-        {
-            "warehouse_id": row["warehouse_id"],
-            "warehouse_name": row["warehouse_name"],
-            "available_qty": str(row["available_qty_decimal"]),
-            "suggested_qty": str(min(row["available_qty_decimal"], remaining_shortfall_qty)),
-            "can_fully_cover": row["available_qty_decimal"] >= remaining_shortfall_qty,
-        }
-        for row in alternates
-    ]
+    return alternates
 
 
 def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[str, Any]:
@@ -3697,7 +3763,7 @@ def _build_item_allocation_response(
     reliefrqst_id: int,
     item_id: int,
     *,
-    source_warehouse_id: int,
+    source_warehouse_id: int | None,
     tenant_context: TenantContext | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
     include_draft_metrics: bool = False,
@@ -3715,31 +3781,51 @@ def _build_item_allocation_response(
     draft_selected_qty = sum((_quantize_qty(allocation["quantity"]) for allocation in normalized_draft_allocations), Decimal("0"))
     effective_remaining_qty = max(Decimal("0"), _quantize_qty(base_remaining_qty) - draft_selected_qty)
     as_of_date = timezone.localdate()
-    primary_warehouse_id = int(source_warehouse_id)
-    primary_warehouse_accessible = tenant_context is None or can_access_warehouse(
-        tenant_context, primary_warehouse_id, write=True
+    requested_selected_warehouse_ids = _unique_positive_ints(
+        [source_warehouse_id, *(additional_warehouse_ids or ())]
     )
-    candidates = (
-        list(_fetch_batch_candidates(primary_warehouse_id, item_id, as_of_date=as_of_date))
-        if primary_warehouse_accessible
-        else []
+    draft_selected_warehouse_ids = _unique_positive_ints(
+        allocation["inventory_id"] for allocation in normalized_draft_allocations
     )
-    merged_warehouse_ids: list[int] = [primary_warehouse_id] if primary_warehouse_accessible else []
-    seen_keys: set[tuple[int, int, str, int | None]] = {_allocation_line_key(candidate) for candidate in candidates}
-    if additional_warehouse_ids:
-        for extra_warehouse_id in additional_warehouse_ids:
-            extra_int = int(extra_warehouse_id)
-            if extra_int <= 0 or extra_int == primary_warehouse_id or extra_int in merged_warehouse_ids:
+    warehouse_cards = build_item_warehouse_cards(
+        item_id=item_id,
+        remaining_qty=effective_remaining_qty,
+        item=item,
+        tenant_context=tenant_context,
+        as_of_date=as_of_date,
+        draft_allocations=normalized_draft_allocations,
+        additional_warehouse_ids=_unique_positive_ints(
+            [*requested_selected_warehouse_ids, *draft_selected_warehouse_ids]
+        ),
+    )
+    ranked_warehouse_ids = [int(card["warehouse_id"]) for card in warehouse_cards]
+    recommended_warehouse_id = ranked_warehouse_ids[0] if ranked_warehouse_ids else None
+    requested_selected_set = set(requested_selected_warehouse_ids)
+    draft_selected_set = set(draft_selected_warehouse_ids)
+    selected_warehouse_ids = [
+        warehouse_id
+        for warehouse_id in ranked_warehouse_ids
+        if warehouse_id in requested_selected_set or warehouse_id in draft_selected_set
+    ]
+    if not selected_warehouse_ids and effective_remaining_qty > 0:
+        selected_warehouse_ids = [
+            int(card["warehouse_id"])
+            for card in warehouse_cards
+            if Decimal(str(card.get("suggested_qty") or "0")) > 0
+        ]
+    candidates: list[dict[str, Any]] = []
+    seen_keys: set[tuple[int, int, str, int | None]] = set()
+    for selected_warehouse_id in selected_warehouse_ids:
+        for candidate in _fetch_batch_candidates(
+            selected_warehouse_id,
+            item_id,
+            as_of_date=as_of_date,
+        ):
+            key = _allocation_line_key(candidate)
+            if key in seen_keys:
                 continue
-            if tenant_context is not None and not can_access_warehouse(tenant_context, extra_int, write=True):
-                continue
-            merged_warehouse_ids.append(extra_int)
-            for extra_candidate in _fetch_batch_candidates(extra_int, item_id, as_of_date=as_of_date):
-                key = _allocation_line_key(extra_candidate)
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                candidates.append(extra_candidate)
+            seen_keys.add(key)
+            candidates.append(candidate)
     # Compute the greedy "additional capacity beyond the draft" suggestion over
     # adjusted quantities (draft commitments subtracted). The UI-facing candidates
     # list, however, must reflect the pre-draft physical state so every warehouse
@@ -3750,13 +3836,16 @@ def _build_item_allocation_response(
     sorted_for_suggestion = sort_batch_candidates(
         item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date
     )
-    stock_integrity_warehouse_ids = list(merged_warehouse_ids)
-    for allocation in normalized_draft_allocations:
-        warehouse_id = int(allocation["inventory_id"])
-        if warehouse_id not in stock_integrity_warehouse_ids:
-            stock_integrity_warehouse_ids.append(warehouse_id)
+    stock_integrity_warehouse_ids = _unique_positive_ints(
+        [
+            *selected_warehouse_ids,
+            *draft_selected_warehouse_ids,
+            recommended_warehouse_id,
+        ]
+    )
+    integrity_anchor_warehouse_id = stock_integrity_warehouse_ids[0] if stock_integrity_warehouse_ids else 0
     stock_integrity_issue = _active_source_stock_integrity_issue(
-        source_warehouse_id=source_warehouse_id,
+        source_warehouse_id=integrity_anchor_warehouse_id,
         item_id=item_id,
         as_of_date=as_of_date,
         candidate_warehouse_ids=stock_integrity_warehouse_ids,
@@ -3772,22 +3861,9 @@ def _build_item_allocation_response(
     )
     remaining_shortfall_qty = _quantize_qty(remaining_after_suggestion)
     alternate_warehouses = _build_alternate_warehouse_options(
-        item_id=item_id,
-        item=item,
-        source_warehouse_id=source_warehouse_id,
+        warehouse_cards=warehouse_cards,
         remaining_shortfall_qty=remaining_shortfall_qty,
-        tenant_context=tenant_context,
-        as_of_date=as_of_date,
-        draft_allocations=normalized_draft_allocations,
-        excluded_warehouse_ids=merged_warehouse_ids,
-    )
-    warehouse_cards = build_item_warehouse_cards(
-        item_id=item_id,
-        remaining_qty=effective_remaining_qty,
-        item=item,
-        tenant_context=tenant_context,
-        as_of_date=as_of_date,
-        draft_allocations=normalized_draft_allocations,
+        excluded_warehouse_ids=selected_warehouse_ids,
     )
     response = {
         "item_id": item_id,
@@ -3814,7 +3890,9 @@ def _build_item_allocation_response(
             for candidate in suggested_allocations
         ],
         "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
-        "source_warehouse_id": source_warehouse_id,
+        "source_warehouse_id": selected_warehouse_ids[0] if selected_warehouse_ids else None,
+        "selected_warehouse_ids": selected_warehouse_ids,
+        "recommended_warehouse_id": recommended_warehouse_id,
         "stock_integrity_issue": stock_integrity_issue,
         "remaining_shortfall_qty": str(remaining_shortfall_qty),
         "continuation_recommended": (not stock_integrity_issue) and remaining_shortfall_qty > 0 and bool(alternate_warehouses),
@@ -4328,35 +4406,19 @@ def _legacy_get_package_allocation_options(
             reliefrqst_id,
         )
 
-    warehouse_ids = [source_warehouse_id] if source_warehouse_id is not None else _resolve_candidate_warehouse_ids(reliefrqst_id)
-    warehouse_ids = [warehouse_id for warehouse_id in warehouse_ids if warehouse_id]
-    if not warehouse_ids:
-        raise OperationValidationError(
-            {"source_warehouse_id": "source_warehouse_id is required when no needs-list compatibility bridge exists."}
-        )
-
     item_rows = _request_item_rows_for_allocation(reliefrqst_id)
-    primary_warehouse_id = int(warehouse_ids[0])
-    committed_warehouses_by_item = _draft_committed_warehouses_by_item(reliefrqst_id)
     draft_allocations_by_item = _draft_allocations_by_item(reliefrqst_id)
     results: list[dict[str, Any]] = []
     for row in item_rows:
         item_id = int(row["item_id"])
-        committed_for_item = committed_warehouses_by_item.get(item_id, [])
-        additional_warehouse_ids = [
-            warehouse_id
-            for warehouse_id in committed_for_item
-            if int(warehouse_id) != primary_warehouse_id
-        ]
         results.append(
             _build_item_allocation_response(
                 reliefrqst_id,
                 item_id,
-                source_warehouse_id=primary_warehouse_id,
+                source_warehouse_id=None,
                 tenant_context=tenant_context,
                 draft_allocations=draft_allocations_by_item.get(item_id),
                 include_draft_metrics=True,
-                additional_warehouse_ids=additional_warehouse_ids or None,
             )
         )
     try:
@@ -4370,9 +4432,10 @@ def _legacy_get_item_allocation_options(
     reliefrqst_id: int,
     item_id: int,
     *,
-    source_warehouse_id: int,
+    source_warehouse_id: int | None,
     tenant_context: TenantContext | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    additional_warehouse_ids: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     return _build_item_allocation_response(
         reliefrqst_id,
@@ -4381,6 +4444,7 @@ def _legacy_get_item_allocation_options(
         tenant_context=tenant_context,
         draft_allocations=draft_allocations,
         include_draft_metrics=False,
+        additional_warehouse_ids=additional_warehouse_ids,
     )
 
 
@@ -4388,9 +4452,10 @@ def _legacy_get_item_allocation_preview(
     reliefrqst_id: int,
     item_id: int,
     *,
-    source_warehouse_id: int,
+    source_warehouse_id: int | None,
     tenant_context: TenantContext | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    additional_warehouse_ids: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     return _build_item_allocation_response(
         reliefrqst_id,
@@ -4399,6 +4464,7 @@ def _legacy_get_item_allocation_preview(
         tenant_context=tenant_context,
         draft_allocations=draft_allocations,
         include_draft_metrics=True,
+        additional_warehouse_ids=additional_warehouse_ids,
     )
 
 
@@ -5552,13 +5618,14 @@ def get_item_allocation_options(
     reliefrqst_id: int,
     item_id: int,
     *,
-    source_warehouse_id: int,
+    source_warehouse_id: int | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    additional_warehouse_ids: Sequence[int] | None = None,
     actor_id: str | None = None,
     actor_roles: Iterable[str] | None = None,
     tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
-    """Return allocation candidates for a single item from a single warehouse."""
+    """Return allocation candidates for a single item using ranked warehouse selection."""
     if actor_id is not None and tenant_context is not None:
         actor_id = _require_actor_id(actor_id)
         request = legacy_service._load_request(reliefrqst_id)
@@ -5575,6 +5642,7 @@ def get_item_allocation_options(
         source_warehouse_id=source_warehouse_id,
         tenant_context=tenant_context,
         draft_allocations=draft_allocations,
+        additional_warehouse_ids=additional_warehouse_ids,
     )
 
 
@@ -5585,22 +5653,30 @@ def get_item_allocation_preview(
     payload: Mapping[str, Any] | None = None,
     source_warehouse_id: int | None = None,
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    additional_warehouse_ids: Sequence[int] | None = None,
     actor_id: str | None = None,
     actor_roles: Iterable[str] | None = None,
     tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
     if payload is not None:
         requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
-        if requested_source_warehouse_id in (_UNSET, None):
-            raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
         draft_allocations = payload.get("draft_allocations", [])
         if draft_allocations is None:
             draft_allocations = []
         if not isinstance(draft_allocations, list):
             raise OperationValidationError({"draft_allocations": "draft_allocations must be provided as an array."})
-        source_warehouse_id = int(requested_source_warehouse_id)
-    if source_warehouse_id is None:
-        raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        if requested_source_warehouse_id is not _UNSET:
+            source_warehouse_id = (
+                None
+                if requested_source_warehouse_id is None
+                else int(requested_source_warehouse_id)
+            )
+        requested_additional_warehouse_ids = _optional_positive_int_list_payload_value(
+            payload,
+            "additional_warehouse_ids",
+        )
+        if requested_additional_warehouse_ids is not _UNSET:
+            additional_warehouse_ids = requested_additional_warehouse_ids
     if actor_id is not None and tenant_context is not None:
         actor_id = _require_actor_id(actor_id)
         request = legacy_service._load_request(reliefrqst_id)
@@ -5614,9 +5690,10 @@ def get_item_allocation_preview(
     return legacy_service.get_item_allocation_preview(
         reliefrqst_id,
         item_id,
-        source_warehouse_id=int(source_warehouse_id),
+        source_warehouse_id=source_warehouse_id,
         tenant_context=tenant_context,
         draft_allocations=draft_allocations,
+        additional_warehouse_ids=additional_warehouse_ids,
     )
 
 
