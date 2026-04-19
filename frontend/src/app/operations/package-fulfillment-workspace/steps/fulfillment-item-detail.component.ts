@@ -27,6 +27,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import {
   AllocationItemGroup,
@@ -156,6 +157,7 @@ export class AddWarehouseBottomSheetComponent {
     MatIconModule,
     MatMenuModule,
     MatSelectModule,
+    MatTooltipModule,
     OpsStockAvailabilityStateComponent,
     WarehouseAllocationCardComponent,
   ],
@@ -163,29 +165,40 @@ export class AddWarehouseBottomSheetComponent {
     <div class="detail">
       <!-- Item header row: name + badges + actions grouped together -->
       <div class="detail__header">
-        <div>
+        <div class="detail__title">
           <h3 class="detail__name">{{ item().item_name || ('Item ' + item().item_id) }}</h3>
           <p class="detail__code">{{ item().item_code || ('Item ID ' + item().item_id) }}</p>
         </div>
         <div class="detail__actions">
           <span class="detail__badge detail__badge--method" [attr.data-rule]="item().issuance_order">
+            <mat-icon aria-hidden="true">schedule</mat-icon>
             {{ item().issuance_order }}
           </span>
+          <button
+            type="button"
+            class="detail__help-btn"
+            [matTooltip]="methodTooltip()"
+            matTooltipPosition="below"
+            [attr.aria-label]="'About ' + item().issuance_order + ' allocation rule'">
+            <mat-icon aria-hidden="true">help_outline</mat-icon>
+          </button>
           @if (store().isRuleBypassedForItem(item().item_id)) {
             <span class="detail__badge detail__badge--warning">Bypass</span>
           }
           @if (isOverridden()) {
             <span class="detail__badge detail__badge--override">Overridden</span>
           }
-          <button
-            class="detail__text-btn"
-            type="button"
-            [disabled]="readOnly()"
-            (click)="store().clearItemSelection(item().item_id)">
-            Clear selection
-          </button>
-          <span class="detail__divider"></span>
-          <button class="detail__text-btn" type="button" (click)="back.emit()">Manual override</button>
+          <div class="detail__text-actions">
+            <button
+              class="detail__text-btn"
+              type="button"
+              [disabled]="readOnly()"
+              (click)="store().clearItemSelection(item().item_id)">
+              Clear selection
+            </button>
+            <span class="detail__divider" aria-hidden="true"></span>
+            <button class="detail__text-btn" type="button" (click)="back.emit()">Manual override</button>
+          </div>
         </div>
       </div>
 
@@ -380,19 +393,34 @@ export class AddWarehouseBottomSheetComponent {
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .detail__title {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1 1 auto;
     }
 
     .detail__name {
       margin: 0;
-      font-size: 1.1rem;
-      font-weight: var(--weight-semibold);
+      font-size: 1.35rem;
+      font-weight: var(--weight-bold, 700);
+      line-height: 1.2;
+      letter-spacing: -0.005em;
       color: var(--color-text-primary);
+      overflow-wrap: anywhere;
     }
 
     .detail__code {
-      margin: 2px 0 0;
+      margin: 0;
       font-size: 0.78rem;
+      font-family: var(--font-family-mono,
+        ui-monospace, "SF Mono", "Roboto Mono", "Menlo", "Consolas", monospace);
       color: var(--color-text-secondary);
+      letter-spacing: 0.02em;
     }
 
     .detail__actions {
@@ -406,14 +434,23 @@ export class AddWarehouseBottomSheetComponent {
     .detail__badge {
       display: inline-flex;
       align-items: center;
-      padding: 2px 8px;
+      gap: 4px;
+      padding: 3px 9px;
       border-radius: var(--radius-pill, 999px);
-      font-size: 0.65rem;
+      font-size: 0.68rem;
       font-weight: var(--weight-semibold);
       letter-spacing: 0.1em;
       text-transform: uppercase;
       background: #e8e8e8;
       color: var(--color-text-secondary);
+      line-height: 1.4;
+    }
+
+    .detail__badge mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      line-height: 14px;
     }
 
     .detail__badge--method[data-rule='FEFO'] {
@@ -422,18 +459,67 @@ export class AddWarehouseBottomSheetComponent {
     }
 
     .detail__badge--method[data-rule='FIFO'] {
-      background: color-mix(in srgb, var(--color-accent, #6366f1) 12%, white);
-      color: var(--color-accent, #6366f1);
+      background: #eef0ff;
+      color: var(--color-accent, #4f46e5);
     }
 
     .detail__badge--warning {
       background: #fde8b1;
-      color: #6e4200;
+      color: var(--color-warning-text, #6e4200);
     }
 
     .detail__badge--override {
       background: #e0f2fe;
       color: #0c4a6e;
+    }
+
+    .detail__help-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      margin-left: -2px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    .detail__help-btn:hover,
+    .detail__help-btn:focus-visible {
+      background: rgba(55, 53, 47, 0.06);
+      color: var(--color-text-primary);
+    }
+
+    .detail__help-btn:focus-visible {
+      outline: 2px solid var(--color-focus, #1d4ed8);
+      outline-offset: 1px;
+    }
+
+    .detail__help-btn mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      line-height: 18px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .detail__help-btn {
+        transition: none;
+      }
+    }
+
+    .detail__text-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 4px;
+      padding-left: 10px;
+      border-left: 1px solid rgba(55, 53, 47, 0.14);
     }
 
     .detail__preferred {
@@ -465,6 +551,12 @@ export class AddWarehouseBottomSheetComponent {
 
     .detail__text-btn:hover {
       text-decoration: underline;
+    }
+
+    .detail__text-btn:focus-visible {
+      outline: 2px solid var(--color-focus, #1d4ed8);
+      outline-offset: 2px;
+      border-radius: 2px;
     }
 
     .detail__text-btn:disabled {
@@ -755,6 +847,23 @@ export class AddWarehouseBottomSheetComponent {
         flex-direction: column;
       }
 
+      .detail__name {
+        font-size: 1.2rem;
+      }
+
+      .detail__text-actions {
+        margin-left: 0;
+        padding-left: 0;
+        border-left: none;
+      }
+
+      /* When the text-actions lose their left rule, the inner vertical
+         separator between the two buttons floats without context — drop it
+         so the narrow-layout reads cleanly. */
+      .detail__text-actions .detail__divider {
+        display: none;
+      }
+
       .detail__metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -870,6 +979,27 @@ export class FulfillmentItemDetailComponent {
       case 'over_allocated': return 'Over-Allocated';
       case 'fully_issued': return 'Already Issued';
     }
+  });
+
+  /**
+   * Plain-language explanation of the item's issuance rule, surfaced via a
+   * Material tooltip on the help-icon button next to the method badge. Works
+   * on hover and keyboard focus (MatTooltip shows on focus for a11y). Falls
+   * back to a neutral sentence when the backend reports an unrecognised rule
+   * so the help affordance never renders an empty tooltip.
+   */
+  readonly methodTooltip = computed(() => {
+    // Normalise casing/whitespace so legacy payloads like ' fefo ' still
+    // render the correct help copy instead of falling through to the generic
+    // fallback sentence.
+    const rule = String(this.item().issuance_order ?? '').trim().toUpperCase();
+    if (rule === 'FEFO') {
+      return 'FEFO (First Expiring, First Out): batches with the earliest expiry date are issued first to minimise spoilage.';
+    }
+    if (rule === 'FIFO') {
+      return 'FIFO (First In, First Out): the oldest received stock is issued first to rotate inventory.';
+    }
+    return 'Allocation rule for this item.';
   });
 
   readonly availabilityHint = computed<string | null>(() => {
