@@ -11,9 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 
 import { WarehouseAllocationCard } from '../../models/operations.model';
 
@@ -27,22 +25,19 @@ import { WarehouseAllocationCard } from '../../models/operations.model';
  * inputs directly. The only outputs are a numeric `qtyChange` and a
  * `removeCard` request keyed by `warehouse_id`.
  *
- * Design reference: FR05.06 Item Allocation Redesign (plan
- * `frontend-thread-implement-fr05-06-structured-bentley.md`).
+ * Visual language tracks the `Allocation Redesign.html` reference: primary
+ * card gets hero treatment, header carries a dot-separated identity subtitle
+ * plus a top-right status pill, reason is a full-width info banner, and the
+ * qty input is a ±-stepper group with inline "of X available" context. The
+ * redundant 5-KPI strip from the previous iteration is retired — that data
+ * lives on the item-level metric strip above the stack.
  */
 type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
 
 @Component({
   selector: 'app-warehouse-allocation-card',
   standalone: true,
-  imports: [
-    DatePipe,
-    DecimalPipe,
-    MatButtonModule,
-    MatFormFieldModule,
-    MatIconModule,
-    MatInputModule,
-  ],
+  imports: [DatePipe, DecimalPipe, MatButtonModule, MatIconModule],
   template: `
     <article
       class="wh-card"
@@ -50,7 +45,8 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       [attr.aria-label]="ariaLabel()"
       [attr.aria-busy]="isPending() ? 'true' : null"
       [attr.data-fill-status]="fillStatus()"
-      [attr.data-pending]="isPending() ? 'true' : null">
+      [attr.data-pending]="isPending() ? 'true' : null"
+      [attr.data-primary]="isPrimary() ? 'true' : null">
       @if (isPending()) {
         <span
           class="wh-card__pending-badge"
@@ -60,136 +56,105 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
           Loading stock detail…
         </span>
       }
-      <!-- ── Header strip ───────────────────────────────────────── -->
+
+      <!-- ── Header: identity (left) + status pill + remove (right) ─ -->
       <header class="wh-card__header">
-        <mat-icon class="wh-card__icon" aria-hidden="true">warehouse</mat-icon>
-        <div class="wh-card__title-group">
-          <span class="wh-card__name">{{ warehouse().warehouse_name }}</span>
-          <span class="wh-card__reason" role="note">
-            <mat-icon aria-hidden="true">info</mat-icon>
-            <span class="wh-card__reason-text">{{ reasonLine() }}</span>
-          </span>
-          <span class="wh-card__rank-row">
-            <span
-              class="wh-card__rank"
-              [attr.data-primary]="isPrimary() ? 'true' : null"
-              [attr.data-rule]="warehouse().issuance_order">
-              <mat-icon aria-hidden="true">
-                {{ isPrimary() ? 'star' : 'stacked_line_chart' }}
-              </mat-icon>
-              {{ rankLabel() }}
-            </span>
-            <span class="wh-card__available-badge" aria-hidden="true">
-              {{ warehouse().total_available | number: '1.0-4' }} avail
-            </span>
-          </span>
-        </div>
-        @if (canRemove() && !readOnly()) {
-          <button
-            mat-icon-button
-            type="button"
-            class="wh-card__remove"
-            [attr.aria-label]="
-              'Remove ' + warehouse().warehouse_name + ' from this item'
-            "
-            (click)="onRemoveClick()">
-            <mat-icon aria-hidden="true">close</mat-icon>
-          </button>
-        }
-      </header>
-
-      <!-- ── Metric row (5 compact KPIs) ────────────────────────── -->
-      <div class="wh-card__metrics" role="list">
-        <div class="wh-metric" role="listitem">
-          <span class="wh-metric__label">Requested</span>
-          <span class="wh-metric__value">
-            {{ itemRequestedQty() | number: '1.0-4' }}
-          </span>
+        <div class="wh-card__identity">
+          <mat-icon class="wh-card__icon" aria-hidden="true">warehouse</mat-icon>
+          <div class="wh-card__identity-body">
+            <h3 class="wh-card__name">{{ warehouse().warehouse_name }}</h3>
+            <div class="wh-card__sub">
+              <span
+                class="wh-card__rank"
+                [attr.data-primary]="isPrimary() ? 'true' : null"
+                [attr.data-rule]="warehouse().issuance_order">
+                {{ rankLabel() }}
+              </span>
+              <span class="wh-card__sub-dot" aria-hidden="true"></span>
+              <span class="wh-card__available-badge">
+                <strong>{{ warehouse().total_available | number: '1.0-4' }}</strong>
+                available
+              </span>
+              @if (subtitleDate(); as sub) {
+                <span class="wh-card__sub-dot" aria-hidden="true"></span>
+                <span class="wh-card__sub-meta">{{ sub }}</span>
+              }
+            </div>
+          </div>
         </div>
 
-        <div class="wh-metric" role="listitem">
-          <span class="wh-metric__label">Available Here</span>
-          <span class="wh-metric__value">
-            {{ warehouse().total_available | number: '1.0-4' }}
-          </span>
-        </div>
-
-        <div class="wh-metric" role="listitem">
-          <span class="wh-metric__label">Allocating</span>
+        <div class="wh-card__trail">
           <span
-            class="wh-metric__value wh-metric__value--accent"
-            [attr.data-fill-status]="fillStatus()">
-            {{ allocatedQty() | number: '1.0-4' }}
-          </span>
-        </div>
-
-        <div
-          class="wh-metric"
-          role="listitem"
-          [class.wh-metric--critical]="shortfallNumeric() > 0"
-          [class.wh-metric--success]="shortfallNumeric() === 0">
-          <span class="wh-metric__label">Shortfall</span>
-          <span
-            class="wh-metric__value"
-            [class.wh-metric__value--danger]="shortfallNumeric() > 0"
-            [class.wh-metric__value--success]="shortfallNumeric() === 0">
-            {{ itemShortfallQty() | number: '1.0-4' }}
-          </span>
-        </div>
-
-        <div
-          class="wh-metric wh-metric--status"
-          role="listitem"
-          [attr.data-fill-status]="fillStatus()"
-          [attr.data-non-compliant]="isOverrideRiskActive() ? 'true' : null">
-          <span class="wh-metric__label">Status</span>
-          <span
-            class="wh-metric__status-pill"
+            class="wh-card__status-pill"
             [attr.data-fill-status]="fillStatus()"
             [attr.data-non-compliant]="isOverrideRiskActive() ? 'true' : null">
             <mat-icon aria-hidden="true">{{ statusIcon() }}</mat-icon>
             {{ statusLabel() }}
           </span>
+          @if (canRemove() && !readOnly()) {
+            <button
+              mat-icon-button
+              type="button"
+              class="wh-card__remove"
+              [attr.aria-label]="
+                'Remove ' + warehouse().warehouse_name + ' from this item'
+              "
+              (click)="onRemoveClick()">
+              <mat-icon aria-hidden="true">close</mat-icon>
+            </button>
+          }
         </div>
+      </header>
+
+      <!-- ── Reason banner (full-width info) ───────────────────── -->
+      <div class="wh-card__reason" role="note">
+        <mat-icon aria-hidden="true">info</mat-icon>
+        <span class="wh-card__reason-text">{{ reasonLine() }}</span>
       </div>
 
-      <!-- ── Quantity input ─────────────────────────────────────── -->
+      <!-- ── Quantity stepper + context + helpers ──────────────── -->
       <div class="wh-card__qty">
-        <mat-form-field appearance="outline" class="wh-card__qty-field">
-          <mat-label>Qty from {{ warehouse().warehouse_name }}</mat-label>
-          <input
-            #qtyInput
-            matInput
-            type="number"
-            inputmode="numeric"
-            min="0"
-            [attr.max]="maxQty()"
-            step="1"
-            maxlength="12"
-            [value]="allocatedQty()"
-            [disabled]="readOnly()"
-            [attr.aria-invalid]="qtyInvalid() ? 'true' : 'false'"
-            [attr.aria-describedby]="describedByIds()"
-            (input)="onQtyInput($event)" />
-          <mat-hint [id]="qtyHintId()">
-            up to {{ maxQty() }}
-          </mat-hint>
-          @if (qtyInvalid()) {
-            <mat-hint
-              [id]="qtyErrorId()"
-              class="wh-card__qty-error"
-              align="end"
-              role="alert"
-              aria-live="polite">
-              {{ qtyErrorMessage() }}
-            </mat-hint>
-          }
-        </mat-form-field>
-        <div class="wh-card__qty-actions">
+        <span class="wh-card__qty-label">Allocating from this warehouse</span>
+        <div class="wh-card__qty-row">
+          <div class="wh-card__stepper" role="group" aria-label="Quantity">
+            <button
+              type="button"
+              class="wh-card__step"
+              [disabled]="readOnly() || allocatedQty() <= 0"
+              [attr.aria-label]="'Decrement ' + warehouse().warehouse_name + ' qty'"
+              (click)="onStep(-1)">
+              <mat-icon aria-hidden="true">remove</mat-icon>
+            </button>
+            <input
+              #qtyInput
+              type="number"
+              class="wh-card__qty-input"
+              inputmode="numeric"
+              min="0"
+              [attr.max]="maxQty()"
+              step="1"
+              maxlength="12"
+              [value]="allocatedQty()"
+              [disabled]="readOnly()"
+              [attr.aria-label]="'Allocation qty for ' + warehouse().warehouse_name"
+              [attr.aria-invalid]="qtyInvalid() ? 'true' : 'false'"
+              [attr.aria-describedby]="describedByIds()"
+              (input)="onQtyInput($event)" />
+            <button
+              type="button"
+              class="wh-card__step"
+              [disabled]="readOnly() || allocatedQty() >= maxQty()"
+              [attr.aria-label]="'Increment ' + warehouse().warehouse_name + ' qty'"
+              (click)="onStep(1)">
+              <mat-icon aria-hidden="true">add</mat-icon>
+            </button>
+          </div>
+          <span class="wh-card__qty-ctx" [id]="qtyHintId()">
+            of <strong>{{ maxQty() | number: '1.0-4' }}</strong> available
+          </span>
           <button
             type="button"
-            mat-stroked-button
-            class="wh-card__qty-btn"
+            class="wh-card__qty-btn wh-card__qty-btn--link"
             [disabled]="readOnly()"
             [attr.aria-label]="'Use max for ' + warehouse().warehouse_name"
             (click)="onUseMax()">
@@ -197,55 +162,68 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
           </button>
           <button
             type="button"
-            mat-stroked-button
-            class="wh-card__qty-btn"
+            class="wh-card__qty-btn wh-card__qty-btn--link"
             [disabled]="readOnly()"
             [attr.aria-label]="'Clear allocation from ' + warehouse().warehouse_name"
             (click)="onClear()">
             Clear
           </button>
         </div>
+        @if (qtyInvalid()) {
+          <div
+            class="wh-card__qty-error"
+            [id]="qtyErrorId()"
+            role="alert"
+            aria-live="polite">
+            <mat-icon aria-hidden="true">warning_amber</mat-icon>
+            <span>{{ qtyErrorMessage() }}</span>
+          </div>
+        }
       </div>
 
-      <!-- ── Batch detail (collapsible) ─────────────────────────── -->
+      <!-- ── Batch detail (collapsible) ────────────────────────── -->
       @if (batchCount() > 0) {
         <div class="wh-card__batch-region">
           <button
-            mat-button
             type="button"
             class="wh-card__toggle"
+            [class.wh-card__toggle--open]="batchesExpanded()"
             [attr.aria-expanded]="batchesExpanded()"
             [attr.aria-controls]="batchTableId()"
             (click)="toggleBatches()">
-            <mat-icon aria-hidden="true">
-              {{ batchesExpanded() ? 'expand_less' : 'expand_more' }}
-            </mat-icon>
+            <mat-icon aria-hidden="true">chevron_right</mat-icon>
             {{ batchesExpanded() ? 'Hide' : 'View' }} {{ batchCount() }}
             {{ batchCount() === 1 ? 'batch' : 'batches' }}
           </button>
 
           @if (batchesExpanded()) {
             <div class="wh-card__batch-wrap" [id]="batchTableId()">
-              <table class="wh-batch-table" role="grid">
+              <table class="wh-batch-table">
                 <thead>
-                  <tr role="row">
-                    <th scope="col" role="columnheader">Batch #</th>
-                    <th scope="col" role="columnheader">Expiry</th>
-                    <th scope="col" role="columnheader" class="wh-batch-table__num">
+                  <tr>
+                    <th scope="col">Lot no.</th>
+                    <th scope="col">Received</th>
+                    <th scope="col">Expires</th>
+                    <th scope="col" class="wh-batch-table__num">
                       Available
                     </th>
-                    <th scope="col" role="columnheader">UOM</th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (batch of warehouse().batches; track batch.batch_id) {
                     <tr
-                      role="row"
                       [class.wh-batch-row--expiring]="isExpiringSoon(batch.expiry_date)">
-                      <td role="gridcell">
+                      <td class="wh-batch-table__mono">
                         {{ batch.batch_no || ('Batch ' + batch.batch_id) }}
                       </td>
-                      <td role="gridcell">
+                      <td>
+                        @if (batch.batch_date) {
+                          {{ batch.batch_date | date: 'mediumDate' }}
+                        } @else {
+                          <span class="wh-batch-table__muted">—</span>
+                        }
+                      </td>
+                      <td>
                         @if (batch.expiry_date) {
                           <span class="wh-batch-table__expiry">
                             @if (isExpiringSoon(batch.expiry_date)) {
@@ -254,14 +232,11 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
                             {{ batch.expiry_date | date: 'mediumDate' }}
                           </span>
                         } @else {
-                          <span class="wh-batch-table__muted">No expiry</span>
+                          <span class="wh-batch-table__muted">—</span>
                         }
                       </td>
-                      <td role="gridcell" class="wh-batch-table__num">
+                      <td class="wh-batch-table__num">
                         {{ batch.available_qty | number: '1.0-4' }}
-                      </td>
-                      <td role="gridcell">
-                        {{ batch.uom_code || '—' }}
                       </td>
                     </tr>
                   }
@@ -282,29 +257,46 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       .wh-card {
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        padding: 16px;
+        gap: 14px;
+        padding: 18px 20px;
         border-radius: 12px;
         border: 1px solid #eae7dd;
         background: #ffffff;
-        box-shadow: 0 1px 3px rgba(55, 53, 47, 0.06);
+        box-shadow: 0 1px 3px rgba(55, 53, 47, 0.04);
         transition: border-color 180ms ease, box-shadow 180ms ease;
       }
 
+      /* Primary card hero treatment — stronger border + soft shadow. */
+      .wh-card[data-primary='true'] {
+        border-color: color-mix(
+          in srgb,
+          var(--color-text-primary, #37352f) 16%,
+          #eae7dd
+        );
+        box-shadow: 0 4px 12px rgba(55, 53, 47, 0.06);
+      }
+
       .wh-card[data-fill-status='FILLED'] {
-        border-color: color-mix(in srgb, var(--color-success, #0f766e) 40%, #eae7dd);
+        border-color: color-mix(
+          in srgb,
+          var(--color-success, #286a36) 40%,
+          #eae7dd
+        );
       }
 
       .wh-card[data-fill-status='PARTIAL'] {
-        border-color: color-mix(in srgb, var(--color-warning, #d97706) 32%, #eae7dd);
+        border-color: color-mix(
+          in srgb,
+          var(--color-warning, #d97706) 32%,
+          #eae7dd
+        );
       }
 
       .wh-card:focus-within {
-        border-color: color-mix(in srgb, var(--color-text-primary, #37352f) 35%, #eae7dd);
         box-shadow: 0 2px 8px rgba(55, 53, 47, 0.1);
       }
 
-      /* ── Synthetic placeholder (pending preview) ─────────── */
+      /* Synthetic placeholder (add-next preview) */
       .wh-card[data-pending='true'] {
         border-style: dashed;
         border-color: color-mix(
@@ -350,107 +342,145 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         }
       }
 
-      /* ── Header strip ───────────────────────────────────── */
+      /* ── Header: identity on left, trail cluster on right ──── */
       .wh-card__header {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
+        gap: 12px;
+      }
+
+      .wh-card__identity {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        min-width: 0;
+        flex: 1 1 auto;
       }
 
       .wh-card__icon {
         flex-shrink: 0;
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
+        font-size: 22px;
+        width: 22px;
+        height: 22px;
         color: var(--color-text-secondary, #787774);
+        margin-top: 2px;
       }
 
-      .wh-card__title-group {
+      .wh-card__identity-body {
         display: flex;
         flex-direction: column;
         gap: 4px;
-        flex: 1 1 auto;
         min-width: 0;
+        flex: 1 1 auto;
       }
 
       .wh-card__name {
-        font-size: 0.95rem;
-        font-weight: var(--weight-semibold, 600);
+        font-size: 1.02rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin: 0;
         color: var(--color-text-primary, #37352f);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .wh-card__reason {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        background: var(--color-bg-info, #eff6ff);
-        color: var(--color-info, #1e3a8a);
-        font-size: 0.78rem;
-      }
-
-      .wh-card__reason mat-icon {
-        font-size: 14px;
-        width: 14px;
-        height: 14px;
-      }
-
-      .wh-card__reason-text {
-        flex: 1 1 auto;
-      }
-
-      .wh-card__rank-row {
+      .wh-card__sub {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
+        font-size: 0.82rem;
+        color: var(--color-text-secondary, #787774);
+      }
+
+      .wh-card__sub-dot {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: #cfcdc6;
       }
 
       .wh-card__rank {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
         padding: 2px 8px;
-        border-radius: var(--radius-pill, 999px);
-        font-size: 0.65rem;
-        font-weight: var(--weight-semibold, 600);
-        letter-spacing: 0.1em;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         background: #f0eee7;
         color: var(--color-text-secondary, #787774);
       }
 
-      .wh-card__rank mat-icon {
-        font-size: 12px;
-        width: 12px;
-        height: 12px;
-      }
-
       .wh-card__rank[data-primary='true'] {
-        background: color-mix(in srgb, var(--color-success, #0f766e) 14%, white);
-        color: var(--color-success, #0f766e);
+        background: var(--color-bg-info, #eff6ff);
+        color: var(--color-info, #17447f);
       }
 
       .wh-card__rank[data-rule='FIFO']:not([data-primary='true']) {
-        background: var(--color-bg-info, #eff6ff);
-        color: var(--color-info, #1e3a8a);
+        background: #f0eee7;
+        color: var(--color-text-secondary, #787774);
       }
 
       .wh-card__available-badge {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wh-card__available-badge strong {
+        color: var(--color-text-primary, #37352f);
+        font-weight: 700;
+      }
+
+      .wh-card__sub-meta {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wh-card__trail {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .wh-card__status-pill {
         display: inline-flex;
         align-items: center;
-        padding: 2px 8px;
-        border-radius: var(--radius-pill, 999px);
-        background: #f7f6f3;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        background: #eae7dd;
         color: var(--color-text-secondary, #787774);
-        font-size: 0.65rem;
-        font-weight: var(--weight-semibold, 600);
-        letter-spacing: 0.05em;
-        font-variant-numeric: tabular-nums;
+      }
+
+      .wh-card__status-pill mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      .wh-card__status-pill[data-fill-status='FILLED'] {
+        background: color-mix(in srgb, var(--color-success, #286a36) 14%, white);
+        color: var(--color-success, #286a36);
+      }
+
+      .wh-card__status-pill[data-fill-status='PARTIAL'] {
+        background: color-mix(in srgb, var(--color-warning, #d97706) 14%, white);
+        color: var(--color-warning-text, #6e4200);
+      }
+
+      .wh-card__status-pill[data-fill-status='EMPTY'] {
+        background: #eae7dd;
+        color: var(--color-text-secondary, #787774);
+      }
+
+      .wh-card__status-pill[data-non-compliant='true'] {
+        background: color-mix(in srgb, var(--color-warning, #d97706) 22%, white);
+        color: var(--color-warning-text, #6e4200);
       }
 
       .wh-card__remove {
@@ -464,184 +494,224 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         border-radius: 50%;
       }
 
-      /* ── Metric row ─────────────────────────────────────── */
-      .wh-card__metrics {
+      /* ── Reason banner (full-width, info-tinted) ───────────── */
+      .wh-card__reason {
         display: flex;
-        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: var(--color-bg-info, #eff6ff);
+        color: var(--color-info, #17447f);
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+
+      .wh-card__reason mat-icon {
+        flex-shrink: 0;
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+      }
+
+      .wh-card__reason-text {
+        flex: 1 1 auto;
+      }
+
+      /* ── Qty row: stepper + ctx + helpers ──────────────────── */
+      .wh-card__qty {
+        display: flex;
+        flex-direction: column;
         gap: 8px;
       }
 
-      .wh-metric {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        flex: 1 1 90px;
-        min-width: 90px;
-        padding: 8px 10px;
-        border-radius: 8px;
-        border: 1px solid #eae7dd;
-        background: #f7f6f3;
-      }
-
-      .wh-metric__label {
-        font-size: 0.6875rem;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--color-text-secondary, #787774);
-      }
-
-      .wh-metric__value {
-        font-size: 1rem;
-        font-weight: var(--weight-semibold, 600);
-        font-variant-numeric: tabular-nums;
+      .wh-card__qty-label {
+        font-size: 0.82rem;
+        font-weight: 600;
         color: var(--color-text-primary, #37352f);
       }
 
-      .wh-metric__value--accent {
-        color: var(--color-success, #0f766e);
-      }
-
-      .wh-metric__value--accent[data-fill-status='EMPTY'] {
-        color: var(--color-text-secondary, #787774);
-      }
-
-      .wh-metric__value--danger {
-        color: var(--color-danger, #8c1d13);
-      }
-
-      .wh-metric__value--success {
-        color: var(--color-success, #286a36);
-      }
-
-      .wh-metric--critical {
-        background: rgba(253, 221, 216, 0.25);
-        border-color: color-mix(in srgb, var(--color-danger, #8c1d13) 22%, #eae7dd);
-      }
-
-      .wh-metric--success {
-        background: rgba(237, 247, 239, 0.5);
-        border-color: color-mix(in srgb, var(--color-success, #286a36) 22%, #eae7dd);
-      }
-
-      .wh-metric--status[data-fill-status='FILLED'] {
-        background: rgba(237, 247, 239, 0.5);
-        border-color: color-mix(in srgb, var(--color-success, #286a36) 28%, #eae7dd);
-      }
-
-      .wh-metric--status[data-fill-status='PARTIAL'] {
-        background: rgba(253, 232, 177, 0.3);
-        border-color: color-mix(in srgb, var(--color-warning, #d97706) 30%, #eae7dd);
-      }
-
-      .wh-metric--status[data-fill-status='EMPTY'] {
-        background: #f7f6f3;
-      }
-
-      .wh-metric--status[data-non-compliant='true'] {
-        background: rgba(253, 232, 177, 0.45);
-        border-color: color-mix(in srgb, var(--color-warning, #d97706) 45%, #eae7dd);
-      }
-
-      .wh-metric__status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 2px 8px;
-        border-radius: var(--radius-pill, 999px);
-        font-size: 0.7rem;
-        font-weight: var(--weight-semibold, 600);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        background: #eae7dd;
-        color: var(--color-text-secondary, #787774);
-      }
-
-      .wh-metric__status-pill mat-icon {
-        font-size: 13px;
-        width: 13px;
-        height: 13px;
-      }
-
-      .wh-metric__status-pill[data-fill-status='FILLED'] {
-        background: color-mix(in srgb, var(--color-success, #286a36) 16%, white);
-        color: var(--color-success, #286a36);
-      }
-
-      .wh-metric__status-pill[data-fill-status='PARTIAL'] {
-        background: color-mix(in srgb, var(--color-warning, #d97706) 16%, white);
-        color: var(--color-warning, #6e4200);
-      }
-
-      .wh-metric__status-pill[data-fill-status='EMPTY'] {
-        background: #eae7dd;
-        color: var(--color-text-secondary, #787774);
-      }
-
-      .wh-metric__status-pill[data-non-compliant='true'] {
-        background: color-mix(in srgb, var(--color-warning, #d97706) 22%, white);
-        color: var(--color-warning, #6e4200);
-      }
-
-      /* ── Qty input ──────────────────────────────────────── */
-      .wh-card__qty {
+      .wh-card__qty-row {
         display: flex;
         flex-wrap: wrap;
-        align-items: flex-start;
-        gap: 8px;
+        align-items: center;
+        gap: 12px;
       }
 
-      .wh-card__qty-field {
-        flex: 1 1 180px;
-        max-width: 260px;
+      .wh-card__stepper {
+        display: inline-flex;
+        align-items: stretch;
+        border: 1px solid var(--color-border-default, rgba(55, 53, 47, 0.18));
+        border-radius: 8px;
+        overflow: hidden;
+        background: #ffffff;
       }
 
-      .wh-card__qty-field ::ng-deep .mat-mdc-form-field-subscript-wrapper {
-        padding-top: 2px;
-      }
-
-      .wh-card__qty-field input:focus-visible {
+      .wh-card__stepper:focus-within {
         outline: 2px solid var(--color-focus-ring, #1565c0);
         outline-offset: 2px;
-        border-radius: 4px;
       }
 
-      .wh-card__qty-error {
-        color: var(--color-danger, #8c1d13);
-      }
-
-      .wh-card__qty-actions {
+      .wh-card__step {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding-top: 6px;
+        justify-content: center;
+        width: 40px;
+        min-height: 40px;
+        border: 0;
+        background: transparent;
+        color: var(--color-text-primary, #37352f);
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .wh-card__step:hover:not(:disabled) {
+        background: #f0eee7;
+      }
+
+      .wh-card__step:disabled {
+        color: var(--color-text-secondary, #c2bfb7);
+        cursor: not-allowed;
+      }
+
+      .wh-card__step mat-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+      }
+
+      .wh-card__qty-input {
+        width: 64px;
+        min-height: 40px;
+        padding: 0 8px;
+        border: 0;
+        border-left: 1px solid
+          var(--color-border-default, rgba(55, 53, 47, 0.18));
+        border-right: 1px solid
+          var(--color-border-default, rgba(55, 53, 47, 0.18));
+        font-size: 1rem;
+        font-weight: 600;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-primary, #37352f);
+        background: transparent;
+      }
+
+      .wh-card__qty-input:focus {
+        outline: none;
+      }
+
+      /* Hide native number-input spinners — our ± buttons replace them. */
+      .wh-card__qty-input::-webkit-inner-spin-button,
+      .wh-card__qty-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .wh-card__qty-input {
+        -moz-appearance: textfield;
+      }
+
+      .wh-card__qty-ctx {
+        font-size: 0.88rem;
+        color: var(--color-text-secondary, #787774);
+      }
+
+      .wh-card__qty-ctx strong {
+        color: var(--color-text-primary, #37352f);
+        font-weight: 700;
       }
 
       .wh-card__qty-btn {
-        min-height: 40px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border: 0;
+        background: transparent;
+        color: var(--color-info, #17447f);
+        cursor: pointer;
+        border-radius: 4px;
       }
 
-      /* ── Batch region ───────────────────────────────────── */
+      .wh-card__qty-btn:hover:not(:disabled) {
+        background: var(--color-bg-info, #eff6ff);
+      }
+
+      .wh-card__qty-btn:disabled {
+        color: var(--color-text-secondary, #c2bfb7);
+        cursor: not-allowed;
+      }
+
+      .wh-card__qty-btn--link {
+        padding: 6px 4px;
+      }
+
+      .wh-card__qty-error {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: #fde8b1;
+        color: var(--color-warning-text, #6e4200);
+        font-size: 0.82rem;
+      }
+
+      .wh-card__qty-error mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      /* ── Batch region ──────────────────────────────────────── */
       .wh-card__batch-region {
         display: flex;
         flex-direction: column;
         gap: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed #eae7dd;
       }
 
       .wh-card__toggle {
         align-self: flex-start;
-        color: var(--color-info, #1e3a8a);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 0;
+        border: 0;
+        background: transparent;
+        color: var(--color-info, #17447f);
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .wh-card__toggle:hover {
+        color: var(--color-text-primary, #37352f);
       }
 
       .wh-card__toggle mat-icon {
         font-size: 18px;
         width: 18px;
         height: 18px;
+        transition: transform 180ms ease;
+      }
+
+      .wh-card__toggle--open mat-icon {
+        transform: rotate(90deg);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .wh-card__toggle mat-icon {
+          transition: none;
+        }
       }
 
       .wh-card__batch-wrap {
         border-radius: 8px;
         border: 1px solid #eae7dd;
-        background: #f7f6f3;
+        background: #fbfaf7;
         overflow-x: auto;
       }
 
@@ -652,9 +722,9 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
 
       .wh-batch-table th,
       .wh-batch-table td {
-        padding: 6px 10px;
+        padding: 8px 12px;
         text-align: left;
-        font-size: 0.78rem;
+        font-size: 0.82rem;
         border-bottom: 1px solid #eae7dd;
         color: var(--color-text-primary, #37352f);
       }
@@ -664,9 +734,9 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-batch-table th {
-        font-size: 0.6rem;
-        font-weight: var(--weight-semibold, 600);
-        letter-spacing: 0.14em;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--color-text-secondary, #787774);
         background: #f0eee7;
@@ -675,6 +745,11 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       .wh-batch-table__num {
         text-align: right;
         font-variant-numeric: tabular-nums;
+      }
+
+      .wh-batch-table__mono {
+        font-family: ui-monospace, SFMono-Regular, 'Menlo', 'Consolas', monospace;
+        font-size: 0.85rem;
       }
 
       .wh-batch-table__muted {
@@ -691,7 +766,7 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         font-size: 14px;
         width: 14px;
         height: 14px;
-        color: var(--color-warning, #6e4200);
+        color: var(--color-warning-text, #6e4200);
       }
 
       .wh-batch-row--expiring {
@@ -701,26 +776,28 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       /* ── Responsive ─────────────────────────────────────── */
       @media (max-width: 760px) {
         .wh-card {
-          padding: 14px;
+          padding: 16px;
+          gap: 12px;
+        }
+
+        .wh-card__header {
+          flex-direction: column;
+          align-items: stretch;
           gap: 10px;
         }
 
-        .wh-metric {
-          flex-basis: calc(50% - 4px);
-        }
-
-        .wh-card__qty-field {
-          max-width: 100%;
+        .wh-card__trail {
+          justify-content: flex-start;
         }
       }
 
       @media (max-width: 520px) {
-        .wh-metric {
-          flex-basis: 100%;
+        .wh-card__qty-row {
+          gap: 8px;
         }
 
-        .wh-card__qty-field ::ng-deep .mat-mdc-text-field-wrapper {
-          min-height: 40px;
+        .wh-card__qty-input {
+          width: 56px;
         }
       }
     `,
@@ -750,7 +827,7 @@ export class WarehouseAllocationCardComponent {
   /**
    * Raised by the parent when this card is at risk of triggering an override
    * (e.g. skipping a higher-ranked card with remaining stock). Drives warning
-   * tone on the status footer; color is never the sole signal.
+   * tone on the status pill; color is never the sole signal.
    */
   readonly isOverrideRisk = input<boolean>(false);
 
@@ -830,7 +907,9 @@ export class WarehouseAllocationCardComponent {
 
   readonly batchCount = computed(() => this.warehouse().batches?.length ?? 0);
 
-  readonly shortfallNumeric = computed(() => this.parseDecimal(this.itemShortfallQty()));
+  readonly shortfallNumeric = computed(() =>
+    this.parseDecimal(this.itemShortfallQty()),
+  );
 
   readonly fillStatus = computed<AllocationFillStatus>(() => {
     const allocated = this.allocatedQty() ?? 0;
@@ -861,26 +940,48 @@ export class WarehouseAllocationCardComponent {
     }
     switch (this.fillStatus()) {
       case 'FILLED':
-        return 'Filled';
+        return 'Filled from this warehouse';
       case 'PARTIAL':
-        return 'Partial';
+        return 'Partial from this warehouse';
       default:
-        return 'Empty';
+        return 'Not yet allocated';
     }
   });
 
   readonly statusIcon = computed<string>(() => {
     if (this.isOverrideRiskActive()) {
-      return 'warning';
+      return 'warning_amber';
     }
     switch (this.fillStatus()) {
       case 'FILLED':
         return 'check_circle';
       case 'PARTIAL':
-        return 'pending';
+        return 'pie_chart';
       default:
         return 'radio_button_unchecked';
     }
+  });
+
+  /**
+   * Dot-separated subtitle metadata — the "Received 02 Mar 2025" or
+   * "Earliest expiry 12 May 2026" line next to the available qty.
+   * Returns an empty string when the backend omits ranking_context so the
+   * template's `@if` guard can drop the dot separator cleanly.
+   */
+  readonly subtitleDate = computed<string>(() => {
+    const card = this.warehouse();
+    const issuance = String(card.issuance_order ?? '').toUpperCase();
+    const ctx = card.ranking_context ?? null;
+    if (!ctx) {
+      return '';
+    }
+    if (issuance === 'FEFO' && ctx.top_expiry_date) {
+      return `Earliest expiry ${this.formatDate(ctx.top_expiry_date)}`;
+    }
+    if (issuance === 'FIFO' && ctx.top_batch_date) {
+      return `Received ${this.formatDate(ctx.top_batch_date)}`;
+    }
+    return '';
   });
 
   /**
@@ -978,6 +1079,20 @@ export class WarehouseAllocationCardComponent {
     }
     this.lastError.set(null);
     this.qtyChange.emit(raw);
+  }
+
+  /**
+   * Step the qty up or down by a single unit, clamped to [0, maxQty]. The
+   * parent rehydrates the input via its signal so the DOM stays in sync.
+   */
+  onStep(delta: -1 | 1): void {
+    const current = this.allocatedQty() ?? 0;
+    const next = Math.max(0, Math.min(this.maxQty(), current + delta));
+    if (next === current) {
+      return;
+    }
+    this.lastError.set(null);
+    this.qtyChange.emit(next);
   }
 
   /** Emits min(maxQty, remainingQtyForItem). */

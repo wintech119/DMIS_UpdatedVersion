@@ -431,7 +431,7 @@ describe('FulfillmentItemDetailComponent', () => {
       expect(text).toContain('40');
 
       const qtyInputs = fixture.nativeElement.querySelectorAll(
-        'app-warehouse-allocation-card input[matInput]',
+        'app-warehouse-allocation-card input.wh-card__qty-input',
       ) as NodeListOf<HTMLInputElement>;
       expect(qtyInputs.length).toBeGreaterThan(0);
       qtyInputs.forEach((input) => expect(input.disabled).toBeTrue());

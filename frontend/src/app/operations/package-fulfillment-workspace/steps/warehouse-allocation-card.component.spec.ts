@@ -220,7 +220,7 @@ describe('WarehouseAllocationCardComponent', () => {
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '100';
       input.dispatchEvent(new Event('input'));
 
@@ -238,7 +238,7 @@ describe('WarehouseAllocationCardComponent', () => {
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '250';
       input.dispatchEvent(new Event('input'));
 
@@ -250,7 +250,7 @@ describe('WarehouseAllocationCardComponent', () => {
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '-5';
       input.dispatchEvent(new Event('input'));
 
@@ -263,7 +263,7 @@ describe('WarehouseAllocationCardComponent', () => {
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '12.5';
       input.dispatchEvent(new Event('input'));
 
@@ -280,7 +280,7 @@ describe('WarehouseAllocationCardComponent', () => {
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '500';
       input.dispatchEvent(new Event('input'));
 
@@ -290,7 +290,7 @@ describe('WarehouseAllocationCardComponent', () => {
 
     it('uses integer step for numeric input', async () => {
       const fixture = await render({ warehouse: buildCard() });
-      const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       expect(input.getAttribute('step')).toBe('1');
       expect(input.getAttribute('inputmode')).toBe('numeric');
     });
@@ -334,17 +334,17 @@ describe('WarehouseAllocationCardComponent', () => {
   });
 
   describe('override-risk indicator', () => {
-    it('sets data-non-compliant on the status metric when risk is active and qty is 0', async () => {
+    it('sets data-non-compliant on the status pill when risk is active and qty is 0', async () => {
       const fixture = await render({
         warehouse: buildCard(),
         allocatedQty: 0,
         isOverrideRisk: true,
       });
 
-      const statusMetric = fixture.nativeElement.querySelector(
-        '.wh-metric--status',
+      const statusPill = fixture.nativeElement.querySelector(
+        '.wh-card__status-pill',
       ) as HTMLElement;
-      expect(statusMetric.getAttribute('data-non-compliant')).toBe('true');
+      expect(statusPill.getAttribute('data-non-compliant')).toBe('true');
       expect(fixture.nativeElement.textContent).toContain('Override risk');
     });
 
@@ -355,10 +355,10 @@ describe('WarehouseAllocationCardComponent', () => {
         isOverrideRisk: true,
       });
 
-      const statusMetric = fixture.nativeElement.querySelector(
-        '.wh-metric--status',
+      const statusPill = fixture.nativeElement.querySelector(
+        '.wh-card__status-pill',
       ) as HTMLElement;
-      expect(statusMetric.getAttribute('data-non-compliant')).toBeNull();
+      expect(statusPill.getAttribute('data-non-compliant')).toBeNull();
     });
   });
 
@@ -387,7 +387,7 @@ describe('WarehouseAllocationCardComponent', () => {
     });
 
     expect(fixture.nativeElement.querySelector('.wh-card__remove')).toBeNull();
-    const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+    const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
     expect(input.disabled).toBeTrue();
   });
 
@@ -496,10 +496,10 @@ describe('WarehouseAllocationCardComponent', () => {
     const fixture = await render({
       warehouse: buildCard({ warehouse_id: 9042 }),
     });
-    const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
-    const hint = fixture.nativeElement.querySelector('mat-hint') as HTMLElement;
+    const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
+    const ctx = fixture.nativeElement.querySelector('.wh-card__qty-ctx') as HTMLElement;
     expect(input.getAttribute('aria-describedby')).toBe('wh-qty-hint-9042');
-    expect(hint.getAttribute('id')).toBe('wh-qty-hint-9042');
+    expect(ctx.getAttribute('id')).toBe('wh-qty-hint-9042');
   });
 
   describe('pending placeholder cue', () => {
@@ -534,7 +534,7 @@ describe('WarehouseAllocationCardComponent', () => {
         remainingQtyForItem: 100,
       });
       const host: HTMLElement = fixture.nativeElement;
-      const input = host.querySelector('input[matInput]') as HTMLInputElement;
+      const input = host.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '1.5';
       input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
@@ -551,7 +551,7 @@ describe('WarehouseAllocationCardComponent', () => {
         remainingQtyForItem: 100,
       });
       const host: HTMLElement = fixture.nativeElement;
-      const input = host.querySelector('input[matInput]') as HTMLInputElement;
+      const input = host.querySelector('input.wh-card__qty-input') as HTMLInputElement;
       input.value = '-5';
       input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
