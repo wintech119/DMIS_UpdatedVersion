@@ -24,6 +24,9 @@ import {
   EligibilityDetailResponse,
   OperationsTaskListResponse,
   OverrideApprovalPayload,
+  OverrideRejectPayload,
+  OverrideReturnPayload,
+  OverrideReviewResponse,
   PackageAbandonDraftResponse,
   PackageDetailResponse,
   PackageDraftPayload,
@@ -45,6 +48,7 @@ import {
 } from '../models/operations.model';
 import {
   createDispatchDetailFallback,
+  normalizeAllocationCommitResponse,
   normalizeAllocationItemGroup,
   normalizeAllocationOptions,
   normalizeConsolidationLegDispatchResponse,
@@ -54,6 +58,7 @@ import {
   normalizeDispatchDetail,
   normalizeDispatchQueueItem,
   normalizeEligibilityDetail,
+  normalizeOverrideReviewResponse,
   normalizePackageDetail,
   normalizePackageQueueItem,
   normalizePartialReleaseApproveResponse,
@@ -111,10 +116,19 @@ export class OperationsService {
     );
   }
 
-  submitRequest(reliefrqstId: number): Observable<RequestDetailResponse> {
-    return this.http.post<RequestDetailResponse>(`${this.apiUrl}/requests/${reliefrqstId}/submit`, {}).pipe(
-      map(normalizeRequestDetail),
-    );
+  submitRequest(
+    reliefrqstId: number,
+    idempotencyKey = this.createIdempotencyKey('request-submit', reliefrqstId),
+  ): Observable<RequestDetailResponse> {
+    return this.http.post<RequestDetailResponse>(
+      `${this.apiUrl}/requests/${reliefrqstId}/submit`,
+      {},
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    ).pipe(map(normalizeRequestDetail));
   }
 
   getEligibilityQueue(): Observable<RequestListResponse> {
@@ -134,10 +148,16 @@ export class OperationsService {
   submitEligibilityDecision(
     reliefrqstId: number,
     payload: EligibilityDecisionPayload,
+    idempotencyKey = this.createIdempotencyKey('eligibility-decision', reliefrqstId),
   ): Observable<EligibilityDetailResponse> {
     return this.http.post<EligibilityDetailResponse>(
       `${this.apiUrl}/eligibility/${reliefrqstId}/decision`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
     ).pipe(map(normalizeEligibilityDetail));
   }
 
@@ -236,20 +256,47 @@ export class OperationsService {
     reliefrqstId: number,
     payload: AllocationCommitPayload,
   ): Observable<AllocationCommitResponse> {
-    return this.http.post<AllocationCommitResponse>(
+    return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocations/commit`,
       payload,
-    );
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('allocation-commit', reliefrqstId) } },
+    ).pipe(map(normalizeAllocationCommitResponse));
   }
 
   approveOverride(
     reliefrqstId: number,
     payload: OverrideApprovalPayload,
+    idempotencyKey: string,
   ): Observable<AllocationCommitResponse> {
-    return this.http.post<AllocationCommitResponse>(
+    return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-approve`,
       payload,
-    );
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeAllocationCommitResponse));
+  }
+
+  returnOverride(
+    reliefrqstId: number,
+    payload: OverrideReturnPayload,
+    idempotencyKey: string,
+  ): Observable<OverrideReviewResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-return`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeOverrideReviewResponse));
+  }
+
+  rejectOverride(
+    reliefrqstId: number,
+    payload: OverrideRejectPayload,
+    idempotencyKey: string,
+  ): Observable<OverrideReviewResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocations/override-reject`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ).pipe(map(normalizeOverrideReviewResponse));
   }
 
   getDispatchQueue(): Observable<DispatchQueueResponse> {
@@ -405,10 +452,13 @@ export class OperationsService {
     );
   }
 
-  private createIdempotencyKey(scope: 'dispatch' | 'receipt', reliefpkgId: number): string {
+  createIdempotencyKey(
+    scope: 'dispatch' | 'receipt' | 'override' | 'request-submit' | 'eligibility-decision' | 'allocation-commit',
+    resourceId: number,
+  ): string {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `${scope}-${reliefpkgId}-${randomId}`;
+    return `${scope}-${resourceId}-${randomId}`;
   }
 
   private isPreDispatchWaybillError(error: HttpErrorResponse): boolean {

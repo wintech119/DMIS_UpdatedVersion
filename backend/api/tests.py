@@ -375,6 +375,49 @@ class HealthEndpointTests(TestCase):
         self.assertIn("request_id", body["checks"]["export_audit_schema"]["reason"])
         self._assert_correlated_response(response)
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
+class RuntimeODPEMTenantConfigurationValidationTests(SimpleTestCase):
+    def test_local_harness_allows_missing_odpem_tenant_id(self) -> None:
+        dmis_settings.validate_odpem_tenant_configuration(
+            runtime_env="local-harness",
+            odpem_tenant_id=None,
+            testing=False,
+        )
+
+    def test_non_local_runtimes_require_explicit_odpem_tenant_id(self) -> None:
+        for runtime_env in ("prod-like-local", "shared-dev", "staging", "production"):
+            with self.subTest(runtime_env=runtime_env):
+                with self.assertRaisesMessage(
+                    RuntimeError,
+                    f"DMIS_RUNTIME_ENV={runtime_env} requires ODPEM_TENANT_ID so ODPEM-scoped workflow routing stays explicit.",
+                ):
+                    dmis_settings.validate_odpem_tenant_configuration(
+                        runtime_env=runtime_env,
+                        odpem_tenant_id=None,
+                        testing=False,
+                    )
+
+    def test_non_local_runtime_accepts_explicit_odpem_tenant_id(self) -> None:
+        dmis_settings.validate_odpem_tenant_configuration(
+            runtime_env="shared-dev",
+            odpem_tenant_id=27,
+            testing=False,
+        )
+
+    def test_non_local_runtimes_reject_non_positive_odpem_tenant_id(self) -> None:
+        for runtime_env in ("prod-like-local", "shared-dev", "staging", "production"):
+            for odpem_tenant_id in (0, -1):
+                with self.subTest(runtime_env=runtime_env, odpem_tenant_id=odpem_tenant_id):
+                    with self.assertRaisesMessage(
+                        RuntimeError,
+                        f"DMIS_RUNTIME_ENV={runtime_env} requires ODPEM_TENANT_ID so ODPEM-scoped workflow routing stays explicit.",
+                    ):
+                        dmis_settings.validate_odpem_tenant_configuration(
+                            runtime_env=runtime_env,
+                            odpem_tenant_id=odpem_tenant_id,
+                            testing=False,
+                        )
+
 
 class RuntimeRedisConfigurationValidationTests(SimpleTestCase):
     def test_local_harness_allows_locmem_without_redis(self) -> None:

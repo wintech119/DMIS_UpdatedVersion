@@ -61,6 +61,9 @@ export class EligibilityReviewDetailComponent implements OnInit {
   private readonly notify = inject(DmisNotificationService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly appAccess = inject(AppAccessService);
+  private pendingDecisionSubmission:
+    | { key: string; signature: string }
+    | null = null;
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -275,11 +278,20 @@ export class EligibilityReviewDetailComponent implements OnInit {
       return;
     }
 
+    const signature = JSON.stringify({
+      decision: payload.decision,
+      reason: payload.reason ?? null,
+    });
+    const idempotencyKey = this.pendingDecisionSubmission?.signature === signature
+      ? this.pendingDecisionSubmission.key
+      : this.operationsService.createIdempotencyKey('eligibility-decision', detail.reliefrqst_id);
+    this.pendingDecisionSubmission = { key: idempotencyKey, signature };
     this.submitting.set(true);
-    this.operationsService.submitEligibilityDecision(detail.reliefrqst_id, payload)
+    this.operationsService.submitEligibilityDecision(detail.reliefrqst_id, payload, idempotencyKey)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
+          this.pendingDecisionSubmission = null;
           this.detail.set(updated);
           this.submitting.set(false);
           this.notify.showSuccess(successMessage);

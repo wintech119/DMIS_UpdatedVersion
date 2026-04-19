@@ -1,12 +1,12 @@
 import { Component, Input, signal } from '@angular/core';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { MatDialog } from '@angular/material/dialog';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { EMPTY, of, throwError } from 'rxjs';
+import { EMPTY, NEVER, of, throwError } from 'rxjs';
 
 import { PackageFulfillmentWorkspaceComponent } from './package-fulfillment-workspace.component';
 import { FulfillmentPlanStepComponent } from './steps/fulfillment-plan-step.component';
@@ -22,6 +22,9 @@ import {
   DmisConfirmDialogComponent,
 } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import {
+  AllocationCommitResponse,
+  OverrideApprovalPayload,
+  OverrideReviewResponse,
   PackageAbandonDraftResponse,
   PackageDetailResponse,
   PackageLockConflict,
@@ -64,6 +67,10 @@ class StubFulfillmentReviewStepComponent {
   @Input() stockIntegrityWarning: string | null = null;
   @Input() overrideApprovalHint: string | null = null;
   @Input() canApproveOverride = false;
+  @Input() submitting = false;
+  focusApprove = jasmine.createSpy('focusApprove');
+  focusReturn = jasmine.createSpy('focusReturn');
+  focusReject = jasmine.createSpy('focusReject');
 }
 
 describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
@@ -850,5 +857,576 @@ describe('FulfillmentPlanStepComponent source warehouse recovery', () => {
     fixture.detectChanges();
 
     expect(fixture.debugElement.query(By.directive(OpsSourceWarehousePickerComponent))).toBeNull();
+  });
+});
+
+describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () => {
+  let fixture: ComponentFixture<PackageFulfillmentWorkspaceComponent>;
+  let component: PackageFulfillmentWorkspaceComponent;
+  let operationsService: jasmine.SpyObj<OperationsService>;
+  let dialog: jasmine.SpyObj<MatDialog>;
+  let notifications: jasmine.SpyObj<DmisNotificationService>;
+  let fakeAuth: {
+    load: jasmine.Spy;
+    hasPermission: jasmine.Spy;
+    roles: ReturnType<typeof signal<readonly string[]>>;
+    currentUserRef: ReturnType<typeof signal<string | null>>;
+    permissions: ReturnType<typeof signal<readonly string[]>>;
+  };
+
+  function buildCommitResponse(
+    overrides: Partial<AllocationCommitResponse> = {},
+  ): AllocationCommitResponse {
+    return {
+      status: 'COMMITTED',
+      reliefrqst_id: 95009,
+      reliefpkg_id: 77001,
+      request_tracking_no: 'RQ-95009',
+      package_tracking_no: 'PKG-77001',
+      override_required: false,
+      override_markers: [],
+      allocation_lines: [],
+      ...overrides,
+    };
+  }
+
+  function buildOverrideReviewResponse(
+    overrides: Partial<OverrideReviewResponse> = {},
+  ): OverrideReviewResponse {
+    return {
+      status: 'RETURNED_FOR_ADJUSTMENT',
+      reliefrqst_id: 95009,
+      reliefpkg_id: 77001,
+      override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+      package_status_code: 'DRAFT',
+      ...overrides,
+    };
+  }
+
+  function configureManager(allowed: readonly string[] = [
+    'operations.package.allocate',
+    'operations.package.override.approve',
+  ]): void {
+    const set = new Set(allowed);
+    fakeAuth.hasPermission.and.callFake((perm: string) => set.has(perm));
+    fakeAuth.permissions.set([...allowed]);
+    fakeAuth.roles.set(['LOGISTICS_MANAGER']);
+  }
+
+  function primePendingOverride(): void {
+    component.reliefrqstId.set(95009);
+    component.store.reliefrqstId.set(95009);
+    component.store.reliefpkgId.set(77001);
+    component.store.packageDetail.set({
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-00001',
+        reliefrqst_id: 95009,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'PENDING_OVERRIDE_APPROVAL',
+        status_label: 'Pending Override',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: 'TRUCK',
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: 'PENDING_OVERRIDE_APPROVAL',
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DIRECT',
+        staging_warehouse_id: null,
+        staging_override_reason: null,
+      },
+      request: {
+        reliefrqst_id: 95009,
+        tracking_no: 'RQ-00001',
+        agency_id: 1,
+        agency_name: 'Parish Shelter',
+        eligible_event_id: null,
+        event_name: 'Flood Response',
+        urgency_ind: 'H',
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+        status_label: 'Approved',
+        request_date: '2026-03-26',
+        create_dtime: '2026-03-26T09:00:00Z',
+        review_dtime: null,
+        action_dtime: null,
+        rqst_notes_text: null,
+        review_notes_text: null,
+        status_reason_desc: null,
+        version_nbr: 1,
+        item_count: 0,
+        total_requested_qty: '0',
+        total_issued_qty: '0',
+        reliefpkg_id: 77001,
+        package_tracking_no: 'PKG-00001',
+        package_status: 'PENDING_OVERRIDE_APPROVAL',
+        execution_status: 'PENDING_OVERRIDE_APPROVAL',
+        needs_list_id: null,
+        compatibility_bridge: false,
+        request_mode: null,
+        authority_context: null,
+        requesting_tenant_id: null,
+        requesting_agency_id: null,
+        beneficiary_tenant_id: null,
+        beneficiary_agency_id: null,
+      },
+      items: [],
+      compatibility_only: false,
+    });
+    spyOn(component.store, 'hasPendingOverride').and.returnValue(true);
+    spyOn(component.store, 'buildOverrideApprovalPayload').and.returnValue({
+      payload: { allocations: [] } satisfies OverrideApprovalPayload,
+      errors: [],
+    });
+    spyOn(component.store, 'refreshPackage').and.returnValue(undefined);
+    spyOn(component.store, 'captureLockConflict').and.returnValue(false);
+    spyOn(component.store, 'extractReservationIntegrityWarning').and.returnValue(null);
+  }
+
+  beforeEach(async () => {
+    operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
+      'getPackage',
+      'getAllocationOptions',
+      'releasePackageLock',
+      'abandonDraft',
+      'commitAllocations',
+      'approveOverride',
+      'returnOverride',
+      'rejectOverride',
+      'createIdempotencyKey',
+    ]);
+    operationsService.getPackage.and.returnValue(EMPTY);
+    operationsService.getAllocationOptions.and.returnValue(EMPTY);
+    operationsService.commitAllocations.and.returnValue(EMPTY);
+    operationsService.createIdempotencyKey.and.callFake(
+      (scope: string, reliefpkgId: number) =>
+        scope === 'override'
+          ? `override-${reliefpkgId}-fixed-uuid`
+          : `${scope}-${reliefpkgId}-fixed-uuid`,
+    );
+
+    dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
+    notifications = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+      'showError',
+      'showWarning',
+      'showSuccess',
+    ]);
+
+    fakeAuth = {
+      load: jasmine.createSpy('load'),
+      hasPermission: jasmine.createSpy('hasPermission').and.returnValue(true),
+      roles: signal<readonly string[]>(['LOGISTICS_MANAGER']),
+      currentUserRef: signal<string | null>('manager.kemar'),
+      permissions: signal<readonly string[]>([
+        'operations.package.allocate',
+        'operations.package.override.approve',
+      ]),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [
+        NoopAnimationsModule,
+        HttpClientTestingModule,
+        PackageFulfillmentWorkspaceComponent,
+      ],
+      providers: [
+        { provide: OperationsService, useValue: operationsService },
+        { provide: MatDialog, useValue: dialog },
+        { provide: DmisNotificationService, useValue: notifications },
+        { provide: AuthRbacService, useValue: fakeAuth },
+        {
+          provide: ActivatedRoute,
+          useValue: { paramMap: of(convertToParamMap({ reliefrqstId: '0' })) },
+        },
+        {
+          provide: Router,
+          useValue: jasmine.createSpyObj('Router', ['navigate']),
+        },
+      ],
+    })
+      .overrideComponent(PackageFulfillmentWorkspaceComponent, {
+        remove: {
+          imports: [
+            FulfillmentPlanStepComponent,
+            FulfillmentDetailsStepComponent,
+            FulfillmentReviewStepComponent,
+          ],
+        },
+        add: {
+          imports: [
+            StubFulfillmentPlanStepComponent,
+            StubFulfillmentDetailsStepComponent,
+            StubFulfillmentReviewStepComponent,
+          ],
+        },
+      })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(PackageFulfillmentWorkspaceComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('resolves hasOperationsAccess from operations.package.allocate alone (no replenishment.*)', () => {
+    configureManager(['operations.package.allocate']);
+    expect(component.hasOperationsAccess()).toBeTrue();
+  });
+
+  it('keeps canCommitManagerOverrideDirectly false when only override.approve is granted', () => {
+    configureManager(['operations.package.override.approve']);
+    expect(component.canCommitManagerOverrideDirectly()).toBeFalse();
+  });
+
+  it('does not surface the override review surface when only override.request is granted', () => {
+    configureManager(['operations.package.override.request']);
+    fakeAuth.roles.set(['LOGISTICS_OFFICER']);
+    expect(component.canApprovePendingOverride()).toBeFalse();
+  });
+
+  it('approves the override with the idempotency key from createIdempotencyKey("override")', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.approveOverride.and.returnValue(
+      of(buildCommitResponse({ status: 'COMMITTED', override_status_code: 'APPROVED' })),
+    );
+
+    component.onApproveOverride();
+
+    expect(operationsService.approveOverride).toHaveBeenCalledTimes(1);
+    const args = operationsService.approveOverride.calls.mostRecent().args;
+    expect(args[0]).toBe(95009);
+    expect(args[2]).toBe('override-95009-fixed-uuid');
+    expect(notifications.showSuccess).toHaveBeenCalled();
+  });
+
+  it('reuses the same idempotency key when the same override approval is retried after an ambiguous failure', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.approveOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onApproveOverride();
+    component.onApproveOverride();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.approveOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { allocations: [] },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.approveOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { allocations: [] },
+      'override-95009-fixed-uuid',
+    ]);
+  });
+
+  it('mints a new idempotency key when the override approval payload changes after a failed attempt', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.createIdempotencyKey.and.returnValues(
+      'override-95009-first',
+      'override-95009-second',
+    );
+    (component.store.buildOverrideApprovalPayload as jasmine.Spy).and.returnValues(
+      {
+        payload: {
+          allocations: [],
+          override_reason_code: 'STOCK_EXCEPTION',
+          override_note: 'Initial note',
+        } satisfies OverrideApprovalPayload,
+        errors: [],
+      },
+      {
+        payload: {
+          allocations: [],
+          override_reason_code: 'STOCK_EXCEPTION',
+          override_note: 'Updated note',
+        } satisfies OverrideApprovalPayload,
+        errors: [],
+      },
+    );
+    operationsService.approveOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onApproveOverride();
+    component.onApproveOverride();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(2);
+    expect(operationsService.approveOverride.calls.argsFor(0)).toEqual([
+      95009,
+      {
+        allocations: [],
+        override_reason_code: 'STOCK_EXCEPTION',
+        override_note: 'Initial note',
+      },
+      'override-95009-first',
+    ]);
+    expect(operationsService.approveOverride.calls.argsFor(1)).toEqual([
+      95009,
+      {
+        allocations: [],
+        override_reason_code: 'STOCK_EXCEPTION',
+        override_note: 'Updated note',
+      },
+      'override-95009-second',
+    ]);
+  });
+
+  it('opens the reason dialog with maxLength 500 and calls returnOverride on confirm', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.returnOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+      })),
+    );
+
+    component.onReturnOverride();
+    await fixture.whenStable();
+
+    const dialogArgs = dialog.open.calls.mostRecent().args[1] as { data: { maxLength?: number } };
+    expect(dialogArgs.data.maxLength).toBe(500);
+    expect(operationsService.returnOverride).toHaveBeenCalledTimes(1);
+    const returnArgs = operationsService.returnOverride.calls.mostRecent().args;
+    expect(returnArgs[0]).toBe(95009);
+    expect(returnArgs[1]).toEqual({ reason: 'Qty off for batch 1001' });
+    expect(returnArgs[2]).toBe('override-95009-fixed-uuid');
+    expect(component.confirmationState()?.outcome).toBe('override_returned');
+  });
+
+  it('reuses the same idempotency key when returning an override is retried after an ambiguous failure', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValues(
+      {
+        afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
+      } as ReturnType<MatDialog['open']>,
+      {
+        afterClosed: () => of({ reason: 'Qty off for batch 1001' }),
+      } as ReturnType<MatDialog['open']>,
+    );
+    operationsService.returnOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onReturnOverride();
+    await fixture.whenStable();
+    component.onReturnOverride();
+    await fixture.whenStable();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.returnOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { reason: 'Qty off for batch 1001' },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.returnOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { reason: 'Qty off for batch 1001' },
+      'override-95009-fixed-uuid',
+    ]);
+  });
+
+  it('skips submission when the reason dialog is cancelled (returnOverride not called)', () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => of(undefined),
+    } as ReturnType<MatDialog['open']>);
+
+    component.onReturnOverride();
+
+    expect(operationsService.returnOverride).not.toHaveBeenCalled();
+  });
+
+  it('does not open a second override reason dialog while the first one is still pending', () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => NEVER,
+    } as unknown as ReturnType<MatDialog['open']>);
+
+    component.onReturnOverride();
+    component.onReturnOverride();
+
+    expect(dialog.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes reject through rejectOverride with the reason and the override idempotency key', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Wrong warehouse' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.rejectOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'REJECTED',
+        override_status_code: 'REJECTED',
+        package_status_code: 'REJECTED',
+      })),
+    );
+
+    component.onRejectOverride();
+    await fixture.whenStable();
+
+    expect(operationsService.rejectOverride).toHaveBeenCalledTimes(1);
+    const rejectArgs = operationsService.rejectOverride.calls.mostRecent().args;
+    expect(rejectArgs[1]).toEqual({ reason: 'Wrong warehouse' });
+    expect(rejectArgs[2]).toBe('override-95009-fixed-uuid');
+    expect(component.confirmationState()?.outcome).toBe('override_rejected');
+    expect(component.confirmationState()?.title).toBe('Override Rejected');
+  });
+
+  it('reuses the same idempotency key when rejecting an override is retried after an ambiguous failure', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValues(
+      {
+        afterClosed: () => of({ reason: 'Wrong warehouse' }),
+      } as ReturnType<MatDialog['open']>,
+      {
+        afterClosed: () => of({ reason: 'Wrong warehouse' }),
+      } as ReturnType<MatDialog['open']>,
+    );
+    operationsService.rejectOverride.and.returnValues(
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+      throwError(() => new HttpErrorResponse({ status: 504, error: { detail: 'Timed out' } })),
+    );
+
+    component.onRejectOverride();
+    await fixture.whenStable();
+    component.onRejectOverride();
+    await fixture.whenStable();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(operationsService.rejectOverride.calls.argsFor(0)).toEqual([
+      95009,
+      { reason: 'Wrong warehouse' },
+      'override-95009-fixed-uuid',
+    ]);
+    expect(operationsService.rejectOverride.calls.argsFor(1)).toEqual([
+      95009,
+      { reason: 'Wrong warehouse' },
+      'override-95009-fixed-uuid',
+    ]);
+  });
+
+  it('guards against double-submit when submitting() is true', () => {
+    configureManager();
+    primePendingOverride();
+    component.store.setSubmitting(true);
+
+    component.onApproveOverride();
+
+    expect(operationsService.approveOverride).not.toHaveBeenCalled();
+  });
+
+  it('surfaces backend 403 on approve without leaving submitting() stuck', () => {
+    configureManager();
+    primePendingOverride();
+    operationsService.approveOverride.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 403, statusText: 'Forbidden' })),
+    );
+
+    component.onApproveOverride();
+
+    expect(notifications.showError).toHaveBeenCalled();
+    expect(component.store.submitting()).toBeFalse();
+  });
+
+  it('surfaces backend 429 with Retry-After on return', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Needs more stock' }),
+    } as ReturnType<MatDialog['open']>);
+    const headers = new HttpHeaders({ 'Retry-After': '12' });
+    operationsService.returnOverride.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 429, statusText: 'Too Many Requests', headers })),
+    );
+
+    component.onReturnOverride();
+    await fixture.whenStable();
+
+    expect(notifications.showError).toHaveBeenCalled();
+    const message = notifications.showError.calls.mostRecent().args[0] as string;
+    expect(message).toContain('12');
+  });
+
+  it('maps approve confirmation outcome from the backend response status', () => {
+    configureManager();
+    primePendingOverride();
+    const cases = [
+      {
+        status: 'COMMITTED',
+        outcome: 'committed',
+        title: 'Override Approved — Reservation Committed',
+      },
+      {
+        status: 'CONSOLIDATING',
+        outcome: 'consolidating',
+        title: 'Override Approved — Consolidating Stock',
+      },
+      {
+        status: 'READY_FOR_PICKUP',
+        outcome: 'ready_for_pickup',
+        title: 'Override Approved — Ready For Pickup',
+      },
+      {
+        status: 'READY_FOR_DISPATCH',
+        outcome: 'ready_for_dispatch',
+        title: 'Override Approved — Ready For Dispatch',
+      },
+    ] as const satisfies readonly {
+      status: AllocationCommitResponse['status'];
+      outcome: string;
+      title: string;
+    }[];
+    for (const c of cases) {
+      operationsService.approveOverride.and.returnValue(
+        of(buildCommitResponse({ status: c.status })),
+      );
+      component.onApproveOverride();
+      const confirmation = component.confirmationState();
+      expect(confirmation?.outcome).toBe(c.outcome);
+      expect(confirmation?.title).toBe(c.title);
+    }
+  });
+
+  it('captures reference IDs from response body fields into confirmationState.referenceId', async () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Back for rework' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.returnOverride.and.returnValue(
+      of(buildOverrideReviewResponse({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+        action_id: 'AUDIT-42',
+      })),
+    );
+
+    component.onReturnOverride();
+    await fixture.whenStable();
+
+    expect(component.confirmationState()?.referenceId).toBe('AUDIT-42');
   });
 });

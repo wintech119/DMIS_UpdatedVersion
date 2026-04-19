@@ -134,10 +134,38 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
 
         with self.assertRaisesMessage(
             CommandError,
-            "The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.",
+            "The national/local system-admin tenant must resolve to an ODPEM national tenant.",
         ):
             Command()._resolve_national_tenant(tenant_id=None, tenant_code="NATIONAL-OTHER")
 
+    @override_settings(ODPEM_TENANT_ID=1)
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_prefers_configured_odpem_tenant_id(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1, "ODPEM-HQ", "ODPEM HQ", "NEOC")
+
+        tenant = Command()._resolve_national_tenant(tenant_id=None, tenant_code=None)
+
+        self.assertEqual(
+            tenant,
+            {"tenant_id": 1, "tenant_code": "ODPEM-HQ", "tenant_name": "ODPEM HQ"},
+        )
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("WHERE tenant_id = %s", sql)
+        self.assertEqual(params, [1])
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_odpem_code_when_tenant_type_is_not_neoc(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (7, "ODPEM-HQ", "ODPEM HQ", "NATIONAL")
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "The national/local system-admin tenant must resolve to an ODPEM national tenant.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code="ODPEM-HQ")
+
+    @override_settings(ODPEM_TENANT_ID=None)
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
     def test_resolve_national_tenant_rejects_ambiguous_fallback_matches(self, mock_connection) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
@@ -210,7 +238,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
-        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
+        return_value={"tenant_id": 1, "tenant_code": "ODPEM-HQ", "tenant_name": "ODPEM HQ"},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_user",
@@ -271,7 +299,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
-        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
+        return_value={"tenant_id": 1, "tenant_code": "ODPEM-HQ", "tenant_name": "ODPEM HQ"},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_user",
@@ -309,7 +337,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertEqual(ensure_tenant_membership.call_count, 5)
         self.assertEqual(ensure_user_role.call_count, 5)
         tenant_ids = [call.kwargs["tenant_id"] for call in ensure_tenant_membership.call_args_list]
-        self.assertEqual(tenant_ids, [27, 27, 27, 27, 19])
+        self.assertEqual(tenant_ids, [1, 1, 1, 1, 19])
 
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
@@ -334,7 +362,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
-        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
+        return_value={"tenant_id": 1, "tenant_code": "ODPEM-HQ", "tenant_name": "ODPEM HQ"},
     )
     def test_dry_run_normalizes_default_names_for_hyphenated_tenant_codes(
         self,

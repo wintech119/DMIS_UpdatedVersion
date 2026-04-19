@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { catchError, of } from 'rxjs';
 
@@ -31,6 +32,7 @@ interface ReviewGroup {
   standalone: true,
   imports: [
     DecimalPipe,
+    MatButtonModule,
     MatIconModule,
     OpsStatusChipComponent,
   ],
@@ -264,6 +266,7 @@ interface ReviewGroup {
 
       <!-- ── Pre-flight Checklist ──────────────────────────── -->
       <div class="ops-callout review-preflight"
+           id="review-preflight-hint"
            [class.ops-callout--warning]="store.hasPendingOverride()"
            [class.ops-callout--success]="!store.hasPendingOverride() && store.hasCommittedAllocation()"
            role="status">
@@ -282,6 +285,47 @@ interface ReviewGroup {
           </p>
         </div>
       </div>
+
+      <!-- ── Override Review Actions (FR05.08) ──────────────── -->
+      @if (canApproveOverride && store.hasPendingOverride()) {
+        <footer class="ops-review-actions" role="group" aria-label="Override review actions">
+          <button
+            #approveBtn
+            mat-flat-button
+            color="primary"
+            type="button"
+            class="ops-review-actions__btn ops-review-actions__btn--approve"
+            [disabled]="submitting"
+            aria-describedby="review-preflight-hint"
+            (click)="approveOverride.emit()">
+            <mat-icon aria-hidden="true">check_circle</mat-icon>
+            Approve
+          </button>
+          <button
+            #returnBtn
+            mat-stroked-button
+            type="button"
+            class="ops-review-actions__btn ops-review-actions__btn--return"
+            [disabled]="submitting"
+            aria-describedby="review-preflight-hint"
+            (click)="returnOverride.emit()">
+            <mat-icon aria-hidden="true">undo</mat-icon>
+            Return for Adjustments
+          </button>
+          <button
+            #rejectBtn
+            mat-stroked-button
+            color="warn"
+            type="button"
+            class="ops-review-actions__btn ops-review-actions__btn--reject"
+            [disabled]="submitting"
+            aria-describedby="review-preflight-hint"
+            (click)="rejectOverride.emit()">
+            <mat-icon aria-hidden="true">cancel</mat-icon>
+            Reject
+          </button>
+        </footer>
+      }
 
     </div>
   `,
@@ -622,6 +666,33 @@ interface ReviewGroup {
         grid-template-columns: 1fr;
       }
     }
+
+    /* ── Override review actions (FR05.08) ──────────────── */
+
+    .ops-review-actions {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      padding: 0.75rem 0;
+      border-top: 1px solid var(--color-border, #e5e5e2);
+    }
+
+    .ops-review-actions__btn {
+      min-width: 10.5rem;
+    }
+
+    @media (max-width: 600px) {
+      .ops-review-actions {
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+
+      .ops-review-actions__btn {
+        width: 100%;
+      }
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -630,6 +701,27 @@ export class FulfillmentReviewStepComponent {
   @Input() stockIntegrityWarning: string | null = null;
   @Input() overrideApprovalHint: string | null = null;
   @Input() canApproveOverride = false;
+  @Input() submitting = false;
+
+  @Output() approveOverride = new EventEmitter<void>();
+  @Output() returnOverride = new EventEmitter<void>();
+  @Output() rejectOverride = new EventEmitter<void>();
+
+  @ViewChild('approveBtn') approveBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('returnBtn') returnBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('rejectBtn') rejectBtn?: ElementRef<HTMLButtonElement>;
+
+  focusApprove(): void {
+    this.approveBtn?.nativeElement.focus();
+  }
+
+  focusReturn(): void {
+    this.returnBtn?.nativeElement.focus();
+  }
+
+  focusReject(): void {
+    this.rejectBtn?.nativeElement.focus();
+  }
 
   readonly store = inject(OperationsWorkspaceStateService);
   readonly packageDetail = this.store.packageDetail;
@@ -745,8 +837,8 @@ export class FulfillmentReviewStepComponent {
   commitOutcomeCopy(): string {
     if (this.store.hasPendingOverride()) {
       return this.canApproveOverride
-        ? 'Approving this override will keep the submitted reservation plan intact and unlock the next dispatch step.'
-        : 'This routed reservation is locked while narrow supervisor approval is pending. Dispatch remains blocked until that review is complete.';
+        ? 'Approve to proceed, return for rework on this same package, or reject this attempt. Rejection is terminal for the package but the relief request stays queued.'
+        : 'This routed reservation is locked while manager override review is pending. Dispatch remains blocked until that review is complete.';
     }
     if (this.store.hasCommittedAllocation()) {
       return 'Updating this reservation keeps stock frozen against the request. Physical deduction still happens only on dispatch.';

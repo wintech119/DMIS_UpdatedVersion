@@ -16,6 +16,7 @@ export type LegacyPackageStatusCode = 'A' | 'P' | 'D' | 'C' | 'V';
 export type StagedPackageStatusCode =
   | 'DRAFT'
   | 'PENDING_OVERRIDE_APPROVAL'
+  | 'REJECTED'
   | 'COMMITTED'
   | 'CONSOLIDATING'
   | 'READY_FOR_PICKUP'
@@ -446,7 +447,12 @@ export interface AllocationCommitPayload {
 }
 
 export interface AllocationCommitResponse {
-  status: 'COMMITTED' | 'PENDING_OVERRIDE_APPROVAL';
+  status:
+    | 'COMMITTED'
+    | 'PENDING_OVERRIDE_APPROVAL'
+    | 'CONSOLIDATING'
+    | 'READY_FOR_PICKUP'
+    | 'READY_FOR_DISPATCH';
   reliefrqst_id: number;
   reliefpkg_id: number;
   request_tracking_no: string;
@@ -454,12 +460,35 @@ export interface AllocationCommitResponse {
   override_required: boolean;
   override_markers: string[];
   allocation_lines: AllocationLine[];
+  override_status_code?: 'APPROVED' | null;
+  action_id?: string | number | null;
+  audit_log_id?: string | number | null;
 }
 
 export interface OverrideApprovalPayload {
-  allocations: AllocationSelectionPayload[];
-  override_reason_code: string;
-  override_note: string;
+  allocations?: AllocationSelectionPayload[];
+  override_reason_code?: string;
+  override_note?: string;
+}
+
+export interface OverrideReturnPayload {
+  reason: string;
+}
+
+export interface OverrideRejectPayload {
+  reason: string;
+}
+
+export interface OverrideReviewResponse {
+  status: 'RETURNED_FOR_ADJUSTMENT' | 'REJECTED';
+  reliefrqst_id: number;
+  reliefpkg_id: number;
+  override_status_code: 'RETURNED_FOR_ADJUSTMENT' | 'REJECTED';
+  package_status_code: 'DRAFT' | 'REJECTED';
+  request_status?: string | null;
+  package?: PackageSummary | null;
+  action_id?: string | number | null;
+  audit_log_id?: string | number | null;
 }
 
 // Dispatch

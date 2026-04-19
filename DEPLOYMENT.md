@@ -78,6 +78,7 @@ DMIS_RUNTIME_ENV=shared-dev|staging|production|prod-like-local
 DJANGO_DEBUG=0
 DJANGO_SECRET_KEY=<real-random-secret>
 DJANGO_ALLOWED_HOSTS=<comma-separated-hostnames>
+ODPEM_TENANT_ID=<tenant_id that owns ODPEM request-level fulfillment lanes>
 
 DB_NAME=<postgres-db>
 DB_USER=<postgres-user>
@@ -113,6 +114,7 @@ DMIS now enforces deployment defaults by `DMIS_RUNTIME_ENV` at Django startup:
 
 - `shared-dev`, `staging`, and `production` fail closed unless secure cookies, HTTPS redirect, HSTS, and reverse-proxy TLS handling match the expected profile.
 - `prod-like-local` still requires an explicit secret key and explicit allowed hosts, but it stays local-friendly and does not force internet-facing HTTPS assumptions.
+- `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless `ODPEM_TENANT_ID` is set explicitly, so ODPEM-scoped workflow routing does not depend on tenant-name fallback heuristics.
 - `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless `REDIS_URL` is configured and the default cache backend is Redis-backed.
 - `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless the async worker plane is Redis-backed and `DMIS_ASYNC_EAGER=0`.
 - `local-harness` remains local-only and should not be reused as a shared deployment baseline. It may run without Redis only as an explicit local-only degraded mode.

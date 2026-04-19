@@ -1,11 +1,16 @@
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
 import { EligibilityDetailResponse, RequestDetailResponse } from '../models/operations.model';
 import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
-import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
+import {
+  extractOperationsHttpErrorMessage,
+  formatOperationsPackageStatus,
+  getOperationsDispatchStage,
+} from '../operations-display.util';
 
 describe('OperationsService', () => {
   let service: OperationsService;
@@ -128,6 +133,8 @@ describe('OperationsService', () => {
     }));
     expect(formatPackageStatus('V')).toBe('Ready for Dispatch');
     expect(formatOperationsPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(formatPackageStatus('REJECTED')).toBe('Rejected');
+    expect(formatOperationsPackageStatus('REJECTED')).toBe('Rejected');
     expect(getOperationsDispatchStage({ status_code: 'V' })).toBe('ready');
     expect(formatStagingSelectionBasis('ALPHABETICAL_FALLBACK')).toBe('Alphabetical fallback');
   });
@@ -592,6 +599,51 @@ describe('OperationsService', () => {
     request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
   });
 
+  it('adds an idempotency key when committing allocations', () => {
+    service.commitAllocations(12, { allocations: [] }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/12/allocations/commit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^allocation-commit-12-/);
+    request.flush({ status: 'COMMITTED', reliefrqst_id: 12, reliefpkg_id: 44 });
+  });
+
+  it('adds an idempotency key when submitting a relief request', () => {
+    service.submitRequest(12).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/submit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^request-submit-12-/);
+    request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
+  });
+
+  it('uses the caller-supplied idempotency key when replaying request submission', () => {
+    service.submitRequest(12, 'request-submit-12-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/submit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('request-submit-12-fixed');
+    request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
+  });
+
+  it('adds an idempotency key when submitting an eligibility decision', () => {
+    service.submitEligibilityDecision(12, { decision: 'APPROVED' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/eligibility/12/decision');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^eligibility-decision-12-/);
+    request.flush({ reliefrqst_id: 12, status_code: 'APPROVED_FOR_FULFILLMENT' });
+  });
+
+  it('uses the caller-supplied idempotency key when replaying an eligibility decision', () => {
+    service.submitEligibilityDecision(12, { decision: 'APPROVED' }, 'eligibility-decision-12-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/eligibility/12/decision');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('eligibility-decision-12-fixed');
+    request.flush({ reliefrqst_id: 12, status_code: 'APPROVED_FOR_FULFILLMENT' });
+  });
+
   describe('relief-request intake contract normalization', () => {
     function flushRequest(payload: Record<string, unknown>): RequestDetailResponse {
       let result: RequestDetailResponse | undefined;
@@ -738,5 +790,141 @@ describe('OperationsService', () => {
 
       expect(result.eligibility_decision).toBeNull();
     });
+  });
+
+  describe('FR05.08 override review', () => {
+    const API = '/api/v1/operations';
+
+    it('approveOverride posts to override-approve with the caller-supplied Idempotency-Key', () => {
+      service.approveOverride(95009, {}, 'override:95009:test-uuid').subscribe();
+      const req = httpMock.expectOne(`${API}/packages/95009/allocations/override-approve`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.headers.get('Idempotency-Key')).toBe('override:95009:test-uuid');
+      req.flush({
+        status: 'COMMITTED',
+        reliefrqst_id: 95009,
+        reliefpkg_id: 77001,
+        override_required: false,
+        override_status_code: 'APPROVED',
+      });
+    });
+
+    it('returnOverride posts to override-return with reason body and Idempotency-Key', () => {
+      let response: unknown;
+      service
+        .returnOverride(95009, { reason: 'Needs rework' }, 'override:95009:retkey')
+        .subscribe((value) => (response = value));
+      const req = httpMock.expectOne(`${API}/packages/95009/allocations/override-return`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ reason: 'Needs rework' });
+      expect(req.request.headers.get('Idempotency-Key')).toBe('override:95009:retkey');
+      req.flush({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        reliefrqst_id: 95009,
+        reliefpkg_id: 77001,
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+      });
+      expect((response as { status: string }).status).toBe('RETURNED_FOR_ADJUSTMENT');
+    });
+
+    it('rejectOverride posts to override-reject with reason body and Idempotency-Key', () => {
+      let response: unknown;
+      service
+        .rejectOverride(95009, { reason: 'Invalid request' }, 'override:95009:rejkey')
+        .subscribe((value) => (response = value));
+      const req = httpMock.expectOne(`${API}/packages/95009/allocations/override-reject`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ reason: 'Invalid request' });
+      expect(req.request.headers.get('Idempotency-Key')).toBe('override:95009:rejkey');
+      req.flush({
+        status: 'REJECTED',
+        reliefrqst_id: 95009,
+        reliefpkg_id: 77001,
+        override_status_code: 'REJECTED',
+        package_status_code: 'REJECTED',
+      });
+      expect((response as { status: string }).status).toBe('REJECTED');
+    });
+
+    it('createIdempotencyKey shapes override keys as override-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('override', 42);
+      expect(key.startsWith('override-42-')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes request-submit keys as request-submit-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('request-submit', 12);
+      expect(key.startsWith('request-submit-12-')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes eligibility-decision keys as eligibility-decision-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('eligibility-decision', 12);
+      expect(key.startsWith('eligibility-decision-12-')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes allocation-commit keys as allocation-commit-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('allocation-commit', 12);
+      expect(key.startsWith('allocation-commit-12-')).toBeTrue();
+    });
+
+    it('same idempotency key propagates on replay (same key -> same header)', () => {
+      const fixedKey = 'override:95009:fixed-uuid';
+      service.returnOverride(95009, { reason: 'First try' }, fixedKey).subscribe();
+      const first = httpMock.expectOne(`${API}/packages/95009/allocations/override-return`);
+      expect(first.request.headers.get('Idempotency-Key')).toBe(fixedKey);
+      first.flush({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        reliefrqst_id: 95009,
+        reliefpkg_id: 77001,
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+      });
+
+      service.returnOverride(95009, { reason: 'First try' }, fixedKey).subscribe();
+      const second = httpMock.expectOne(`${API}/packages/95009/allocations/override-return`);
+      expect(second.request.headers.get('Idempotency-Key')).toBe(fixedKey);
+      second.flush({
+        status: 'RETURNED_FOR_ADJUSTMENT',
+        reliefrqst_id: 95009,
+        reliefpkg_id: 77001,
+        override_status_code: 'RETURNED_FOR_ADJUSTMENT',
+        package_status_code: 'DRAFT',
+      });
+    });
+
+    it('normalizes approve-path extended statuses (CONSOLIDATING / READY_FOR_PICKUP / READY_FOR_DISPATCH)', () => {
+      const statuses = ['CONSOLIDATING', 'READY_FOR_PICKUP', 'READY_FOR_DISPATCH'];
+      for (const status of statuses) {
+        let response: unknown;
+        service
+          .approveOverride(95009, {}, `override:95009:${status}`)
+          .subscribe((value) => (response = value));
+        const req = httpMock.expectOne(`${API}/packages/95009/allocations/override-approve`);
+        req.flush({
+          status,
+          reliefrqst_id: 95009,
+          reliefpkg_id: 77001,
+          override_required: false,
+          override_status_code: 'APPROVED',
+        });
+        expect((response as { status: string }).status).toBe(status);
+      }
+    });
+  });
+
+  it('extracts nested structured error messages from an errors map', () => {
+    const message = extractOperationsHttpErrorMessage(
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          errors: {
+            package: [{ detail: 'Structured package error.' }],
+          },
+        },
+      }),
+      'Fallback error.',
+    );
+
+    expect(message).toBe('Structured package error.');
   });
 });

@@ -7,9 +7,9 @@
       </p>
       <h1 class="ops-hero__title">Package Fulfillment Queue</h1>
       <p class="ops-hero__copy">
-        Prioritized worklist for stock reservation, packing, and dispatch preparation.
+        Active work queue for stock reservation, packing, and dispatch preparation.
       </p>
-      <app-ops-status-chip label="Dispatch Prep Active" tone="warning" />
+      <app-ops-status-chip label="Active Work" tone="warning" />
     </div>
 
     <div class="ops-hero__actions">
@@ -32,7 +32,7 @@
         <div>
           <p class="ops-section__eyebrow">Queue</p>
           <h2 class="ops-section__title">Fulfillment Work Queue</h2>
-          <p class="ops-section__copy">Search and filter requests that are awaiting fulfillment, saved as drafts, or ready for dispatch handoff.</p>
+          <p class="ops-section__copy">Search and filter requests that are awaiting fulfillment, saved as drafts, preparing, or ready to commit. Dispatched and received packages move on to the Dispatch queue.</p>
         </div>
         <span class="ops-table-shell__meta">{{ filteredItems().length }} request{{ filteredItems().length === 1 ? '' : 's' }}</span>
       </div>
@@ -73,11 +73,20 @@
 
         @if (loading()) {
           <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (errored()) {
+          <dmis-empty-state
+            icon="error_outline"
+            title="We could not load the queue"
+            [message]="loadError() || 'Please try again.'"
+            actionLabel="Retry"
+            actionIcon="refresh"
+            (action)="refreshQueue()"
+          />
         } @else if (filteredItems().length === 0) {
           <dmis-empty-state
-            icon="inventory_2"
-            title="No packages found"
-            message="No fulfillment work matches the current search or filter."
+            icon="inbox"
+            title="No active fulfillment work"
+            message="Nothing is awaiting reservation or draft work right now. New requests approved for fulfillment will appear here."
           />
         } @else {
           <div class="ops-row-list">
@@ -209,9 +218,9 @@
             <div class="ops-timeline__step">
               <span class="ops-timeline__dot" style="background: #065f46;"></span>
               <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Ready packages move to dispatch.</p>
+                <p class="ops-timeline__title">Ready packages hand off to Dispatch.</p>
                 <div class="ops-timeline__meta">
-                  <span>Once committed, the package appears in the Dispatch Queue for handoff.</span>
+                  <span>Once committed, the package appears in the Dispatch Queue for handoff. Dispatched and received packages move out of this active-work queue.</span>
                 </div>
               </div>
             </div>

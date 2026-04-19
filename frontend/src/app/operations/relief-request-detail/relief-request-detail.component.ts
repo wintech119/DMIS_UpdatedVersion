@@ -70,6 +70,7 @@ export class ReliefRequestDetailComponent implements OnInit {
   private readonly notify = inject(DmisNotificationService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly appAccess = inject(AppAccessService);
+  private pendingSubmitIdempotencyKey: string | null = null;
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -256,10 +257,14 @@ export class ReliefRequestDetailComponent implements OnInit {
           return;
         }
         this.submitting.set(true);
-        this.operationsService.submitRequest(request.reliefrqst_id)
+        const idempotencyKey = this.pendingSubmitIdempotencyKey
+          ?? this.operationsService.createIdempotencyKey('request-submit', request.reliefrqst_id);
+        this.pendingSubmitIdempotencyKey = idempotencyKey;
+        this.operationsService.submitRequest(request.reliefrqst_id, idempotencyKey)
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: (updated) => {
+              this.pendingSubmitIdempotencyKey = null;
               this.request.set(updated);
               this.submitting.set(false);
               this.notify.showSuccess('Request submitted for review.');

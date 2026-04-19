@@ -369,6 +369,23 @@ def validate_runtime_auth_configuration(
             )
 
 
+def validate_odpem_tenant_configuration(
+    *,
+    runtime_env: str,
+    odpem_tenant_id: int | None,
+    testing: bool,
+) -> None:
+    if testing or runtime_env == "test":
+        return
+
+    if runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS and (
+        odpem_tenant_id is None or odpem_tenant_id <= 0
+    ):
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires ODPEM_TENANT_ID so ODPEM-scoped workflow routing stays explicit."
+        )
+
+
 def default_auth_enabled_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
     if testing:
         return False
@@ -1069,6 +1086,11 @@ NEEDS_INVENTORY_ACTIVE_STATUS = os.getenv("NEEDS_INVENTORY_ACTIVE_STATUS", "A")
 NEEDS_BURN_SOURCE = os.getenv("NEEDS_BURN_SOURCE", "reliefpkg")
 NEEDS_BURN_FALLBACK = os.getenv("NEEDS_BURN_FALLBACK", "reliefrqst")
 ODPEM_TENANT_ID = _get_int_env("ODPEM_TENANT_ID", None)
+validate_odpem_tenant_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    odpem_tenant_id=ODPEM_TENANT_ID,
+    testing=TESTING,
+)
 
 
 # IFRC Item Code Assistant configuration.

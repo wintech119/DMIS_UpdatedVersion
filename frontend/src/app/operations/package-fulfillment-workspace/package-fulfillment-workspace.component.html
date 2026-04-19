@@ -220,15 +220,21 @@
             [submissionErrors]="submissionErrors()"
             [stockIntegrityWarning]="reservationIntegrityWarning()"
             [overrideApprovalHint]="overrideApprovalHint()"
-            [canApproveOverride]="canApprovePendingOverride()" />
+            [canApproveOverride]="canApprovePendingOverride()"
+            [submitting]="store.submitting()"
+            (approveOverride)="onApproveOverride()"
+            (returnOverride)="onReturnOverride()"
+            (rejectOverride)="onRejectOverride()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
             <span class="ops-step-actions__spacer"></span>
             <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
-            <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
-              <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
-              {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
-            </button>
+            @if (!(store.hasPendingOverride() && canApprovePendingOverride())) {
+              <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
+                <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
+                {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
+              </button>
+            }
           </div>
         </div>
       </mat-step>
@@ -252,29 +258,55 @@
                     <span>Package Tracking Number</span>
                     <strong>{{ packageTrackingLabel() }}</strong>
                   </div>
+                  @if (confirmation.referenceId) {
+                    <div>
+                      <span>Reference</span>
+                      <strong>{{ confirmation.referenceId }}</strong>
+                    </div>
+                  }
                 </div>
 
-                <div class="ops-step-actions">
-                  <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
-                  <span class="ops-step-actions__spacer"></span>
-                  <button
-                    mat-stroked-button
-                    color="warn"
-                    type="button"
-                    class="ops-step-actions__cancel"
-                    aria-label="Cancel fulfillment"
-                    [disabled]="!canCancel()"
-                    (click)="cancelFulfillment()">
-                    <mat-icon>cancel</mat-icon>
-                    Cancel
-                  </button>
-                  @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
-                    <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
-                      Open Dispatch Workspace
-                    </button>
+                @switch (confirmation.outcome) {
+                  @case ('override_returned') {
+                    <div class="ops-step-actions">
+                      <span class="ops-step-actions__spacer"></span>
+                      <button mat-stroked-button type="button" (click)="backToRequest()">Return to Request</button>
+                      <button mat-flat-button color="primary" type="button" (click)="resetConfirmation()">
+                        <mat-icon>edit_note</mat-icon>
+                        Resume Draft
+                      </button>
+                    </div>
                   }
-                  <button mat-flat-button color="primary" type="button" (click)="backToRequest()">Return to Request</button>
-                </div>
+                @case ('override_rejected') {
+                  <div class="ops-step-actions">
+                    <span class="ops-step-actions__spacer"></span>
+                    <button mat-stroked-button type="button" (click)="backToRequest()">Return to Request</button>
+                  </div>
+                }
+                  @default {
+                    <div class="ops-step-actions">
+                      <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                      <span class="ops-step-actions__spacer"></span>
+                      <button
+                        mat-stroked-button
+                        color="warn"
+                        type="button"
+                        class="ops-step-actions__cancel"
+                        aria-label="Cancel fulfillment"
+                        [disabled]="!canCancel()"
+                        (click)="cancelFulfillment()">
+                        <mat-icon>cancel</mat-icon>
+                        Cancel
+                      </button>
+                      @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
+                        <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
+                          Open Dispatch Workspace
+                        </button>
+                      }
+                      <button mat-flat-button color="primary" type="button" (click)="backToRequest()">Return to Request</button>
+                    </div>
+                  }
+                }
               </article>
             }
           </div>

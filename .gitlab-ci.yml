@@ -40,6 +40,7 @@ auth_posture_validation:
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-auth-posture-secret",
           "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1,shared-dev.dmis.example.org,staging.dmis.example.org,dmis.example.org",
+          "ODPEM_TENANT_ID": "1",
           "AUTH_ISSUER": "https://idp.example/realms/dmis",
           "AUTH_AUDIENCE": "dmis-web",
           "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",
@@ -182,6 +183,7 @@ secure_posture_validation:
       common_env = {
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-secure-posture-secret",
+          "ODPEM_TENANT_ID": "1",
           "AUTH_ISSUER": "https://idp.example/realms/dmis",
           "AUTH_AUDIENCE": "dmis-web",
           "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",
@@ -343,6 +345,7 @@ redis_posture_validation:
       common_env = {
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-redis-posture-secret",
+          "ODPEM_TENANT_ID": "1",
           "AUTH_ISSUER": "https://idp.example/realms/dmis",
           "AUTH_AUDIENCE": "dmis-web",
           "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",

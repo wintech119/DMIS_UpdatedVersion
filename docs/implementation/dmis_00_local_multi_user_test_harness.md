@@ -59,15 +59,16 @@ The recommended default matrix uses four shared ODPEM/national profiles plus one
 
 | Persona | Username | Current role mapping | Expected tenant context | Primary use |
 | --- | --- | --- | --- | --- |
-| System Admin | `local_system_admin_tst` | `SYSTEM_ADMINISTRATOR` | ODPEM/NEOC national tenant | Global admin, cross-tenant visibility, master-data governance |
-| ODPEM Deputy Director | `local_odpem_deputy_director_tst` | `ODPEM_DDG` | ODPEM/NEOC national tenant | Eligibility review and approval testing from the national approver lane |
-| ODPEM Logistics Manager | `local_odpem_logistics_manager_tst` | `ODPEM_LOGISTICS_MANAGER` | ODPEM/NEOC national tenant | National logistics review, queue visibility, and ODPEM-led workflow validation |
-| ODPEM Logistics Officer | `local_odpem_logistics_officer_tst` | `LOGISTICS_OFFICER` | ODPEM/NEOC national tenant | National fulfillment and dispatch workflow validation from the ODPEM tenant context |
+| System Admin | `local_system_admin_tst` | `SYSTEM_ADMINISTRATOR` | ODPEM/HQ national tenant | Global admin, cross-tenant visibility, master-data governance |
+| ODPEM Deputy Director | `local_odpem_deputy_director_tst` | `ODPEM_DDG` | ODPEM/HQ national tenant | Eligibility review and approval testing from the national approver lane |
+| ODPEM Logistics Manager | `local_odpem_logistics_manager_tst` | `ODPEM_LOGISTICS_MANAGER` | ODPEM/HQ national tenant | National logistics review, queue visibility, and ODPEM-led workflow validation |
+| ODPEM Logistics Officer | `local_odpem_logistics_officer_tst` | `LOGISTICS_OFFICER` | ODPEM/HQ national tenant | National fulfillment and dispatch workflow validation from the ODPEM tenant context |
 | Agency Requester | `relief_jrc_requester_tst` | `AGENCY_DISTRIBUTOR` | `JRC` | Relief-request intake and agency-scoped workflow testing |
 
 Notes:
 
-- The current codebase has an `ODPEM_LOGISTICS_MANAGER` role but no separate `ODPEM_LOGISTICS_OFFICER` role code. The harness therefore assigns the canonical `LOGISTICS_OFFICER` role to a user whose primary tenant membership is the ODPEM/NEOC national tenant.
+- The current codebase has an `ODPEM_LOGISTICS_MANAGER` role but no separate `ODPEM_LOGISTICS_OFFICER` role code. The harness therefore assigns the canonical `LOGISTICS_OFFICER` role to a user whose primary tenant membership is the ODPEM/HQ national tenant.
+- Keep `ODPEM_TENANT_ID` aligned with the same ODPEM tenant that request-level fulfillment routing uses locally. The seed command now defaults the national harness personas from that setting so queue visibility and notifications stay in the same tenant lane.
 - If you need a parish-to-subordinate scenario, seed an additional subordinate tenant and append its usernames to `LOCAL_AUTH_HARNESS_USERNAMES`.
 
 ## Exact Local Setup
@@ -89,13 +90,14 @@ DMIS_RUNTIME_ENV=local-harness
 DEV_AUTH_ENABLED=1
 TEST_DEV_AUTH_ENABLED=1
 LOCAL_AUTH_HARNESS_ENABLED=1
+ODPEM_TENANT_ID=1
 DEV_AUTH_USER_ID=local_system_admin_tst
 LOCAL_AUTH_HARNESS_USERNAMES=local_system_admin_tst,local_odpem_deputy_director_tst,local_odpem_logistics_manager_tst,local_odpem_logistics_officer_tst,relief_jrc_requester_tst
 DEV_AUTH_ROLES=SYSTEM_ADMINISTRATOR
 TENANT_SCOPE_ENFORCEMENT=1
 ```
 
-If you seed a different tenant than `JRC`, update `LOCAL_AUTH_HARNESS_USERNAMES` to match the usernames printed by the user-seed command.
+If you seed a different tenant than `JRC`, update `LOCAL_AUTH_HARNESS_USERNAMES` to match the usernames printed by the user-seed command. If your local ODPEM fulfillment tenant is not HQ, set `ODPEM_TENANT_ID` before reseeding so the harness users land in the same tenant that fulfillment routing uses.
 
 If you intentionally want the documented local-only degraded cache mode, unset `REDIS_URL` before starting the harness. That mode is allowed only for `local-harness`; it is not a production-like fallback.
 
