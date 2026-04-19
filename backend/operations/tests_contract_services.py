@@ -2487,6 +2487,518 @@ class OperationsWorkflowContractTests(TestCase):
             ).exists()
         )
 
+    @patch("operations.contract_services._apply_package_header_updates")
+    @patch("operations.contract_services._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._upsert_package_rows")
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.Item.objects.filter")
+    @patch(
+        "operations.contract_services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "5.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    @patch("operations.contract_services._current_package_status", return_value="A")
+    @patch("operations.contract_services._ensure_package")
+    @patch("operations.contract_services._load_request")
+    @patch("operations.contract_services._execution_link_for_request", return_value=None)
+    def test_save_package_flags_override_when_better_ranked_warehouse_is_omitted(
+        self,
+        _execution_link_mock,
+        load_request_mock,
+        ensure_package_mock,
+        _current_status_mock,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        get_warehouses_with_stock_mock,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        ensure_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        item_filter_mock.return_value = [SimpleNamespace(item_id=101, issuance_order="FIFO")]
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 3.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 3.0},
+                ]
+            },
+            [],
+        )
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 20),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                }
+            ],
+            9: [
+                {
+                    "batch_id": 9001,
+                    "inventory_id": 9,
+                    "item_id": 101,
+                    "batch_no": "B-9001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 9",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        result = contract_services._save_package_allocation(
+            70,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 9,
+                        "batch_id": 9001,
+                        "quantity": "2.0000",
+                    }
+                ],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Need to allocate from the downstream warehouse first.",
+            },
+            actor_id="officer-1",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=None,
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(result["status"], "PENDING_OVERRIDE_APPROVAL")
+        self.assertTrue(result["override_required"])
+        self.assertEqual(result["override_markers"], ["allocation_order_override"])
+        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
+        stock_delta_mock.assert_not_called()
+        self.assertEqual(
+            header_updates_mock.call_args.kwargs["status_code"],
+            contract_services.PKG_STATUS_DRAFT,
+        )
+        self.assertEqual(
+            sorted({call.args[0] for call in fetch_candidates_mock.call_args_list}),
+            [1, 9],
+        )
+
+    @patch("operations.contract_services._apply_package_header_updates")
+    @patch("operations.contract_services._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._upsert_package_rows")
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.Item.objects.filter")
+    @patch(
+        "operations.contract_services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "5.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    @patch("operations.contract_services._current_package_status", return_value="A")
+    @patch("operations.contract_services._ensure_package")
+    @patch("operations.contract_services._load_request")
+    @patch("operations.contract_services._execution_link_for_request", return_value=None)
+    def test_save_package_allows_ranked_continuation_without_override(
+        self,
+        _execution_link_mock,
+        load_request_mock,
+        ensure_package_mock,
+        _current_status_mock,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        get_warehouses_with_stock_mock,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        ensure_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        item_filter_mock.return_value = [SimpleNamespace(item_id=101, issuance_order="FIFO")]
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 2.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 4.0},
+                ]
+            },
+            [],
+        )
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 20),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("2.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("2.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                }
+            ],
+            9: [
+                {
+                    "batch_id": 9001,
+                    "inventory_id": 9,
+                    "item_id": 101,
+                    "batch_no": "B-9001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 9",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        result = contract_services._save_package_allocation(
+            70,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "2.0000",
+                        "uom_code": "EA",
+                    },
+                    {
+                        "item_id": 101,
+                        "inventory_id": 9,
+                        "batch_id": 9001,
+                        "quantity": "2.0000",
+                        "uom_code": "EA",
+                    },
+                ]
+            },
+            actor_id="officer-1",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=None,
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(result["status"], "COMMITTED")
+        self.assertFalse(result["override_required"])
+        self.assertEqual(result["override_markers"], [])
+        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "RR:70")
+        stock_delta_mock.assert_called_once()
+        self.assertEqual(
+            header_updates_mock.call_args.kwargs["status_code"],
+            contract_services.PKG_STATUS_PENDING,
+        )
+        self.assertEqual(
+            sorted({call.args[0] for call in fetch_candidates_mock.call_args_list}),
+            [1, 9],
+        )
+
+    @patch("operations.contract_services._apply_package_header_updates")
+    @patch("operations.contract_services._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._upsert_package_rows")
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.Item.objects.filter")
+    @patch(
+        "operations.contract_services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "5.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    @patch("operations.contract_services._current_package_status", return_value="A")
+    @patch("operations.contract_services._ensure_package")
+    @patch("operations.contract_services._load_request")
+    @patch("operations.contract_services._execution_link_for_request", return_value=None)
+    def test_save_package_allows_intentional_partial_commit_without_override(
+        self,
+        _execution_link_mock,
+        load_request_mock,
+        ensure_package_mock,
+        _current_status_mock,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        get_warehouses_with_stock_mock,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        ensure_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        item_filter_mock.return_value = [SimpleNamespace(item_id=101, issuance_order="FIFO")]
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 2.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 4.0},
+                ]
+            },
+            [],
+        )
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 20),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("2.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("2.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                }
+            ],
+            9: [
+                {
+                    "batch_id": 9001,
+                    "inventory_id": 9,
+                    "item_id": 101,
+                    "batch_no": "B-9001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 9",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        result = contract_services._save_package_allocation(
+            70,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "2.0000",
+                        "uom_code": "EA",
+                    }
+                ]
+            },
+            actor_id="officer-1",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=None,
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(result["status"], "COMMITTED")
+        self.assertFalse(result["override_required"])
+        self.assertEqual(result["override_markers"], [])
+        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "RR:70")
+        stock_delta_mock.assert_called_once()
+        self.assertEqual(
+            header_updates_mock.call_args.kwargs["status_code"],
+            contract_services.PKG_STATUS_PENDING,
+        )
+        self.assertEqual(
+            sorted({call.args[0] for call in fetch_candidates_mock.call_args_list}),
+            [1, 9],
+        )
+
+    @patch("operations.contract_services.compat_commit_allocation")
+    @patch("operations.contract_services._current_package_for_request")
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.Item.objects.filter")
+    @patch(
+        "operations.contract_services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "5.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    @patch("operations.contract_services._load_request")
+    @patch("operations.contract_services._execution_link_for_request")
+    def test_execution_linked_save_package_passes_ranked_override_markers_to_compat_commit(
+        self,
+        execution_link_mock,
+        load_request_mock,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        get_warehouses_with_stock_mock,
+        current_package_mock,
+        compat_commit_mock,
+    ) -> None:
+        execution_link_mock.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            override_requested_by="planner-1",
+            needs_list=SimpleNamespace(
+                warehouse_id=9,
+                event_id=12,
+                submitted_by="planner-1",
+            ),
+        )
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="A",
+        )
+        compat_commit_mock.return_value = {"status": "PENDING_OVERRIDE_APPROVAL"}
+        item_filter_mock.return_value = [SimpleNamespace(item_id=101, issuance_order="FIFO")]
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 3.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 3.0},
+                ]
+            },
+            [],
+        )
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 20),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                }
+            ],
+            9: [
+                {
+                    "batch_id": 9001,
+                    "inventory_id": 9,
+                    "item_id": 101,
+                    "batch_no": "B-9001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 9",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        contract_services._save_package_allocation(
+            70,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 9,
+                        "batch_id": 9001,
+                        "quantity": "2.0000",
+                        "uom_code": "EA",
+                    }
+                ],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Need to allocate from the downstream warehouse first.",
+            },
+            actor_id="officer-1",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=None,
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(
+            compat_commit_mock.call_args.kwargs["override_markers"],
+            ["allocation_order_override"],
+        )
+        self.assertFalse(compat_commit_mock.call_args.kwargs["manager_direct_commit"])
+
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -4990,6 +5502,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={"source_warehouse_id": 3},
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
         )
         package_record = OperationsPackage.objects.get(package_id=90)
         self.assertEqual(package_record.status_code, "DRAFT")
@@ -8925,6 +9438,129 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(groups_by_item[202]["recommended_warehouse_id"], 7)
         self.assertEqual(groups_by_item[202]["selected_warehouse_ids"], [7])
         self.assertEqual(groups_by_item[202]["source_warehouse_id"], 7)
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch("operations.services._load_request")
+    @patch(
+        "operations.services._request_summary",
+        return_value={"reliefrqst_id": 80, "compatibility_bridge": True, "needs_list_id": 11},
+    )
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "4.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    @patch("operations.services._execution_link_for_request")
+    def test_execution_linked_package_options_return_ranked_item_contract(
+        self,
+        execution_link_mock,
+        _request_rows_mock,
+        _request_summary_mock,
+        load_request_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        execution_link_mock.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=80,
+            reliefpkg_id=90,
+            execution_status="PREPARING",
+            needs_list=SimpleNamespace(warehouse_id=3),
+        )
+        load_request_mock.return_value = self.request_stub
+        item_queryset = Mock()
+        item_queryset.first.return_value = SimpleNamespace(
+            item_id=101,
+            item_code="TARP001",
+            item_name="Tarpaulin",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 3, "warehouse_name": "Warehouse 3", "available_qty": 4.0},
+                    {"warehouse_id": 5, "warehouse_name": "Warehouse 5", "available_qty": 6.0},
+                ]
+            },
+            [],
+        )
+        warehouse_candidates = {
+            3: [
+                {
+                    "batch_id": 3001,
+                    "inventory_id": 3,
+                    "item_id": 101,
+                    "batch_no": "B-3001",
+                    "batch_date": date(2026, 3, 24),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 3",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+            5: [
+                {
+                    "batch_id": 5001,
+                    "inventory_id": 5,
+                    "item_id": 101,
+                    "batch_no": "B-5001",
+                    "batch_date": date(2026, 3, 20),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 5",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        result = operations_service.get_package_allocation_options(
+            80,
+            source_warehouse_id=3,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertTrue(result["request"]["compatibility_bridge"])
+        item_group = result["items"][0]
+        self.assertEqual(item_group["recommended_warehouse_id"], 5)
+        self.assertEqual(item_group["source_warehouse_id"], 5)
+        self.assertEqual(item_group["selected_warehouse_ids"], [5])
+        self.assertIn("warehouse_cards", item_group)
+        self.assertIn("remaining_shortfall_qty", item_group)
+        self.assertIn("continuation_recommended", item_group)
+        self.assertIn("alternate_warehouses", item_group)
+        self.assertGreater(len(item_group["warehouse_cards"]), 0)
+        self.assertEqual(item_group["warehouse_cards"][0]["warehouse_id"], 5)
+        self.assertEqual(item_group["warehouse_cards"][0]["rank"], 0)
+        self.assertEqual(item_group["warehouse_cards"][0]["ranking_context"]["basis"], "FIFO")
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse", return_value=True)

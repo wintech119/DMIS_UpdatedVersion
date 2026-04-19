@@ -630,7 +630,7 @@ class ReliefRequestServiceTests(TestCase):
         self.assertEqual(result["status"], "COMMITTED")
         self.assertFalse(result["override_required"])
         self.assertEqual(result["override_markers"], ["allocation_order_override"])
-        validate_override_mock.assert_not_called()
+        validate_override_mock.assert_called_once()
         upsert_rows_mock.assert_called_once()
         self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
         stock_delta_mock.assert_called_once()
@@ -666,7 +666,7 @@ class ReliefRequestServiceTests(TestCase):
     @patch("operations.services._ensure_package")
     @patch("operations.services._load_request")
     @patch("operations.services._execution_link_for_request", return_value=None)
-    def test_save_package_commits_order_override_with_reason_code_only(
+    def test_save_package_requires_note_for_order_override_submission(
         self,
         _execution_link_mock,
         load_request_mock,
@@ -691,31 +691,30 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        result = operations_service._save_package_allocation(
-            88,
-            payload={
-                "allocations": [
-                    {
-                        "item_id": 101,
-                        "inventory_id": 1,
-                        "batch_id": 1001,
-                        "quantity": "2",
-                    }
-                ],
-                "override_reason_code": "FEFO_BYPASS",
-            },
-            actor_id="manager-1",
-            allow_pending_override=True,
-        )
+        with self.assertRaises(operations_service.OverrideApprovalError) as raised:
+            operations_service._save_package_allocation(
+                88,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 101,
+                            "inventory_id": 1,
+                            "batch_id": 1001,
+                            "quantity": "2",
+                        }
+                    ],
+                    "override_reason_code": "FEFO_BYPASS",
+                },
+                actor_id="manager-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                allow_pending_override=True,
+            )
 
-        self.assertEqual(result["status"], "COMMITTED")
-        self.assertFalse(result["override_required"])
-        self.assertEqual(result["override_markers"], ["allocation_order_override"])
+        self.assertEqual(raised.exception.code, "override_details_missing")
         validate_override_mock.assert_not_called()
-        upsert_rows_mock.assert_called_once()
-        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
-        stock_delta_mock.assert_called_once()
-        self.assertEqual(header_updates_mock.call_args.kwargs["status_code"], operations_service.PKG_STATUS_PENDING)
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        header_updates_mock.assert_not_called()
 
     @patch("operations.services._apply_package_header_updates")
     @patch("operations.services._apply_stock_delta_for_rows")

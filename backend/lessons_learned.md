@@ -158,3 +158,27 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches allocation discovery, continuation, or draft warehouse rehydration, mention this lesson in the closeout and confirm the ranked-warehouse regression tests were run.
+
+## Allocation Enforcement Must Reuse The Ranked Item Contract
+
+### Symptom
+- Save-time FEFO/FIFO enforcement could be bypassed by submitting only a caller-chosen warehouse subset, and execution-linked package options could still return the old compat bootstrap shape instead of the ranked item contract.
+
+### Root Cause
+- The backend had already frozen `warehouse_cards` as the canonical per-item ranking contract, but commit-time validation still derived its comparison set from selected/default warehouses and the execution-link package options branch still short-circuited into the needs-list compat payload.
+
+### Invariant
+- The backend must evaluate allocation compliance against the full per-item ranked warehouse universe, not only the warehouses the caller selected.
+
+### Correct Architectural Rule
+- Save-time override detection and approval-required logic must reuse the same FEFO/FIFO-ranked item universe that powers item allocation discovery, so omitting a better-ranked warehouse cannot bypass `allocation_order_override`.
+- Execution-linked package options may enrich the ranked response with compatibility metadata, but they must not downgrade item groups back to the old compat-only allocation shape.
+
+### Regression Tests That Must Exist
+- Submitting only a lower-ranked warehouse while a better-ranked warehouse still has stock triggers `allocation_order_override`.
+- Ranked multi-warehouse continuation remains compliant.
+- Intentional partial fulfillment remains compliant when the submitted rows follow rank order and simply stop early.
+- Execution-linked package options expose `warehouse_cards`, recommendation metadata, shortfall, and continuation fields just like non-execution-linked requests.
+
+### Closeout Expectation
+- If a change touches allocation enforcement or execution-linked package allocation options, mention this lesson in the closeout and confirm the ranked-allocation enforcement regressions were run.

@@ -170,7 +170,6 @@ from replenishment.services.allocation_dispatch import (
     build_greedy_allocation_plan,
     commit_allocation as compat_commit_allocation,
     dispatch_package as compat_dispatch_package,
-    get_allocation_options as compat_get_allocation_options,
     get_current_allocation as compat_get_current_allocation,
     sort_batch_candidates,
     validate_override_approval,
@@ -3462,7 +3461,13 @@ def _draft_allocations_by_key(
     return allocation_map
 
 
-_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset({"item_not_in_request", "insufficient_on_hand_stock"})
+_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset(
+    {
+        "allocation_order_override",
+        "item_not_in_request",
+        "insufficient_on_hand_stock",
+    }
+)
 
 
 def _approval_required_override_markers(markers: Sequence[str]) -> list[str]:
@@ -3548,6 +3553,103 @@ def _warehouse_card_ranking_context(
     }
 
 
+def _warehouse_card_plan_candidates(
+    *,
+    item_id: int,
+    warehouse_cards: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for warehouse_card in warehouse_cards:
+        warehouse_id = int(warehouse_card["warehouse_id"])
+        for batch in warehouse_card.get("batches") or ():
+            candidates.append(
+                {
+                    "item_id": int(item_id),
+                    "inventory_id": int(batch["inventory_id"]),
+                    "batch_id": int(batch["batch_id"]),
+                    "batch_no": batch.get("batch_no"),
+                    "available_qty": _quantize_qty(batch.get("available_qty")),
+                    "usable_qty": _quantize_qty(batch.get("usable_qty")),
+                    "reserved_qty": _quantize_qty(batch.get("reserved_qty")),
+                    "uom_code": batch.get("uom_code"),
+                    "source_type": batch.get("source_type") or "ON_HAND",
+                    "source_record_id": batch.get("source_record_id"),
+                    "warehouse_id": warehouse_id,
+                }
+            )
+    return candidates
+
+
+def _item_ranked_plan_candidates(
+    *,
+    item_id: int,
+    item: Item | Mapping[str, Any] | None,
+    selected_rows: Sequence[Mapping[str, Any]],
+    tenant_context: TenantContext | None,
+    as_of_date: date,
+) -> list[dict[str, Any]]:
+    warehouse_cards = build_item_warehouse_cards(
+        item_id=item_id,
+        remaining_qty=Decimal("0"),
+        item=item,
+        tenant_context=tenant_context,
+        as_of_date=as_of_date,
+        additional_warehouse_ids=_unique_positive_ints(
+            row["inventory_id"] for row in selected_rows
+        ),
+    )
+    return _warehouse_card_plan_candidates(
+        item_id=item_id,
+        warehouse_cards=warehouse_cards,
+    )
+
+
+def _allocation_override_markers_for_plan(
+    *,
+    reliefrqst_id: int,
+    plan_rows: Sequence[Mapping[str, Any]],
+    tenant_context: TenantContext | None,
+    as_of_date: date | None = None,
+) -> list[str]:
+    request_item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    request_item_ids = {
+        int(row["item_id"])
+        for row in request_item_rows
+        if row.get("item_id") not in (None, "")
+    }
+    selected_item_ids = {
+        int(row["item_id"])
+        for row in plan_rows
+        if row.get("item_id") not in (None, "")
+    }
+    item_lookup = {
+        int(item.item_id): item
+        for item in Item.objects.filter(item_id__in=selected_item_ids)
+    }
+    evaluation_date = as_of_date or timezone.localdate()
+    override_markers: list[str] = []
+    for item_id, rows in _package_plan_map(plan_rows).items():
+        if item_id not in request_item_ids:
+            override_markers.append("item_not_in_request")
+            continue
+        ranked_candidates = _item_ranked_plan_candidates(
+            item_id=item_id,
+            item=item_lookup.get(item_id),
+            selected_rows=rows,
+            tenant_context=tenant_context,
+            as_of_date=evaluation_date,
+        )
+        recommended, remaining = build_greedy_allocation_plan(
+            ranked_candidates,
+            sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0")),
+        )
+        if remaining > 0:
+            override_markers.append("insufficient_on_hand_stock")
+        if _group_plan_rows(recommended) != rows:
+            override_markers.append("allocation_order_override")
+    return list(dict.fromkeys(override_markers))
+
+
 def build_item_warehouse_cards(
     *,
     item_id: int,
@@ -3578,7 +3680,15 @@ def build_item_warehouse_cards(
 
     # Pull every warehouse that has any stock for the item (exclude_warehouse_id=0
     # means no warehouse is excluded — 0 is never a valid warehouse id).
-    warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], 0)
+    stock_response = data_access.get_warehouses_with_stock([item_id], 0)
+    if (
+        isinstance(stock_response, tuple)
+        and len(stock_response) == 2
+        and isinstance(stock_response[0], Mapping)
+    ):
+        warehouse_rows = stock_response[0]
+    else:
+        warehouse_rows = {}
     warehouse_entries = list(warehouse_rows.get(item_id, []))
     known_warehouse_ids = {
         int(row["warehouse_id"])
@@ -3943,6 +4053,7 @@ def _save_package_allocation(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext | None = None,
     allow_pending_override: bool,
     supervisor_user_id: str | None = None,
     supervisor_role_codes: Iterable[str] | None = None,
@@ -3957,8 +4068,31 @@ def _save_package_allocation(
         return _package_detail(_ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload))
 
     allocations = _normalized_allocations(payload)
+    plan_rows = _group_plan_rows(allocations)
     requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
     if execution_link is not None:
+        override_markers = _allocation_override_markers_for_plan(
+            reliefrqst_id=reliefrqst_id,
+            plan_rows=plan_rows,
+            tenant_context=tenant_context,
+        )
+        approval_markers = _approval_required_override_markers(override_markers)
+        normalized_actor_roles = set(normalize_role_codes(actor_roles))
+        manager_direct_commit = (
+            bool(approval_markers)
+            and allow_pending_override
+            and ROLE_LOGISTICS_MANAGER in normalized_actor_roles
+        )
+        if approval_markers and allow_pending_override and ROLE_LOGISTICS_OFFICER not in normalized_actor_roles:
+            if not manager_direct_commit:
+                raise OperationValidationError(
+                    {
+                        "override": (
+                            "Only Logistics Officers may submit override requests. "
+                            "Logistics Managers may commit their own overrides directly."
+                        )
+                    }
+                )
         existing_package = _current_package_for_request(reliefrqst_id)
         return compat_commit_allocation(
             LegacyWorkflowContext(
@@ -3990,7 +4124,9 @@ def _save_package_allocation(
             actor_user_id=actor_id,
             override_reason_code=str(payload.get("override_reason_code") or "").strip() or None,
             override_note=str(payload.get("override_note") or "").strip() or None,
-            allow_pending_override=True,
+            allow_pending_override=allow_pending_override,
+            override_markers=override_markers,
+            manager_direct_commit=manager_direct_commit,
         )
 
     package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
@@ -4003,28 +4139,11 @@ def _save_package_allocation(
     old_rows = _selected_plan_for_package(int(package.reliefpkg_id)) if current_status in {"P", "C", "V"} else []
     if old_rows:
         _apply_stock_delta_for_rows(old_rows, actor_user_id=actor_id, delta_sign=-1, update_needs_list=False)
-    plan_rows = _group_plan_rows(allocations)
-
-    request_item_rows = _request_item_rows_for_allocation(reliefrqst_id)
-    warehouse_ids = _resolve_candidate_warehouse_ids(reliefrqst_id, payload=payload, selected_rows=plan_rows)
-    item_lookup = {item.item_id: item for item in Item.objects.filter(item_id__in=[row["item_id"] for row in request_item_rows])}
-    override_markers: list[str] = []
-    for item_id, rows in _package_plan_map(plan_rows).items():
-        if item_id not in item_lookup:
-            override_markers.append("item_not_in_request")
-            continue
-        candidates: list[dict[str, Any]] = []
-        for warehouse_id in warehouse_ids:
-            candidates.extend(_fetch_batch_candidates(warehouse_id, item_id))
-        recommended, remaining = build_greedy_allocation_plan(
-            sort_batch_candidates(item_lookup.get(item_id) or {"issuance_order": "FIFO"}, candidates),
-            sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0")),
-        )
-        if remaining > 0:
-            override_markers.append("insufficient_on_hand_stock")
-        if _group_plan_rows(recommended) != rows:
-            override_markers.append("allocation_order_override")
-    override_markers = list(dict.fromkeys(override_markers))
+    override_markers = _allocation_override_markers_for_plan(
+        reliefrqst_id=reliefrqst_id,
+        plan_rows=plan_rows,
+        tenant_context=tenant_context,
+    )
     approval_markers = _approval_required_override_markers(override_markers)
     normalized_actor_roles = set(normalize_role_codes(actor_roles))
     manager_direct_commit = (
@@ -4032,7 +4151,7 @@ def _save_package_allocation(
         and allow_pending_override
         and ROLE_LOGISTICS_MANAGER in normalized_actor_roles
     )
-    override_required = bool(approval_markers) and not manager_direct_commit
+    override_required = bool(approval_markers) and allow_pending_override and not manager_direct_commit
     override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
     override_note = str(payload.get("override_note") or "").strip() or None
     if approval_markers and not override_reason_code:
@@ -4399,13 +4518,6 @@ def _legacy_get_package_allocation_options(
     source_warehouse_id: int | None = None,
     tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
-    execution_link = _execution_link_for_request(reliefrqst_id)
-    if execution_link is not None:
-        return _reshape_compat_options(
-            compat_get_allocation_options(int(execution_link.needs_list_id)),
-            reliefrqst_id,
-        )
-
     item_rows = _request_item_rows_for_allocation(reliefrqst_id)
     draft_allocations_by_item = _draft_allocations_by_item(reliefrqst_id)
     results: list[dict[str, Any]] = []
@@ -4474,12 +4586,14 @@ def _legacy_save_package(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
     return _save_package_allocation(
         reliefrqst_id,
         payload=payload,
         actor_id=actor_id,
         actor_roles=actor_roles,
+        tenant_context=tenant_context,
         allow_pending_override=True,
     )
 
@@ -5770,6 +5884,7 @@ def save_package(
         payload=legacy_payload,
         actor_id=actor_id,
         actor_roles=actor_roles,
+        tenant_context=tenant_context,
     )
     # Re-sync request after legacy save to keep the operations status at
     # APPROVED_FOR_FULFILLMENT (the legacy save sets status_code=2 which

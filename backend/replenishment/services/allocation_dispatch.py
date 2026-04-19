@@ -1591,6 +1591,8 @@ def commit_allocation(
     supervisor_user_id: str | None = None,
     supervisor_role_codes: Iterable[str] | None = None,
     allow_pending_override: bool = True,
+    override_markers: Sequence[str] | None = None,
+    manager_direct_commit: bool = False,
 ) -> dict[str, Any]:
     ctx = _normalize_context(context)
     needs_list = _load_needs_list(ctx.needs_list_id)
@@ -1643,26 +1645,35 @@ def commit_allocation(
             f"Allocation contains item(s) not present in the needs list: {', '.join(str(item_id) for item_id in missing_item_ids)}.",
             code="allocation_item_not_in_needs",
         )
-    candidate_by_item: dict[int, list[dict[str, Any]]] = {}
-    for item_id in needs_items:
-        item = Item.objects.filter(item_id=item_id).first() or {"issuance_order": "FIFO"}
-        candidate_by_item[item_id] = sort_batch_candidates(
-            item,
-            _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
-        )
+    if override_markers is None:
+        candidate_by_item: dict[int, list[dict[str, Any]]] = {}
+        for item_id in needs_items:
+            item = Item.objects.filter(item_id=item_id).first() or {"issuance_order": "FIFO"}
+            candidate_by_item[item_id] = sort_batch_candidates(
+                item,
+                _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
+            )
 
-    override_markers: list[str] = []
-    for item_id, rows in _package_plan_map(selected_rows).items():
-        candidates = candidate_by_item.get(item_id, [])
-        target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
-        recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)
-        if remaining > 0:
-            override_markers.append("insufficient_on_hand_stock")
-        if _group_plan_rows(recommended) != rows:
-            override_markers.append("allocation_order_override")
-    override_markers = list(dict.fromkeys(override_markers))
+        resolved_override_markers: list[str] = []
+        for item_id, rows in _package_plan_map(selected_rows).items():
+            candidates = candidate_by_item.get(item_id, [])
+            target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
+            recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)
+            if remaining > 0:
+                resolved_override_markers.append("insufficient_on_hand_stock")
+            if _group_plan_rows(recommended) != rows:
+                resolved_override_markers.append("allocation_order_override")
+        override_markers = resolved_override_markers
+    override_markers = list(
+        dict.fromkeys(
+            str(marker).strip()
+            for marker in override_markers
+            if str(marker).strip()
+        )
+    )
     approval_markers = _approval_required_override_markers(override_markers)
-    override_required = bool(approval_markers)
+    manager_direct_commit = bool(approval_markers) and allow_pending_override and manager_direct_commit
+    override_required = bool(approval_markers) and allow_pending_override and not manager_direct_commit
 
     if override_markers:
         if not override_reason_code:
@@ -1670,12 +1681,13 @@ def commit_allocation(
                 "Override reason code is required for non-compliant allocations.",
                 code="override_details_missing",
             )
-    if override_required:
+    if approval_markers:
         if not override_note:
             raise OverrideApprovalError(
                 "Override note is required for allocations awaiting approval.",
                 code="override_details_missing",
             )
+    if override_required:
         if not allow_pending_override:
             validate_override_approval(
                 approver_user_id=supervisor_user_id,
@@ -1716,7 +1728,7 @@ def commit_allocation(
         )
         package_status = "P"
         audit_action = (
-            "ALLOCATION_OVERRIDE_APPROVED" if override_required else "ALLOCATION_COMMITTED"
+            "ALLOCATION_OVERRIDE_APPROVED" if approval_markers else "ALLOCATION_COMMITTED"
         )
     else:
         package_status = "A"
