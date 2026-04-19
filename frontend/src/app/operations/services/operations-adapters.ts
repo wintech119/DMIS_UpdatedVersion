@@ -6,6 +6,7 @@ import {
   AllocationOptionsResponse,
   AllocationSummary,
   AlternateWarehouseOption,
+  RankingContext,
   ConsolidationLeg,
   ConsolidationLegDispatchResponse,
   ConsolidationLegItem,
@@ -512,15 +513,41 @@ export function normalizeWarehouseAllocationBatch(raw: unknown): WarehouseAlloca
   };
 }
 
+function normalizeRankingContext(raw: unknown): RankingContext | null {
+  if (raw == null) {
+    return null;
+  }
+  const source = asRecord(raw);
+  if (!Object.keys(source).length) {
+    return null;
+  }
+  return {
+    basis: asString(source['basis'], '').toUpperCase(),
+    top_batch_id: asNullableNumber(source['top_batch_id']),
+    top_batch_no: asNullableString(source['top_batch_no']),
+    top_batch_date: asNullableString(source['top_batch_date']),
+    top_expiry_date: asNullableString(source['top_expiry_date']),
+  };
+}
+
 export function normalizeWarehouseAllocationCard(raw: unknown): WarehouseAllocationCard {
   const source = asRecord(raw);
+  const rank = asNumber(source['rank']);
+  const recommendedRaw = source['recommended'];
+  const recommended =
+    recommendedRaw == null ? rank === 0 : asBoolean(recommendedRaw);
+  const allocatableRaw = source['allocatable_available_qty'];
   return {
     warehouse_id: asNumber(source['warehouse_id']),
     warehouse_name: asString(source['warehouse_name'], ''),
-    rank: asNumber(source['rank']),
+    rank,
+    recommended,
     issuance_order: asString(source['issuance_order'], 'FIFO').toUpperCase(),
     total_available: asString(source['total_available'], '0'),
+    allocatable_available_qty:
+      allocatableRaw == null ? undefined : asString(allocatableRaw, '0'),
     suggested_qty: asString(source['suggested_qty'], '0'),
+    ranking_context: normalizeRankingContext(source['ranking_context']),
     batches: asArray(source['batches']).map(normalizeWarehouseAllocationBatch),
   };
 }

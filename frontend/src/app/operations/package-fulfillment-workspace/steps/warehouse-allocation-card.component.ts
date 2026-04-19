@@ -2,10 +2,13 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
+  effect,
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -24,9 +27,8 @@ import { WarehouseAllocationCard } from '../../models/operations.model';
  * inputs directly. The only outputs are a numeric `qtyChange` and a
  * `removeCard` request keyed by `warehouse_id`.
  *
- * Design reference: generation.tsx Section 4c (Multi-Warehouse Allocation
- * Pattern) and Section 4d, rendered with the warm Notion palette tokens used
- * by sibling step components.
+ * Design reference: FR05.06 Item Allocation Redesign (plan
+ * `frontend-thread-implement-fr05-06-structured-bentley.md`).
  */
 type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
 
@@ -46,12 +48,27 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       class="wh-card"
       role="group"
       [attr.aria-label]="ariaLabel()"
-      [attr.data-fill-status]="fillStatus()">
+      [attr.aria-busy]="isPending() ? 'true' : null"
+      [attr.data-fill-status]="fillStatus()"
+      [attr.data-pending]="isPending() ? 'true' : null">
+      @if (isPending()) {
+        <span
+          class="wh-card__pending-badge"
+          role="status"
+          aria-live="polite">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          Loading stock detail…
+        </span>
+      }
       <!-- ── Header strip ───────────────────────────────────────── -->
       <header class="wh-card__header">
         <mat-icon class="wh-card__icon" aria-hidden="true">warehouse</mat-icon>
         <div class="wh-card__title-group">
           <span class="wh-card__name">{{ warehouse().warehouse_name }}</span>
+          <span class="wh-card__reason" role="note">
+            <mat-icon aria-hidden="true">info</mat-icon>
+            <span class="wh-card__reason-text">{{ reasonLine() }}</span>
+          </span>
           <span class="wh-card__rank-row">
             <span
               class="wh-card__rank"
@@ -123,9 +140,13 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         <div
           class="wh-metric wh-metric--status"
           role="listitem"
-          [attr.data-fill-status]="fillStatus()">
+          [attr.data-fill-status]="fillStatus()"
+          [attr.data-non-compliant]="isOverrideRiskActive() ? 'true' : null">
           <span class="wh-metric__label">Status</span>
-          <span class="wh-metric__status-pill" [attr.data-fill-status]="fillStatus()">
+          <span
+            class="wh-metric__status-pill"
+            [attr.data-fill-status]="fillStatus()"
+            [attr.data-non-compliant]="isOverrideRiskActive() ? 'true' : null">
             <mat-icon aria-hidden="true">{{ statusIcon() }}</mat-icon>
             {{ statusLabel() }}
           </span>
@@ -137,21 +158,53 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         <mat-form-field appearance="outline" class="wh-card__qty-field">
           <mat-label>Qty from {{ warehouse().warehouse_name }}</mat-label>
           <input
+            #qtyInput
             matInput
             type="number"
-            inputmode="decimal"
+            inputmode="numeric"
             min="0"
-            [max]="maxQty()"
-            step="0.0001"
+            [attr.max]="maxQty()"
+            step="1"
             maxlength="12"
             [value]="allocatedQty()"
             [disabled]="readOnly()"
-            [attr.aria-describedby]="qtyHintId()"
+            [attr.aria-invalid]="qtyInvalid() ? 'true' : 'false'"
+            [attr.aria-describedby]="describedByIds()"
             (input)="onQtyInput($event)" />
           <mat-hint [id]="qtyHintId()">
-            up to {{ warehouse().total_available }}
+            up to {{ maxQty() }}
           </mat-hint>
+          @if (qtyInvalid()) {
+            <mat-hint
+              [id]="qtyErrorId()"
+              class="wh-card__qty-error"
+              align="end"
+              role="alert"
+              aria-live="polite">
+              {{ qtyErrorMessage() }}
+            </mat-hint>
+          }
         </mat-form-field>
+        <div class="wh-card__qty-actions">
+          <button
+            type="button"
+            mat-stroked-button
+            class="wh-card__qty-btn"
+            [disabled]="readOnly()"
+            [attr.aria-label]="'Use max for ' + warehouse().warehouse_name"
+            (click)="onUseMax()">
+            Use max
+          </button>
+          <button
+            type="button"
+            mat-stroked-button
+            class="wh-card__qty-btn"
+            [disabled]="readOnly()"
+            [attr.aria-label]="'Clear allocation from ' + warehouse().warehouse_name"
+            (click)="onClear()">
+            Clear
+          </button>
+        </div>
       </div>
 
       <!-- ── Batch detail (collapsible) ─────────────────────────── -->
@@ -239,16 +292,56 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-card[data-fill-status='FILLED'] {
-        border-color: color-mix(in srgb, #0f766e 40%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-success, #0f766e) 40%, #eae7dd);
       }
 
       .wh-card[data-fill-status='PARTIAL'] {
-        border-color: color-mix(in srgb, #d97706 32%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-warning, #d97706) 32%, #eae7dd);
       }
 
       .wh-card:focus-within {
         border-color: color-mix(in srgb, var(--color-text-primary, #37352f) 35%, #eae7dd);
         box-shadow: 0 2px 8px rgba(55, 53, 47, 0.1);
+      }
+
+      /* ── Synthetic placeholder (pending preview) ─────────── */
+      .wh-card[data-pending='true'] {
+        border-style: dashed;
+        border-color: color-mix(
+          in srgb,
+          var(--color-text-secondary, #787774) 45%,
+          #eae7dd
+        );
+        background: color-mix(
+          in srgb,
+          var(--color-surface-subtle, #f7f6f3) 70%,
+          #ffffff
+        );
+      }
+
+      .wh-card__pending-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        align-self: flex-start;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        background: color-mix(
+          in srgb,
+          var(--color-text-secondary, #787774) 12%,
+          transparent
+        );
+        color: var(--color-text-secondary, #787774);
+      }
+
+      .wh-card__pending-badge mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -289,6 +382,27 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         white-space: nowrap;
       }
 
+      .wh-card__reason {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: var(--color-bg-info, #eff6ff);
+        color: var(--color-info, #1e3a8a);
+        font-size: 0.78rem;
+      }
+
+      .wh-card__reason mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      .wh-card__reason-text {
+        flex: 1 1 auto;
+      }
+
       .wh-card__rank-row {
         display: flex;
         flex-wrap: wrap;
@@ -317,8 +431,8 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-card__rank[data-primary='true'] {
-        background: color-mix(in srgb, #0f766e 14%, white);
-        color: #0f766e;
+        background: color-mix(in srgb, var(--color-success, #0f766e) 14%, white);
+        color: var(--color-success, #0f766e);
       }
 
       .wh-card__rank[data-rule='FIFO']:not([data-primary='true']) {
@@ -384,7 +498,7 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-metric__value--accent {
-        color: #0f766e;
+        color: var(--color-success, #0f766e);
       }
 
       .wh-metric__value--accent[data-fill-status='EMPTY'] {
@@ -392,35 +506,40 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-metric__value--danger {
-        color: #8c1d13;
+        color: var(--color-danger, #8c1d13);
       }
 
       .wh-metric__value--success {
-        color: #286a36;
+        color: var(--color-success, #286a36);
       }
 
       .wh-metric--critical {
         background: rgba(253, 221, 216, 0.25);
-        border-color: color-mix(in srgb, #8c1d13 22%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-danger, #8c1d13) 22%, #eae7dd);
       }
 
       .wh-metric--success {
         background: rgba(237, 247, 239, 0.5);
-        border-color: color-mix(in srgb, #286a36 22%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-success, #286a36) 22%, #eae7dd);
       }
 
       .wh-metric--status[data-fill-status='FILLED'] {
         background: rgba(237, 247, 239, 0.5);
-        border-color: color-mix(in srgb, #286a36 28%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-success, #286a36) 28%, #eae7dd);
       }
 
       .wh-metric--status[data-fill-status='PARTIAL'] {
         background: rgba(253, 232, 177, 0.3);
-        border-color: color-mix(in srgb, #d97706 30%, #eae7dd);
+        border-color: color-mix(in srgb, var(--color-warning, #d97706) 30%, #eae7dd);
       }
 
       .wh-metric--status[data-fill-status='EMPTY'] {
         background: #f7f6f3;
+      }
+
+      .wh-metric--status[data-non-compliant='true'] {
+        background: rgba(253, 232, 177, 0.45);
+        border-color: color-mix(in srgb, var(--color-warning, #d97706) 45%, #eae7dd);
       }
 
       .wh-metric__status-pill {
@@ -444,13 +563,13 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
       }
 
       .wh-metric__status-pill[data-fill-status='FILLED'] {
-        background: color-mix(in srgb, #286a36 16%, white);
-        color: #286a36;
+        background: color-mix(in srgb, var(--color-success, #286a36) 16%, white);
+        color: var(--color-success, #286a36);
       }
 
       .wh-metric__status-pill[data-fill-status='PARTIAL'] {
-        background: color-mix(in srgb, #d97706 16%, white);
-        color: #6e4200;
+        background: color-mix(in srgb, var(--color-warning, #d97706) 16%, white);
+        color: var(--color-warning, #6e4200);
       }
 
       .wh-metric__status-pill[data-fill-status='EMPTY'] {
@@ -458,13 +577,21 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         color: var(--color-text-secondary, #787774);
       }
 
+      .wh-metric__status-pill[data-non-compliant='true'] {
+        background: color-mix(in srgb, var(--color-warning, #d97706) 22%, white);
+        color: var(--color-warning, #6e4200);
+      }
+
       /* ── Qty input ──────────────────────────────────────── */
       .wh-card__qty {
         display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 8px;
       }
 
       .wh-card__qty-field {
-        width: 100%;
+        flex: 1 1 180px;
         max-width: 260px;
       }
 
@@ -476,6 +603,21 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         outline: 2px solid var(--color-focus-ring, #1565c0);
         outline-offset: 2px;
         border-radius: 4px;
+      }
+
+      .wh-card__qty-error {
+        color: var(--color-danger, #8c1d13);
+      }
+
+      .wh-card__qty-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding-top: 6px;
+      }
+
+      .wh-card__qty-btn {
+        min-height: 40px;
       }
 
       /* ── Batch region ───────────────────────────────────── */
@@ -549,7 +691,7 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         font-size: 14px;
         width: 14px;
         height: 14px;
-        color: #6e4200;
+        color: var(--color-warning, #6e4200);
       }
 
       .wh-batch-row--expiring {
@@ -576,6 +718,10 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
         .wh-metric {
           flex-basis: 100%;
         }
+
+        .wh-card__qty-field ::ng-deep .mat-mdc-text-field-wrapper {
+          min-height: 40px;
+        }
       }
     `,
   ],
@@ -594,20 +740,85 @@ export class WarehouseAllocationCardComponent {
   readonly readOnly = input<boolean>(false);
   /** Aggregate shortfall across the parent's cards (parent-computed). */
   readonly itemShortfallQty = input<string>('0');
+  /**
+   * Numeric remaining qty the item still needs. Used to clamp the qty input so
+   * the operator cannot reserve more than the item requires from any single
+   * card. Parent passes `max(0, request - reserving + allocatedForThisCard)`
+   * so `Use max` works intuitively on the active card.
+   */
+  readonly remainingQtyForItem = input<number>(0);
+  /**
+   * Raised by the parent when this card is at risk of triggering an override
+   * (e.g. skipping a higher-ranked card with remaining stock). Drives warning
+   * tone on the status footer; color is never the sole signal.
+   */
+  readonly isOverrideRisk = input<boolean>(false);
 
   /** Emitted on every valid numeric change from the input. */
   readonly qtyChange = output<number>();
   /** Emitted with the warehouse_id when the remove affordance is clicked. */
   readonly removeCard = output<number>();
 
+  /** Reference to the qty input element — exposed to parents via focusQtyInput(). */
+  private readonly qtyInputRef = viewChild<ElementRef<HTMLInputElement>>('qtyInput');
+
   /** Local UI-only state: whether the batch table is expanded. */
   private readonly expanded = signal(false);
   readonly batchesExpanded = this.expanded.asReadonly();
 
-  /** Maximum quantity the input will accept (clamped to stock on hand here). */
-  readonly maxQty = computed(() => this.parseDecimal(this.warehouse().total_available));
+  /** Local UI-only state: most recent qty validation error, if any. */
+  private readonly lastError = signal<string | null>(null);
+  readonly qtyInvalid = computed(() => this.lastError() !== null);
+  readonly qtyErrorMessage = computed(() => this.lastError() ?? '');
+
+  constructor() {
+    // When the card's warehouse binding changes (e.g. the stack re-orders or a
+    // parent swaps the card out), any prior validation error is no longer
+    // meaningful. Clear it so the operator does not see a stale message on a
+    // fresh card.
+    let lastWarehouseId: number | null = null;
+    effect(() => {
+      const currentId = this.warehouse().warehouse_id;
+      if (lastWarehouseId !== null && lastWarehouseId !== currentId) {
+        this.lastError.set(null);
+      }
+      lastWarehouseId = currentId;
+    });
+  }
+
+  /**
+   * Public API: focus this card's qty input. Used by the parent after adding
+   * a new warehouse so keyboard users land in the correct place. Prefers the
+   * scoped viewChild reference over any global DOM query.
+   */
+  focusQtyInput(): void {
+    this.qtyInputRef()?.nativeElement.focus();
+  }
+
+  /**
+   * Maximum quantity the input will accept. Clamped to the lesser of the
+   * card-level cap (`allocatable_available_qty` when present, else
+   * `total_available`) and the item's remaining qty need.
+   */
+  readonly maxQty = computed(() => {
+    const card = this.warehouse();
+    const cap = this.parseDecimal(
+      card.allocatable_available_qty ?? card.total_available,
+    );
+    const remaining = this.remainingQtyForItem();
+    const safeRemaining = Number.isFinite(remaining) && remaining > 0 ? remaining : cap;
+    return Math.max(0, Math.min(cap, safeRemaining));
+  });
 
   readonly isPrimary = computed(() => this.warehouse().rank === 0);
+
+  /**
+   * True when this card is a client-only synthetic placeholder (user added an
+   * alternate warehouse but the backend preview hasn't returned detail yet).
+   * Used to render a dashed-border "Loading stock detail…" visual cue so
+   * operators don't mistake an in-flight placeholder for a fully-loaded card.
+   */
+  readonly isPending = computed(() => this.warehouse().pending === true);
 
   readonly rankLabel = computed(() => {
     const card = this.warehouse();
@@ -639,7 +850,15 @@ export class WarehouseAllocationCardComponent {
     return 'PARTIAL';
   });
 
+  /** Active only when the card sits empty while override risk is present. */
+  readonly isOverrideRiskActive = computed(
+    () => this.isOverrideRisk() && (this.allocatedQty() ?? 0) === 0,
+  );
+
   readonly statusLabel = computed<string>(() => {
+    if (this.isOverrideRiskActive()) {
+      return 'Override risk';
+    }
     switch (this.fillStatus()) {
       case 'FILLED':
         return 'Filled';
@@ -651,6 +870,9 @@ export class WarehouseAllocationCardComponent {
   });
 
   readonly statusIcon = computed<string>(() => {
+    if (this.isOverrideRiskActive()) {
+      return 'warning';
+    }
     switch (this.fillStatus()) {
       case 'FILLED':
         return 'check_circle';
@@ -661,38 +883,114 @@ export class WarehouseAllocationCardComponent {
     }
   });
 
+  /**
+   * Derived rationale for this card's rank. Never speculative and always a
+   * non-empty string — falls back to the rank-only copy when the backend omits
+   * `ranking_context`, and appends a source-type annotation when any batch is
+   * non-ON_HAND. Typed as a guaranteed string so the template does not need a
+   * truthiness guard.
+   */
+  readonly reasonLine = computed<string>(() => {
+    const card = this.warehouse();
+    const rank = card.rank ?? 0;
+    const issuance = String(card.issuance_order ?? '').toUpperCase();
+    const ctx = card.ranking_context ?? null;
+    const shortfall = this.parseDecimal(this.itemShortfallQty());
+    const suggested = this.parseDecimal(card.suggested_qty);
+    let base: string;
+
+    if (rank === 0) {
+      if (issuance === 'FEFO' && ctx?.top_expiry_date) {
+        const formatted = this.formatDate(ctx.top_expiry_date);
+        base = `Ranked first — earliest expiring batch ${formatted} (FEFO)`;
+      } else if (issuance === 'FIFO' && ctx?.top_batch_date) {
+        const formatted = this.formatDate(ctx.top_batch_date);
+        base = `Ranked first — oldest stock, received ${formatted} (FIFO)`;
+      } else {
+        base = `Primary source — ranked first (${issuance || 'FIFO'})`;
+      }
+    } else if (shortfall > 0) {
+      base = `Ranked ${rank + 1} — holds ${this.formatNumber(suggested)} to cover the remaining ${this.formatNumber(shortfall)}`;
+    } else {
+      base = `Ranked ${rank + 1} — additional available stock (${issuance || 'FIFO'})`;
+    }
+
+    const sourceSuffix = this.nonOnHandSource(card);
+    return sourceSuffix ? `${base} · includes ${sourceSuffix} source` : base;
+  });
+
   readonly ariaLabel = computed(() => {
     const card = this.warehouse();
     const allocated = this.allocatedQty() ?? 0;
-    return (
+    const base = (
       `${card.warehouse_name} — allocating ${allocated} of ${card.total_available} ` +
       `(${card.issuance_order} rank ${card.rank + 1})`
     );
+    // reasonLine is a non-empty string by contract; append unconditionally.
+    return `${base}. ${this.reasonLine()}`;
   });
 
   readonly qtyHintId = computed(() => `wh-qty-hint-${this.warehouse().warehouse_id}`);
+  readonly qtyErrorId = computed(() => `wh-qty-error-${this.warehouse().warehouse_id}`);
+  readonly describedByIds = computed(() =>
+    [this.qtyHintId(), this.qtyInvalid() ? this.qtyErrorId() : null]
+      .filter((v): v is string => !!v)
+      .join(' '),
+  );
   readonly batchTableId = computed(
     () => `wh-batch-table-${this.warehouse().warehouse_id}`,
   );
 
-  /** Clamps the user-entered value to [0, maxQty] and emits a numeric value. */
+  /**
+   * Validate and emit on every input event. Rejects negative, non-integer, or
+   * > cap values without emitting; the DOM reflects the rejected value so the
+   * operator sees the error, but parent state stays clean.
+   */
   onQtyInput(event: Event): void {
     const target = event.target as HTMLInputElement | null;
     if (!target) {
       return;
     }
-    const raw = Number(target.value);
-    if (!Number.isFinite(raw)) {
-      // Reject NaN / Infinity without emitting — keep parent state stable.
+    const rawText = String(target.value ?? '');
+    if (rawText.trim() === '') {
+      this.lastError.set(null);
+      this.qtyChange.emit(0);
+      return;
+    }
+    // Integer-only — reject decimals and scientific notation up front.
+    if (!/^-?\d+$/.test(rawText.trim())) {
+      this.lastError.set('Enter a whole number.');
+      return;
+    }
+    const raw = Number(rawText);
+    if (!Number.isFinite(raw) || !Number.isInteger(raw)) {
+      this.lastError.set('Enter a whole number.');
+      return;
+    }
+    if (raw < 0) {
+      this.lastError.set('Quantity cannot be negative.');
       return;
     }
     const cap = this.maxQty();
-    const clamped = Math.min(Math.max(raw, 0), cap > 0 ? cap : 0);
-    if (clamped !== raw) {
-      // Reflect the clamp back into the DOM so the displayed value matches.
-      target.value = String(clamped);
+    if (raw > cap) {
+      this.lastError.set(`Maximum is ${cap}.`);
+      return;
     }
-    this.qtyChange.emit(clamped);
+    this.lastError.set(null);
+    this.qtyChange.emit(raw);
+  }
+
+  /** Emits min(maxQty, remainingQtyForItem). */
+  onUseMax(): void {
+    const target = Math.min(this.maxQty(), this.remainingQtyForItem() || this.maxQty());
+    const floored = Math.max(0, Math.floor(target));
+    this.lastError.set(null);
+    this.qtyChange.emit(floored);
+  }
+
+  onClear(): void {
+    this.lastError.set(null);
+    this.qtyChange.emit(0);
   }
 
   onRemoveClick(): void {
@@ -723,5 +1021,39 @@ export class WarehouseAllocationCardComponent {
     }
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private formatDate(value: string | null | undefined): string {
+    if (!value) {
+      return '';
+    }
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      return value;
+    }
+    return new Date(parsed).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  private formatNumber(value: number): string {
+    if (!Number.isFinite(value)) {
+      return '0';
+    }
+    const rounded = Math.round(value * 10_000) / 10_000;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  }
+
+  private nonOnHandSource(card: WarehouseAllocationCard): string | null {
+    const batches = card.batches ?? [];
+    for (const batch of batches) {
+      const source = String(batch.source_type ?? 'ON_HAND').toUpperCase();
+      if (source !== 'ON_HAND') {
+        return source;
+      }
+    }
+    return null;
   }
 }
