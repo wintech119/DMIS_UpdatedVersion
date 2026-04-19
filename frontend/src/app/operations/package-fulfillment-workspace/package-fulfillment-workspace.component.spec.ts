@@ -6,7 +6,7 @@ import { By } from '@angular/platform-browser';
 import { MatDialog } from '@angular/material/dialog';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { EMPTY, of, throwError } from 'rxjs';
+import { EMPTY, NEVER, of, throwError } from 'rxjs';
 
 import { PackageFulfillmentWorkspaceComponent } from './package-fulfillment-workspace.component';
 import { FulfillmentPlanStepComponent } from './steps/fulfillment-plan-step.component';
@@ -1004,9 +1004,9 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     operationsService.getAllocationOptions.and.returnValue(EMPTY);
     operationsService.commitAllocations.and.returnValue(EMPTY);
     operationsService.createIdempotencyKey.and.callFake(
-      (scope: 'dispatch' | 'receipt' | 'override', reliefpkgId: number) =>
+      (scope: string, reliefpkgId: number) =>
         scope === 'override'
-          ? `override:${reliefpkgId}:fixed-uuid`
+          ? `override-${reliefpkgId}-fixed-uuid`
           : `${scope}-${reliefpkgId}-fixed-uuid`,
     );
 
@@ -1083,8 +1083,8 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
   });
 
   it('does not surface the override review surface when only override.request is granted', () => {
-    fakeAuth.roles.set(['LOGISTICS_OFFICER']);
     configureManager(['operations.package.override.request']);
+    fakeAuth.roles.set(['LOGISTICS_OFFICER']);
     expect(component.canApprovePendingOverride()).toBeFalse();
   });
 
@@ -1100,7 +1100,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(operationsService.approveOverride).toHaveBeenCalledTimes(1);
     const args = operationsService.approveOverride.calls.mostRecent().args;
     expect(args[0]).toBe(95009);
-    expect(args[2]).toBe('override:95009:fixed-uuid');
+    expect(args[2]).toBe('override-95009-fixed-uuid');
     expect(notifications.showSuccess).toHaveBeenCalled();
   });
 
@@ -1127,7 +1127,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     const returnArgs = operationsService.returnOverride.calls.mostRecent().args;
     expect(returnArgs[0]).toBe(95009);
     expect(returnArgs[1]).toEqual({ reason: 'Qty off for batch 1001' });
-    expect(returnArgs[2]).toBe('override:95009:fixed-uuid');
+    expect(returnArgs[2]).toBe('override-95009-fixed-uuid');
     expect(component.confirmationState()?.outcome).toBe('override_returned');
   });
 
@@ -1141,6 +1141,19 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     component.onReturnOverride();
 
     expect(operationsService.returnOverride).not.toHaveBeenCalled();
+  });
+
+  it('does not open a second override reason dialog while the first one is still pending', () => {
+    configureManager();
+    primePendingOverride();
+    dialog.open.and.returnValue({
+      afterClosed: () => NEVER,
+    } as unknown as ReturnType<MatDialog['open']>);
+
+    component.onReturnOverride();
+    component.onReturnOverride();
+
+    expect(dialog.open).toHaveBeenCalledTimes(1);
   });
 
   it('routes reject through rejectOverride with the reason and a fresh idempotency key', async () => {
@@ -1163,7 +1176,7 @@ describe('PackageFulfillmentWorkspaceComponent — FR05.08 override review', () 
     expect(operationsService.rejectOverride).toHaveBeenCalledTimes(1);
     const rejectArgs = operationsService.rejectOverride.calls.mostRecent().args;
     expect(rejectArgs[1]).toEqual({ reason: 'Wrong warehouse' });
-    expect(rejectArgs[2]).toBe('override:95009:fixed-uuid');
+    expect(rejectArgs[2]).toBe('override-95009-fixed-uuid');
     expect(component.confirmationState()?.outcome).toBe('override_rejected');
     expect(component.confirmationState()?.title).toBe('Override Rejected');
   });

@@ -54,13 +54,12 @@ export interface DmisReasonDialogResult {
 
         <mat-form-field appearance="outline" class="dialog-field">
           <mat-label>{{ data.reasonLabel ?? 'Reason' }}</mat-label>
-          <textarea
-            matInput
-            rows="3"
-            formControlName="reason"
-            [attr.maxlength]="data.maxLength ?? null"
-            [attr.placeholder]="data.reasonPlaceholder ?? null"
-            [attr.aria-describedby]="data.maxLength ? 'dmis-reason-count' : null"></textarea>
+            <textarea
+              matInput
+              rows="3"
+              formControlName="reason"
+              [attr.placeholder]="data.reasonPlaceholder ?? null"
+              [attr.aria-describedby]="data.maxLength ? 'dmis-reason-count' : null"></textarea>
           @if (data.maxLength) {
             <mat-hint id="dmis-reason-count" align="end">
               {{ form.controls.reason.value.length }} / {{ data.maxLength }}

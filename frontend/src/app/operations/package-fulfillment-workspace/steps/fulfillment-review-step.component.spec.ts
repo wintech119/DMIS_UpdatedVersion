@@ -30,11 +30,20 @@ describe('FulfillmentReviewStepComponent — FR05.08 override actions', () => {
     return fixture;
   }
 
-  it('renders Reject, Return for Adjustments, and Approve when canApproveOverride is true', () => {
+  it('renders Approve, Return for Adjustments, and Reject when canApproveOverride is true', () => {
     const fixture = createFixtureWithPendingOverride(true);
     expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--reject'))).not.toBeNull();
     expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--return'))).not.toBeNull();
     expect(fixture.debugElement.query(By.css('.ops-review-actions__btn--approve'))).not.toBeNull();
+  });
+
+  it('keeps the DOM action order aligned with the intended visual order', () => {
+    const fixture = createFixtureWithPendingOverride(true);
+    const buttons = fixture.debugElement.queryAll(By.css('.ops-review-actions__btn'));
+
+    expect(buttons[0].nativeElement.className).toContain('ops-review-actions__btn--approve');
+    expect(buttons[1].nativeElement.className).toContain('ops-review-actions__btn--return');
+    expect(buttons[2].nativeElement.className).toContain('ops-review-actions__btn--reject');
   });
 
   it('hides the three-action row when canApproveOverride is false', () => {

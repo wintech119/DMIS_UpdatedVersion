@@ -277,16 +277,12 @@
                       </button>
                     </div>
                   }
-                  @case ('override_rejected') {
-                    <div class="ops-step-actions">
-                      <span class="ops-step-actions__spacer"></span>
-                      <button mat-stroked-button type="button" (click)="backToRequest()">Return to Request</button>
-                      <button mat-flat-button color="primary" type="button" (click)="backToRequest()">
-                        <mat-icon>restart_alt</mat-icon>
-                        Start a Fresh Package
-                      </button>
-                    </div>
-                  }
+                @case ('override_rejected') {
+                  <div class="ops-step-actions">
+                    <span class="ops-step-actions__spacer"></span>
+                    <button mat-stroked-button type="button" (click)="backToRequest()">Return to Request</button>
+                  </div>
+                }
                   @default {
                     <div class="ops-step-actions">
                       <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>

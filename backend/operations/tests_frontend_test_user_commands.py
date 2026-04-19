@@ -142,7 +142,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
     def test_resolve_national_tenant_prefers_configured_odpem_tenant_id(self, mock_connection) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = (1, "ODPEM-HQ", "ODPEM HQ", "NATIONAL")
+        cursor.fetchone.return_value = (1, "ODPEM-HQ", "ODPEM HQ", "NEOC")
 
         tenant = Command()._resolve_national_tenant(tenant_id=None, tenant_code=None)
 
@@ -153,6 +153,17 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         sql, params = cursor.execute.call_args.args
         self.assertIn("WHERE tenant_id = %s", sql)
         self.assertEqual(params, [1])
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_odpem_code_when_tenant_type_is_not_neoc(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (7, "ODPEM-HQ", "ODPEM HQ", "NATIONAL")
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "The national/local system-admin tenant must resolve to an ODPEM national tenant.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code="ODPEM-HQ")
 
     @override_settings(ODPEM_TENANT_ID=None)
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")

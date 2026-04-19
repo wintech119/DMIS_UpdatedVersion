@@ -259,6 +259,7 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocations/commit`,
       payload,
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('allocation-commit', reliefrqstId) } },
     ).pipe(map(normalizeAllocationCommitResponse));
   }
 
@@ -452,14 +453,11 @@ export class OperationsService {
   }
 
   createIdempotencyKey(
-    scope: 'dispatch' | 'receipt' | 'override' | 'request-submit' | 'eligibility-decision',
+    scope: 'dispatch' | 'receipt' | 'override' | 'request-submit' | 'eligibility-decision' | 'allocation-commit',
     resourceId: number,
   ): string {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    if (scope === 'override') {
-      return `override:${resourceId}:${randomId}`;
-    }
     return `${scope}-${resourceId}-${randomId}`;
   }
 

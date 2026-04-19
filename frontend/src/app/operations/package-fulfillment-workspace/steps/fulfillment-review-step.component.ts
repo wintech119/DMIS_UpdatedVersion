@@ -290,16 +290,16 @@ interface ReviewGroup {
       @if (canApproveOverride && store.hasPendingOverride()) {
         <footer class="ops-review-actions" role="group" aria-label="Override review actions">
           <button
-            #rejectBtn
-            mat-stroked-button
-            color="warn"
+            #approveBtn
+            mat-flat-button
+            color="primary"
             type="button"
-            class="ops-review-actions__btn ops-review-actions__btn--reject"
+            class="ops-review-actions__btn ops-review-actions__btn--approve"
             [disabled]="submitting"
             aria-describedby="review-preflight-hint"
-            (click)="rejectOverride.emit()">
-            <mat-icon aria-hidden="true">cancel</mat-icon>
-            Reject
+            (click)="approveOverride.emit()">
+            <mat-icon aria-hidden="true">check_circle</mat-icon>
+            Approve
           </button>
           <button
             #returnBtn
@@ -313,16 +313,16 @@ interface ReviewGroup {
             Return for Adjustments
           </button>
           <button
-            #approveBtn
-            mat-flat-button
-            color="primary"
+            #rejectBtn
+            mat-stroked-button
+            color="warn"
             type="button"
-            class="ops-review-actions__btn ops-review-actions__btn--approve"
+            class="ops-review-actions__btn ops-review-actions__btn--reject"
             [disabled]="submitting"
             aria-describedby="review-preflight-hint"
-            (click)="approveOverride.emit()">
-            <mat-icon aria-hidden="true">check_circle</mat-icon>
-            Approve
+            (click)="rejectOverride.emit()">
+            <mat-icon aria-hidden="true">cancel</mat-icon>
+            Reject
           </button>
         </footer>
       }
@@ -685,7 +685,6 @@ interface ReviewGroup {
 
     @media (max-width: 600px) {
       .ops-review-actions {
-        flex-direction: column-reverse;
         align-items: stretch;
         gap: 0.5rem;
       }
@@ -693,10 +692,6 @@ interface ReviewGroup {
       .ops-review-actions__btn {
         width: 100%;
       }
-
-      /* Mobile stack order: Approve on top, then Return, then Reject.
-         Source DOM order is Reject -> Return -> Approve (tab order: forward-last).
-         column-reverse flips to Approve -> Return -> Reject top-to-bottom. */
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

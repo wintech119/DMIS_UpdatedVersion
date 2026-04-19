@@ -68,6 +68,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
   private readonly seenStorageScope = 'package-fulfillment';
+  private readonly warnedOutOfContractRequestIds = new Set<number>();
 
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
@@ -256,6 +257,33 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
   }
 
+  private isOutOfContractRow(row: PackageQueueItem): boolean {
+    const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
+    const rowStatus = String(row.status_code ?? '').trim().toUpperCase();
+    const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
+
+    return (
+      OUT_OF_CONTRACT_PACKAGE_STATUSES.has(currentStatus)
+      || OUT_OF_CONTRACT_REQUEST_STATUSES.has(rowStatus)
+      || OUT_OF_CONTRACT_LEGACY_STATUSES.has(legacyStatus)
+    );
+  }
+
+  private warnOutOfContractRows(rows: readonly PackageQueueItem[]): void {
+    for (const row of rows) {
+      if (!this.isOutOfContractRow(row) || this.warnedOutOfContractRequestIds.has(row.reliefrqst_id)) {
+        continue;
+      }
+      this.warnedOutOfContractRequestIds.add(row.reliefrqst_id);
+      console.warn('[fulfillment-queue] backend leaked out-of-contract row', {
+        reliefrqst_id: row.reliefrqst_id,
+        status_code: row.status_code,
+        package_status: row.package_status,
+        package_current_status: row.current_package?.status_code ?? null,
+      });
+    }
+  }
+
   getFulfillmentStage(row: PackageQueueItem): FulfillmentStage {
     const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
     const rowStatus = String(row.status_code ?? '').trim().toUpperCase();
@@ -263,17 +291,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
     // TODO(FR05.08-FE-DEFENSIVE-FILTER): sunset after backend contract confirmed
     // clean in staging for 2 weeks. Tracking issue logged in PR body.
-    if (
-      OUT_OF_CONTRACT_PACKAGE_STATUSES.has(currentStatus)
-      || OUT_OF_CONTRACT_REQUEST_STATUSES.has(rowStatus)
-      || OUT_OF_CONTRACT_LEGACY_STATUSES.has(legacyStatus)
-    ) {
-      console.warn('[fulfillment-queue] backend leaked out-of-contract row', {
-        reliefrqst_id: row.reliefrqst_id,
-        status_code: row.status_code,
-        package_status: row.package_status,
-        package_current_status: row.current_package?.status_code ?? null,
-      });
+    if (this.isOutOfContractRow(row)) {
       return 'excluded';
     }
 
@@ -297,7 +315,9 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
     this.operationsService.getPackagesQueue().subscribe({
       next: (response) => {
-        this.items.set(response.results);
+        const rows = response.results;
+        this.warnOutOfContractRows(rows);
+        this.items.set(rows);
         this.loadError.set(null);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);

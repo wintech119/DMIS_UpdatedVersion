@@ -246,7 +246,7 @@ class Command(BaseCommand):
         if not row:
             raise CommandError("National/local system-admin tenant does not exist or is inactive.")
         tenant_type = str(row[3] or "").strip().upper()
-        if not self._is_odpem_tenant_code(row[1]) and tenant_type != "NEOC":
+        if not self._is_odpem_tenant_code(row[1]) or tenant_type != "NEOC":
             raise CommandError("The national/local system-admin tenant must resolve to an ODPEM national tenant.")
         return {
             "tenant_id": int(row[0]),

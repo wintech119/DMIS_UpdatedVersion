@@ -533,7 +533,7 @@ export function extractOperationsHttpErrorMessage(
   if (isOperationsRecord(errorMap)) {
     const messages = Object.values(errorMap)
       .flatMap((value) => Array.isArray(value) ? value : [value])
-      .map((value) => String(value ?? '').trim())
+      .map((value) => extractOperationsErrorMessage(value)?.trim() ?? '')
       .filter(Boolean);
     if (messages.length) {
       return messages[0];

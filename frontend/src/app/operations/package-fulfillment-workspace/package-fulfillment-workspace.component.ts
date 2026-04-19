@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -124,6 +125,7 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly reservationIntegrityWarning = signal<string | null>(null);
   readonly confirmationState = signal<FulfillmentConfirmationState | null>(null);
   readonly savingDraft = signal(false);
+  private overrideDialogOpen = false;
 
   readonly packageDetail = this.store.packageDetail;
 
@@ -548,10 +550,12 @@ export class PackageFulfillmentWorkspaceComponent {
       || !this.store.hasPendingOverride()
       || !this.canApprovePendingOverride()
       || this.store.submitting()
+      || this.overrideDialogOpen
     ) {
       return;
     }
-    this.openOverrideReasonDialog({
+    this.overrideDialogOpen = true;
+    void this.openOverrideReasonDialog({
       title: 'Return override for adjustments',
       actionLabel: 'Return for Adjustments',
       actionColor: 'primary',
@@ -570,6 +574,12 @@ export class PackageFulfillmentWorkspaceComponent {
           'returned',
           () => this.reviewStep?.focusReturn(),
         );
+      })
+      .catch(() => {
+        this.reviewStep?.focusReturn();
+      })
+      .finally(() => {
+        this.overrideDialogOpen = false;
       });
   }
 
@@ -580,10 +590,12 @@ export class PackageFulfillmentWorkspaceComponent {
       || !this.store.hasPendingOverride()
       || !this.canApprovePendingOverride()
       || this.store.submitting()
+      || this.overrideDialogOpen
     ) {
       return;
     }
-    this.openOverrideReasonDialog({
+    this.overrideDialogOpen = true;
+    void this.openOverrideReasonDialog({
       title: 'Reject this override',
       actionLabel: 'Reject',
       actionColor: 'warn',
@@ -602,6 +614,12 @@ export class PackageFulfillmentWorkspaceComponent {
           'rejected',
           () => this.reviewStep?.focusReject(),
         );
+      })
+      .catch(() => {
+        this.reviewStep?.focusReject();
+      })
+      .finally(() => {
+        this.overrideDialogOpen = false;
       });
   }
 
@@ -616,7 +634,7 @@ export class PackageFulfillmentWorkspaceComponent {
       width: '520px',
       data,
     });
-    return ref.afterClosed().toPromise();
+    return firstValueFrom(ref.afterClosed(), { defaultValue: undefined });
   }
 
   private runAllocationAction(

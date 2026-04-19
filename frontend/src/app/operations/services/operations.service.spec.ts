@@ -1,11 +1,16 @@
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
 import { EligibilityDetailResponse, RequestDetailResponse } from '../models/operations.model';
 import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
-import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
+import {
+  extractOperationsHttpErrorMessage,
+  formatOperationsPackageStatus,
+  getOperationsDispatchStage,
+} from '../operations-display.util';
 
 describe('OperationsService', () => {
   let service: OperationsService;
@@ -594,6 +599,15 @@ describe('OperationsService', () => {
     request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
   });
 
+  it('adds an idempotency key when committing allocations', () => {
+    service.commitAllocations(12, { allocations: [] }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/12/allocations/commit');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^allocation-commit-12-/);
+    request.flush({ status: 'COMMITTED', reliefrqst_id: 12, reliefpkg_id: 44 });
+  });
+
   it('adds an idempotency key when submitting a relief request', () => {
     service.submitRequest(12).subscribe();
 
@@ -833,9 +847,9 @@ describe('OperationsService', () => {
       expect((response as { status: string }).status).toBe('REJECTED');
     });
 
-    it('createIdempotencyKey shapes override keys as override:<id>:<uuid>', () => {
+    it('createIdempotencyKey shapes override keys as override-<id>-<uuid>', () => {
       const key = service.createIdempotencyKey('override', 42);
-      expect(key.startsWith('override:42:')).toBeTrue();
+      expect(key.startsWith('override-42-')).toBeTrue();
     });
 
     it('createIdempotencyKey shapes request-submit keys as request-submit-<id>-<uuid>', () => {
@@ -846,6 +860,11 @@ describe('OperationsService', () => {
     it('createIdempotencyKey shapes eligibility-decision keys as eligibility-decision-<id>-<uuid>', () => {
       const key = service.createIdempotencyKey('eligibility-decision', 12);
       expect(key.startsWith('eligibility-decision-12-')).toBeTrue();
+    });
+
+    it('createIdempotencyKey shapes allocation-commit keys as allocation-commit-<id>-<uuid>', () => {
+      const key = service.createIdempotencyKey('allocation-commit', 12);
+      expect(key.startsWith('allocation-commit-12-')).toBeTrue();
     });
 
     it('same idempotency key propagates on replay (same key -> same header)', () => {
@@ -891,5 +910,21 @@ describe('OperationsService', () => {
         expect((response as { status: string }).status).toBe(status);
       }
     });
+  });
+
+  it('extracts nested structured error messages from an errors map', () => {
+    const message = extractOperationsHttpErrorMessage(
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          errors: {
+            package: [{ detail: 'Structured package error.' }],
+          },
+        },
+      }),
+      'Fallback error.',
+    );
+
+    expect(message).toBe('Structured package error.');
   });
 });

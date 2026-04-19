@@ -378,7 +378,9 @@ def validate_odpem_tenant_configuration(
     if testing or runtime_env == "test":
         return
 
-    if runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS and odpem_tenant_id is None:
+    if runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS and (
+        odpem_tenant_id is None or odpem_tenant_id <= 0
+    ):
         raise RuntimeError(
             f"DMIS_RUNTIME_ENV={runtime_env} requires ODPEM_TENANT_ID so ODPEM-scoped workflow routing stays explicit."
         )

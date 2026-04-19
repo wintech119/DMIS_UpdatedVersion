@@ -161,6 +161,7 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(ids).not.toContain(3);
     expect(ids).not.toContain(4);
     expect(ids).not.toContain(5);
+    expect(console.warn).toHaveBeenCalledTimes(4);
   });
 
   it('keeps override-rejected package attempts visible for a fresh fulfillment attempt', () => {
