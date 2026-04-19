@@ -495,6 +495,12 @@ Page must:
 - show request context
 - present allocation options
 - enforce FEFO / FIFO recommendation
+- treat item allocation as item-scoped, not dependent on one shared source warehouse for the entire package
+- when an item is opened for allocation, show a ranked warehouse list ordered by FEFO / FIFO applicability for that specific item
+- treat the first-ranked warehouse for an item as the canonical starting warehouse for compliant allocation
+- show available quantity, batch / lot, expiry date, and rank context for each ranked warehouse option
+- allow the operator to add successive ranked warehouses for the same item until requested quantity is covered or ranked stock is exhausted
+- allow the operator to stop before full quantity coverage for intentional partial fulfillment without treating that fact alone as non-compliant
 - support override flow where needed
 - support fulfillment mode selection of direct or staged modes
 - require staging warehouse selection before staged commit
@@ -503,6 +509,14 @@ Page must:
 - require override reason when staging recommendation is overridden
 - reserve stock on commit
 - use multi-step workflow for clarity
+
+Freeze rule for `FR05.06` to `FR05.06d`:
+
+- FEFO / FIFO remains the governing allocation rule for warehouse ranking and batch selection
+- warehouse ranking is determined per item, not by a single package-level source warehouse
+- multi-warehouse continuation for an item must follow the ranked warehouse order unless a separate override path is explicitly triggered
+- intentional partial fulfillment remains allowed and is not by itself a non-compliant allocation requiring override review
+- request-level or package-level convenience warehouse fields may support defaults or summaries but are not the line-level source of truth for multi-warehouse allocation
 
 #### 11A. Consolidation Workspace
 
@@ -694,10 +708,10 @@ Page must:
 | --- | --- | --- | --- | --- | --- |
 | none | Create package draft | Logistics Officer / Logistics Manager | `DRAFT` | None | Package may acquire lock |
 | `DRAFT` | Save draft allocation | Fulfillment role | `DRAFT` | None | Editable |
-| `DRAFT` | Commit compliant direct allocation | Fulfillment role | `COMMITTED` | Reserve stock | Freeze for direct dispatch lane |
-| `DRAFT` | Commit compliant staged allocation with off-staging source stock | Fulfillment role | `CONSOLIDATING` | Reserve stock | Create consolidation plan and legs |
-| `DRAFT` | Commit staged allocation when all stock is already at selected staging hub | Fulfillment role | `READY_FOR_PICKUP` or `READY_FOR_DISPATCH` | Reserve stock | Bypass consolidation legs based on fulfillment mode and selected canonical fulfillment mode code |
-| `DRAFT` | Commit non-compliant allocation | Fulfillment role | `PENDING_OVERRIDE_APPROVAL` | None | Requires reason + supervisor approval |
+| `DRAFT` | Commit compliant direct allocation | Fulfillment role | `COMMITTED` | Reserve stock | Freeze for direct dispatch lane; compliant allocation may use one or more FEFO / FIFO-ranked warehouses for the same item |
+| `DRAFT` | Commit compliant staged allocation with off-staging source stock | Fulfillment role | `CONSOLIDATING` | Reserve stock | Create consolidation plan and legs; compliant allocation may use one or more FEFO / FIFO-ranked warehouses for the same item |
+| `DRAFT` | Commit staged allocation when all stock is already at selected staging hub | Fulfillment role | `READY_FOR_PICKUP` or `READY_FOR_DISPATCH` | Reserve stock | Bypass consolidation legs based on fulfillment mode and selected canonical fulfillment mode code; compliant allocation may use one or more FEFO / FIFO-ranked warehouses for the same item |
+| `DRAFT` | Commit non-compliant allocation | Fulfillment role | `PENDING_OVERRIDE_APPROVAL` | None | Requires reason + supervisor approval; intentional partial fulfillment by itself does not trigger this state |
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for `DIRECT` package | Authorized supervisor | `COMMITTED` | Reserve stock | No self-approval; direct mode follows the direct dispatch lane |
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for staged package with off-staging source stock | Authorized supervisor | `CONSOLIDATING` | Reserve stock | No self-approval; create or retain consolidation plan and legs |
 | `PENDING_OVERRIDE_APPROVAL` | Approve override for staged package when all allocated stock is already at selected staging hub | Authorized supervisor | `READY_FOR_PICKUP` or `READY_FOR_DISPATCH` | Reserve stock | No self-approval; apply the same staged-ready bypass rule used for compliant staged commit |
@@ -904,7 +918,7 @@ operations_package
 - package_id PK
 - package_no unique
 - relief_request_id FK operations_relief_request
-- source_warehouse_id FK warehouse
+- source_warehouse_id FK warehouse  # package-level convenience/default source only; not the line-level authority for multi-warehouse item allocation
 - fulfillment_mode_code (DIRECT / PICKUP_AT_STAGING / DELIVER_FROM_STAGING)
 - staging_warehouse_id FK warehouse nullable
 - staging_recommendation_basis_code nullable
@@ -945,6 +959,15 @@ operations_package_item
 - update_dtime
 - version_nbr
 ```
+
+Allocation freeze rules:
+
+- `operations_package_item` is the authoritative source of truth for item-level warehouse allocation
+- each selected warehouse / inventory / batch combination persists as its own package-item row
+- multi-warehouse fulfillment for one request item is represented by multiple `operations_package_item` rows for the same `item_id`
+- FEFO / FIFO ranking is evaluated per item before commit or override submission
+- continuing to the next ranked warehouse because the earlier ranked warehouse cannot fully satisfy quantity is compliant behavior
+- stopping before full quantity coverage is allowed partial fulfillment and must not by itself set `override_flag`
 
 ```text
 operations_package_lock

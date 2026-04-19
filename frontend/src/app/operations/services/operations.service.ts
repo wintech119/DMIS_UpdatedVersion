@@ -71,6 +71,20 @@ import {
   normalizeWaybill,
 } from './operations-adapters';
 
+type OperationsIdempotencyScope =
+  | 'dispatch'
+  | 'receipt'
+  | 'override'
+  | 'request-submit'
+  | 'eligibility-decision'
+  | 'allocation-commit'
+  | 'package-abandon'
+  | 'consolidation-leg-dispatch'
+  | 'consolidation-leg-receive'
+  | 'partial-release-request'
+  | 'partial-release-approve'
+  | 'pickup-release';
+
 @Injectable({ providedIn: 'root' })
 export class OperationsService {
   private readonly http = inject(HttpClient);
@@ -212,6 +226,11 @@ export class OperationsService {
     return this.http.post<PackageAbandonDraftResponse>(
       `${this.apiUrl}/packages/${reliefpkgId}/abandon-draft`,
       body,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('package-abandon', reliefpkgId),
+        },
+      },
     );
   }
 
@@ -380,6 +399,11 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/dispatch`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('consolidation-leg-dispatch', `${reliefpkgId}-${legId}`),
+        },
+      },
     ).pipe(map(normalizeConsolidationLegDispatchResponse));
   }
 
@@ -391,6 +415,11 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/receive`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('consolidation-leg-receive', `${reliefpkgId}-${legId}`),
+        },
+      },
     ).pipe(map(normalizeConsolidationLegReceiveResponse));
   }
 
@@ -410,6 +439,11 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/partial-release/request`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('partial-release-request', reliefpkgId),
+        },
+      },
     ).pipe(map(normalizePartialReleaseRequestResponse));
   }
 
@@ -420,6 +454,11 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/partial-release/approve`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('partial-release-approve', reliefpkgId),
+        },
+      },
     ).pipe(map(normalizePartialReleaseApproveResponse));
   }
 
@@ -430,6 +469,11 @@ export class OperationsService {
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/pickup-release`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('pickup-release', reliefpkgId),
+        },
+      },
     ).pipe(map(normalizePickupReleaseResponse));
   }
 
@@ -453,8 +497,8 @@ export class OperationsService {
   }
 
   createIdempotencyKey(
-    scope: 'dispatch' | 'receipt' | 'override' | 'request-submit' | 'eligibility-decision' | 'allocation-commit',
-    resourceId: number,
+    scope: OperationsIdempotencyScope,
+    resourceId: number | string,
   ): string {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;

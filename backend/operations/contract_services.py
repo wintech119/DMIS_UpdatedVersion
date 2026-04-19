@@ -1862,6 +1862,9 @@ def _ensure_request_access(
     tenant_context: TenantContext,
     write: bool = False,
 ) -> None:
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return
     relevant_tenants = [request_record.requesting_tenant_id, request_record.beneficiary_tenant_id]
     for tenant_id in relevant_tenants:
         if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=write):

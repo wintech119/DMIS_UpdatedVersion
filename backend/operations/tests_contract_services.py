@@ -7343,6 +7343,31 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_context=self.odpem_context,
         )
 
+    def test_ensure_request_access_allows_system_administrator_cross_tenant(self) -> None:
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=95011,
+            request_no="RQ95011",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        contract_services._ensure_request_access(
+            request_record,
+            actor_id="local_system_admin_tst",
+            actor_roles=[ROLE_SYSTEM_ADMINISTRATOR],
+            tenant_context=self.odpem_context,
+            write=True,
+        )
+
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
