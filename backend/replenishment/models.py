@@ -118,14 +118,12 @@ class NeedsList(AuditedModel):
     ]
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
-        ('PENDING_APPROVAL', 'Pending Approval'),
-        ('UNDER_REVIEW', 'Under Review'),
+        ('MODIFIED', 'Modified'),
+        ('SUBMITTED', 'Submitted'),
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
-        ('RETURNED', 'Returned'),
         ('IN_PROGRESS', 'In Progress'),
         ('FULFILLED', 'Fulfilled'),
-        ('CANCELLED', 'Cancelled'),
         ('SUPERSEDED', 'Superseded'),
     ]
 

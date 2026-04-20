@@ -23,10 +23,8 @@ from api.rbac import (
 )
 from api.tenancy import TenantContext, TenantMembership
 from replenishment import apps as replenishment_apps, phase_window_views, rules, views, workflow_store_db
-try:
-    from replenishment import workflow_store
-except ImportError:  # pragma: no cover - test fallback for repos without the legacy file store module.
-    workflow_store = workflow_store_db
+
+workflow_store = workflow_store_db
 from replenishment.models import (
     NeedsList,
     NeedsListAudit,
@@ -4029,7 +4027,7 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(submit.status_code, 200)
 
             queue = self.client.get(
-                "/api/v1/replenishment/needs-list/?status=SUBMITTED,UNDER_REVIEW"
+                "/api/v1/replenishment/needs-list/?status=SUBMITTED"
             )
 
         self.assertEqual(queue.status_code, 200)
@@ -5038,7 +5036,7 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(submit.status_code, 200)
 
             filtered = self.client.get(
-                "/api/v1/replenishment/needs-list/my-submissions/?status=PENDING_APPROVAL&page=1&page_size=10"
+                "/api/v1/replenishment/needs-list/my-submissions/?status=SUBMITTED&page=1&page_size=10"
             )
 
         self.assertEqual(filtered.status_code, 200)
@@ -5707,7 +5705,7 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(superseded.status_code, 200)
 
             queue = self.client.get(
-                "/api/v1/replenishment/needs-list/?status=SUBMITTED,UNDER_REVIEW"
+                "/api/v1/replenishment/needs-list/?status=SUBMITTED"
             )
 
         self.assertNotEqual(first_id, second_id)
@@ -5734,7 +5732,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_new_draft_does_not_supersede_under_review_records(
+    def test_new_draft_does_not_supersede_approved_records(
         self,
         mock_available,
         mock_donations,
@@ -5758,13 +5756,13 @@ class NeedsListWorkflowApiTests(TestCase):
             ).json()
             first_id = first_draft["needs_list_id"]
 
-            under_review_record = workflow_store.get_record(first_id)
-            self.assertIsNotNone(under_review_record)
-            under_review_record = dict(under_review_record or {})
-            under_review_record["status"] = "UNDER_REVIEW"
-            under_review_record["review_started_by"] = "approver"
-            under_review_record["review_started_at"] = timezone.now().isoformat()
-            workflow_store.update_record(first_id, under_review_record)
+            approved_record = workflow_store.get_record(first_id)
+            self.assertIsNotNone(approved_record)
+            approved_record = dict(approved_record or {})
+            approved_record["status"] = "APPROVED"
+            approved_record["approved_by"] = "approver"
+            approved_record["approved_at"] = timezone.now().isoformat()
+            workflow_store.update_record(first_id, approved_record)
 
             second_draft = self.client.post(
                 "/api/v1/replenishment/needs-list/draft",
@@ -5778,10 +5776,10 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(first_after.status_code, 200)
 
             queue = self.client.get(
-                "/api/v1/replenishment/needs-list/?status=UNDER_REVIEW"
+                "/api/v1/replenishment/needs-list/?status=APPROVED"
             )
 
-        self.assertEqual(first_after.json().get("status"), "UNDER_REVIEW")
+        self.assertEqual(first_after.json().get("status"), "APPROVED")
         self.assertNotIn(first_id, second_body.get("supersedes_needs_list_ids", []))
         queue_ids = [row.get("needs_list_id") for row in queue.json().get("needs_lists", [])]
         self.assertIn(first_id, queue_ids)
@@ -6501,7 +6499,9 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
             self.assertEqual(escalated.status_code, 200)
-            self.assertEqual(escalated.json().get("status"), "ESCALATED")
+            self.assertEqual(escalated.json().get("status"), "SUBMITTED")
+            self.assertEqual(escalated.json().get("escalation_reason"), "Higher authority needed")
+            self.assertEqual(escalated.json().get("escalated_by"), "reviewer")
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -6581,7 +6581,8 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(completed.status_code, 200)
-                self.assertEqual(completed.json().get("status"), "COMPLETED")
+                self.assertEqual(completed.json().get("status"), "FULFILLED")
+                self.assertEqual(completed.json().get("execution_stage"), "COMPLETED")
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -6597,7 +6598,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.workflow_store.transition_status")
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
-    def test_mark_completed_normalizes_fulfilled_status_to_completed(
+    def test_mark_completed_returns_fulfilled_status_with_execution_stage(
         self,
         _mock_store_enabled,
         mock_get_record,
@@ -6625,7 +6626,8 @@ class NeedsListWorkflowApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json().get("status"), "COMPLETED")
+        self.assertEqual(response.json().get("status"), "FULFILLED")
+        self.assertEqual(response.json().get("execution_stage"), "COMPLETED")
         self.assertEqual(response.json().get("completed_at"), "2026-04-10T13:00:00Z")
         mock_update_record.assert_called_once()
 
@@ -6744,7 +6746,8 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(completed.status_code, 200)
-                self.assertEqual(completed.json().get("status"), "COMPLETED")
+                self.assertEqual(completed.json().get("status"), "FULFILLED")
+                self.assertEqual(completed.json().get("execution_stage"), "COMPLETED")
                 self.assertIsNotNone(completed.json().get("completed_at"))
 
     @override_settings(
@@ -7041,7 +7044,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=100,
             notes_text='{"selected_method":"A","warnings":["cost_missing_for_approval"]}',
             create_by_id="tester",
@@ -7113,12 +7116,21 @@ class WorkflowStoreDbSerializationTests(TestCase):
             {
                 "item_id": 9,
                 "available_qty": 20,
+                "inbound_transfer_qty": 5,
+                "inbound_donation_qty": 3,
+                "inbound_procurement_qty": 2,
                 "inbound_strict_qty": 8,
                 "burn_rate_per_hour": 2.5,
                 "required_qty": 100,
                 "gap_qty": 72,
                 "time_to_stockout": 8,
                 "severity": "WARNING",
+                "freshness": {"state": "LOW", "age_hours": 50},
+                "freshness_state": "LOW",
+                "confidence": {"level": "MEDIUM", "reason": "fallback burn rate"},
+                "triggers": {"manual_review": True},
+                "warnings": ["fallback_burn_rate"],
+                "procurement": {"supplier_count": 2},
                 "horizon": {
                     "A": {"recommended_qty": 10},
                     "B": {"recommended_qty": 20},
@@ -7136,12 +7148,28 @@ class WorkflowStoreDbSerializationTests(TestCase):
         saved_item = NeedsListItem.objects.get(needs_list_id=int(record["needs_list_id"]), item_id=9)
 
         self.assertEqual(float(saved_item.burn_rate), 2.5)
-        self.assertEqual(float(saved_item.inbound_transfer_qty), 0.0)
-        self.assertEqual(float(saved_item.inbound_donation_qty), 0.0)
+        self.assertEqual(float(saved_item.inbound_transfer_qty), 5.0)
+        self.assertEqual(float(saved_item.inbound_donation_qty), 3.0)
+        self.assertEqual(float(saved_item.inbound_procurement_qty), 2.0)
         self.assertEqual(float(saved_item.coverage_qty), 28.0)
         self.assertEqual(float(saved_item.horizon_a_qty), 10.0)
         self.assertEqual(float(saved_item.horizon_b_qty), 20.0)
         self.assertEqual(float(saved_item.horizon_c_qty), 42.0)
+        self.assertEqual(saved_item.needs_list.data_freshness_level, "LOW")
+
+        reloaded = workflow_store_db.get_record(record["needs_list_id"])
+        self.assertIsNotNone(reloaded)
+        assert reloaded is not None
+        reloaded_item = reloaded["snapshot"]["items"][0]
+        self.assertEqual(reloaded.get("data_freshness_level"), "LOW")
+        self.assertEqual(reloaded_item["inbound_transfer_qty"], 5.0)
+        self.assertEqual(reloaded_item["inbound_donation_qty"], 3.0)
+        self.assertEqual(reloaded_item["inbound_procurement_qty"], 2.0)
+        self.assertEqual(reloaded_item["freshness"]["state"], "LOW")
+        self.assertEqual(reloaded_item["confidence"]["level"], "MEDIUM")
+        self.assertTrue(reloaded_item["triggers"]["manual_review"])
+        self.assertIn("fallback_burn_rate", reloaded_item["warnings"])
+        self.assertEqual(reloaded_item["procurement"]["supplier_count"], 2)
 
     @patch("replenishment.workflow_store_db.data_access.get_event_name")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
@@ -7272,7 +7300,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=100,
             create_by_id="tester",
             update_by_id="tester",
@@ -7327,7 +7355,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
     @patch("replenishment.workflow_store_db.data_access.get_event_name")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
     @patch("replenishment.workflow_store_db.data_access.get_item_names")
-    def test_create_draft_does_not_supersede_under_review_records(
+    def test_create_draft_does_not_supersede_approved_records(
         self,
         mock_item_names,
         mock_warehouse_name,
@@ -7347,14 +7375,14 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="UNDER_REVIEW",
+            status_code="APPROVED",
             total_gap_qty=100,
             create_by_id="tester",
             update_by_id="approver",
             submitted_by="tester",
             submitted_at=timezone.now(),
-            under_review_by="approver",
-            under_review_at=timezone.now(),
+            approved_by="approver",
+            approved_at=timezone.now(),
         )
 
         payload = {
@@ -7392,7 +7420,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
         )
 
         older.refresh_from_db()
-        self.assertEqual(older.status_code, "UNDER_REVIEW")
+        self.assertEqual(older.status_code, "APPROVED")
         self.assertIsNone(older.superseded_by_id)
         self.assertNotIn(str(older.needs_list_id), record.get("supersedes_needs_list_ids", []))
 
@@ -7425,7 +7453,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=100,
             create_by_id="tester",
             update_by_id="tester",
@@ -7440,7 +7468,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=50,
             create_by_id="tester",
             update_by_id="tester",
@@ -7491,8 +7519,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             update_by_id="tester",
         )
 
-        # list_records normalizes API-facing status aliases via _STATUS_ALIASES,
-        # so querying SUBMITTED intentionally matches records stored as PENDING_APPROVAL.
+        # list_records accepts the API-facing SUBMITTED status and returns canonical rows.
         records = workflow_store_db.list_records(["SUBMITTED"])
 
         self.assertEqual(len(records), 2)
@@ -7523,7 +7550,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=10,
             create_by_id="tester",
             update_by_id="tester",
@@ -7538,7 +7565,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=15,
             create_by_id="tester",
             update_by_id="tester",
@@ -7609,7 +7636,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             needs_list=needs_list,
             action_type="STATUS_CHANGED",
             field_name="status_code",
-            old_value="PENDING_APPROVAL",
+            old_value="SUBMITTED",
             new_value="IN_PROGRESS",
             notes_text="Preparation started.",
             actor_user_id="reviewer",
@@ -7659,7 +7686,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=20,
             create_by_id="tester",
             update_by_id="tester",
@@ -7674,7 +7701,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=25,
             create_by_id="tester",
             update_by_id="tester",
@@ -7711,7 +7738,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=25,
             notes_text='{"selected_method":"B"}',
             create_by_id="tester",
@@ -7727,7 +7754,7 @@ class WorkflowStoreDbSerializationTests(TestCase):
             planning_window_hours=72,
             safety_factor=1.25,
             data_freshness_level="HIGH",
-            status_code="PENDING_APPROVAL",
+            status_code="SUBMITTED",
             total_gap_qty=30,
             notes_text='{"selected_method":"A"}',
             create_by_id="tester",

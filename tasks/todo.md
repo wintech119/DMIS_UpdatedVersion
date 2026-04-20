@@ -1,5 +1,13 @@
 # Current Task Plan
 
+## EP02 Backend Workflow Persistence
+
+1. Completed: read Product Backlog v3.2 rows FR02.83-FR02.85, FR02.90-FR02.98, and FR02.100-FR02.101 plus the EP02 Codex review.
+2. Completed: confirmed the current live view path already imports `workflow_store_db` and that the legacy JSON workflow store file is absent from this checkout.
+3. Completed: aligned DB-backed needs-list persistence with the backlog status vocabulary and preserved preview payload fields in persisted records.
+4. Completed: updated schema/migration contract and focused backend tests for status, supersede, approval separation, and payload preservation.
+5. Completed: ran Python compilation and Django system checks; the focused Django suite is blocked by missing legacy `parish` table setup in the local test database, so that blocker is documented for closeout.
+
 ## ODPEM HQ Harness Alignment
 
 1. Completed: traced `RQ95010` through eligibility approval, queue assignment, and notification fan-out to confirm the request was approved and routed into the HQ fulfillment lane.

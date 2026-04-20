@@ -98,9 +98,12 @@ except ImportError:  # pragma: no cover - not available on POSIX
 
 PENDING_APPROVAL_STATUSES = {"SUBMITTED", "PENDING_APPROVAL", "PENDING", "UNDER_REVIEW"}
 _DB_STATUS_TRANSITIONS = {
-    "SUBMITTED": "PENDING_APPROVAL",
-    "MODIFIED": "RETURNED",
-    "ESCALATED": "UNDER_REVIEW",
+    "PENDING": "SUBMITTED",
+    "PENDING_APPROVAL": "SUBMITTED",
+    "UNDER_REVIEW": "SUBMITTED",
+    "RETURNED": "MODIFIED",
+    "ESCALATED": "SUBMITTED",
+    "CANCELLED": "REJECTED",
     "IN_PREPARATION": "IN_PROGRESS",
     "DISPATCHED": "IN_PROGRESS",
     "RECEIVED": "IN_PROGRESS",
@@ -1811,11 +1814,11 @@ def _approval_summary_for_record(
     record: Dict[str, Any],
     snapshot: Dict[str, Any],
 ) -> Dict[str, Any]:
-    status = str(record.get("status") or "").upper()
+    status = _normalize_status_for_ui(record.get("status"))
     persisted_summary = _normalize_submitted_approval_summary(
         record.get("submitted_approval_summary")
     )
-    if status not in {"DRAFT", "MODIFIED", "RETURNED"} and persisted_summary:
+    if status not in {"DRAFT", "MODIFIED"} and persisted_summary:
         return persisted_summary
     return _compute_approval_summary(record, snapshot)
 
@@ -2247,7 +2250,7 @@ def _serialize_workflow_record(
         {
             "needs_list_id": record.get("needs_list_id"),
             "needs_list_no": record.get("needs_list_no") or snapshot.get("needs_list_no"),
-            "status": record.get("status"),
+            "status": _normalize_status_for_ui(record.get("status")),
             "event_id": record.get("event_id"),
             "event_name": record.get("event_name"),
             "warehouse_id": record.get("warehouse_id"),
@@ -2303,8 +2306,12 @@ def _serialize_workflow_record(
 
 def _normalize_status_for_ui(status: object) -> str:
     normalized = str(status or "").strip().upper()
-    if normalized in {"SUBMITTED", "PENDING", "UNDER_REVIEW"}:
-        return "PENDING_APPROVAL"
+    if normalized in {"PENDING", "PENDING_APPROVAL", "UNDER_REVIEW"}:
+        return "SUBMITTED"
+    if normalized == "RETURNED":
+        return "MODIFIED"
+    if normalized == "CANCELLED":
+        return "REJECTED"
     if normalized in {"IN_PREPARATION", "DISPATCHED", "RECEIVED"}:
         return "IN_PROGRESS"
     if normalized == "COMPLETED":
@@ -2339,12 +2346,16 @@ def _expand_submission_status_filters(
         ui = _normalize_status_for_ui(raw)
         ui_filters.add(ui)
 
-        if ui == "PENDING_APPROVAL":
+        if ui == "SUBMITTED":
             store_filters.update({"PENDING_APPROVAL", "SUBMITTED", "PENDING", "UNDER_REVIEW"})
         elif ui == "IN_PROGRESS":
             store_filters.update({"IN_PROGRESS", "IN_PREPARATION", "DISPATCHED", "RECEIVED"})
         elif ui == "FULFILLED":
             store_filters.update({"FULFILLED", "COMPLETED"})
+        elif ui == "MODIFIED":
+            store_filters.update({"MODIFIED", "RETURNED"})
+        elif ui == "REJECTED":
+            store_filters.update({"REJECTED", "CANCELLED"})
         else:
             store_filters.add(raw)
             store_filters.add(ui)
@@ -2867,7 +2878,7 @@ def _build_paginated_payload(
 
 def _workflow_disabled_response() -> Response:
     return Response(
-        {"errors": {"workflow": "Workflow dev store is disabled."}},
+        {"errors": {"workflow": "DB-backed needs-list workflow is unavailable."}},
         status=501,
     )
 
@@ -2879,7 +2890,7 @@ def needs_list_list(request):
     """
     List needs lists, optionally filtered by query params.
     Query params:
-        status - comma-separated list of statuses (e.g. SUBMITTED,PENDING_APPROVAL,UNDER_REVIEW)
+        status - comma-separated list of statuses (e.g. DRAFT,SUBMITTED,APPROVED)
         mine - when true, only records created by current actor
         include_closed - when false, excludes terminal statuses
         event_id - optional positive integer event scope
@@ -2968,7 +2979,7 @@ def needs_list_my_submissions(request):
     Paginated, filterable summaries of needs list submissions.
 
     Visibility rules:
-    - DRAFT/MODIFIED/RETURNED records remain owner-only.
+    - DRAFT/MODIFIED records remain owner-only.
     - Submitted-and-beyond records are visible to all authorized users.
     - mine=true forces owner-only filtering for all statuses.
     """
@@ -3013,7 +3024,7 @@ def needs_list_my_submissions(request):
         return Response({"errors": {"sort_order": "Must be asc or desc."}}, status=400)
 
     # Terminal statuses hidden by default unless explicitly requested via filter.
-    _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
+    _DEFAULT_EXCLUDED_STATUSES = _CLOSED_NEEDS_LIST_STATUSES
     try:
         page, page_size = _parse_pagination_params(request)
     except PaginationValidationError as exc:
@@ -3375,6 +3386,7 @@ def needs_list_bulk_delete(request):
             actor,
             reason=reason,
         )
+        target_status = _workflow_target_status("CANCELLED")
         workflow_store.update_record(needs_list_id, updated_record)
         logger.info(
             "needs_list_cancelled",
@@ -3384,7 +3396,7 @@ def needs_list_bulk_delete(request):
                 "username": getattr(request.user, "username", None),
                 "needs_list_id": needs_list_id,
                 "from_status": status,
-                "to_status": "CANCELLED",
+                "to_status": target_status,
                 "reason": reason,
             },
         )
@@ -4921,8 +4933,8 @@ def needs_list_escalate(request, needs_list_id: str):
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
+    record = workflow_store.transition_status(record, "ESCALATED", actor, reason=reason)
     target_status = _workflow_target_status("ESCALATED")
-    record = workflow_store.transition_status(record, target_status, actor, reason=reason)
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -5276,11 +5288,8 @@ def needs_list_mark_completed(request, needs_list_id: str):
     )
 
     response_payload = _serialize_workflow_record(record, include_overrides=True)
-    if str(response_payload.get("status") or "").strip().upper() in {
-        "FULFILLED",
-        "COMPLETED",
-    }:
-        response_payload["status"] = "COMPLETED"
+    if str(response_payload.get("status") or "").strip().upper() == "FULFILLED":
+        response_payload["execution_stage"] = "COMPLETED"
     return Response(response_payload)
 
 
@@ -5328,6 +5337,7 @@ def needs_list_cancel(request, needs_list_id: str):
         record = workflow_store.transition_status(
             record, "CANCELLED", actor_user_id, reason=reason
         )
+        target_status = _workflow_target_status("CANCELLED")
         workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -5338,7 +5348,7 @@ def needs_list_cancel(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "from_status": from_status,
-            "to_status": "CANCELLED",
+            "to_status": target_status,
             "reason": reason,
         },
     )

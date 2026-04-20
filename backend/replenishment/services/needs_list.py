@@ -294,6 +294,18 @@ def compute_time_to_stockout_hours(
     return (available + inbound_strict) / burn_rate_per_hour
 
 
+def compute_status_severity(time_to_stockout: float | str | None) -> str:
+    if not isinstance(time_to_stockout, (int, float)):
+        return "OK"
+    if time_to_stockout < 8:
+        return "CRITICAL"
+    if time_to_stockout < 24:
+        return "WARNING"
+    if time_to_stockout < 72:
+        return "WATCH"
+    return "OK"
+
+
 def compute_freshness_state(
     phase: str, inventory_as_of, as_of_dt
 ) -> Tuple[str, List[str], float | None]:
@@ -382,6 +394,8 @@ def build_preview_items(
 
     for item_id in item_ids:
         available = float(available_by_item.get(item_id, 0.0))
+        inbound_donation_qty = float(inbound_donations_by_item.get(item_id, 0.0))
+        inbound_transfer_qty = float(inbound_transfers_by_item.get(item_id, 0.0))
         inbound_strict = compute_inbound_strict(
             item_id, inbound_donations_by_item, inbound_transfers_by_item
         )
@@ -431,6 +445,7 @@ def build_preview_items(
         time_to_stockout = compute_time_to_stockout_hours(
             burn_rate_per_hour, available, inbound_strict
         )
+        severity = compute_status_severity(time_to_stockout)
         stockout_hours = (
             time_to_stockout if isinstance(time_to_stockout, (int, float)) else None
         )
@@ -550,6 +565,9 @@ def build_preview_items(
             "criticality_level": effective_criticality_level,
             "criticality_source": effective_criticality_source,
             "available_qty": round(available, 2),
+            "inbound_transfer_qty": round(inbound_transfer_qty, 2),
+            "inbound_donation_qty": round(inbound_donation_qty, 2),
+            "inbound_procurement_qty": 0.0,
             "inbound_strict_qty": round(inbound_strict, 2),
             "burn_rate_per_hour": round(burn_rate_per_hour, 4),
             "required_qty": round(required_qty, 2),
@@ -560,6 +578,7 @@ def build_preview_items(
             "time_to_stockout_hours": time_to_stockout
             if isinstance(time_to_stockout, str)
             else round(time_to_stockout, 2),
+            "severity": severity,
             "horizon": horizon,
             "triggers": triggers,
             "confidence": {"level": confidence_level, "reasons": reasons},

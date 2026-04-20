@@ -1463,7 +1463,16 @@ def get_allocation_options(
             needs_list__warehouse_id=needs_list.warehouse_id,
             item_id__in=item_ids,
             needs_list__status_code__in=sorted(
-                {"DRAFT", "PENDING_APPROVAL", "UNDER_REVIEW", "APPROVED", "IN_PROGRESS", "RETURNED"}
+                {
+                    "DRAFT",
+                    "MODIFIED",
+                    "SUBMITTED",
+                    "PENDING_APPROVAL",
+                    "UNDER_REVIEW",
+                    "APPROVED",
+                    "IN_PROGRESS",
+                    "RETURNED",
+                }
             ),
         )
         .exclude(needs_list_id=needs_list_id)

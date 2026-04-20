@@ -1,11 +1,8 @@
 """
 Database-backed workflow store for needs list management.
 
-This module replaces the JSON file-based workflow_store.py with database persistence
-using the Django ORM models defined in models.py.
-
-All needs lists, line items, and audit trails are now stored in PostgreSQL tables,
-making the system production-ready and enabling proper transactional integrity.
+All needs lists, line items, workflow metadata, and audit trails are stored in the
+database so the live request path has one authoritative persistence mechanism.
 """
 
 from __future__ import annotations
@@ -16,7 +13,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Dict, Iterable, Sequence, Tuple
 from django.db import IntegrityError, connection, connections, transaction
-from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Cast, Coalesce
 from django.core.exceptions import ObjectDoesNotExist
@@ -26,6 +23,7 @@ from decimal import Decimal, InvalidOperation
 from .legacy_models import Warehouse
 from .models import (
     NeedsList,
+    NeedsListAllocationLine,
     NeedsListItem,
     NeedsListAudit,
 )
@@ -34,10 +32,12 @@ from .services import data_access, phase_window_policy
 logger = logging.getLogger("dmis.audit")
 
 _STATUS_ALIASES = {
-    "SUBMITTED": "PENDING_APPROVAL",
-    "PENDING": "PENDING_APPROVAL",
-    "MODIFIED": "RETURNED",
-    "ESCALATED": "UNDER_REVIEW",
+    "PENDING": "SUBMITTED",
+    "PENDING_APPROVAL": "SUBMITTED",
+    "UNDER_REVIEW": "SUBMITTED",
+    "RETURNED": "MODIFIED",
+    "ESCALATED": "SUBMITTED",
+    "CANCELLED": "REJECTED",
     "IN_PREPARATION": "IN_PROGRESS",
     "DISPATCHED": "IN_PROGRESS",
     "RECEIVED": "IN_PROGRESS",
@@ -47,8 +47,10 @@ _STATUS_ALIASES = {
 _NEEDS_LIST_NO_MAX_RETRIES = 5
 _SUPERSEDE_CANDIDATE_STATUSES = {
     "DRAFT",
-    "RETURNED",
+    "MODIFIED",
     "SUBMITTED",
+    # Legacy values remain here so older rows are handled safely until migrated.
+    "RETURNED",
     "PENDING",
     "PENDING_APPROVAL",
 }
@@ -78,6 +80,31 @@ def _normalize_actor(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _canonical_status(value: object) -> str:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        return ""
+    return _STATUS_ALIASES.get(normalized, normalized)
+
+
+def _status_filter_values(statuses: Iterable[object] | None) -> list[str]:
+    values: set[str] = set()
+    for status in statuses or []:
+        raw = str(status or "").strip().upper()
+        if not raw:
+            continue
+        canonical = _canonical_status(raw)
+        if canonical:
+            values.add(canonical)
+        values.add(raw)
+        values.update(
+            alias
+            for alias, target in _STATUS_ALIASES.items()
+            if target == canonical
+        )
+    return sorted(values)
+
+
 def _record_owned_by_actor(needs_list: NeedsList, actor: str | None) -> bool:
     normalized_actor = _normalize_actor(actor)
     if not normalized_actor:
@@ -96,13 +123,64 @@ def _iso_or_none(value: object) -> str | None:
 
 
 def _normalize_status_filters(statuses: Iterable[object] | None) -> list[str]:
-    normalized: set[str] = set()
-    for status in statuses or []:
-        value = str(status or "").strip().upper()
-        if not value:
-            continue
-        normalized.add(_STATUS_ALIASES.get(value, value))
-    return sorted(normalized)
+    return _status_filter_values(statuses)
+
+
+_FRESHNESS_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+
+
+def _normalize_freshness_level(value: object) -> str | None:
+    normalized = str(value or "").strip().upper()
+    return normalized if normalized in _FRESHNESS_ORDER else None
+
+
+def _item_freshness_level(item_data: Dict[str, object]) -> str | None:
+    freshness = item_data.get("freshness")
+    if isinstance(freshness, dict):
+        level = _normalize_freshness_level(freshness.get("state"))
+        if level:
+            return level
+    return _normalize_freshness_level(
+        item_data.get("freshness_state") or item_data.get("data_freshness_level")
+    )
+
+
+def _overall_freshness_level(items: Iterable[Dict[str, object]]) -> str:
+    levels = [
+        level
+        for item in items
+        if (level := _item_freshness_level(item)) is not None
+    ]
+    if not levels:
+        return "HIGH"
+    return min(levels, key=lambda level: _FRESHNESS_ORDER[level])
+
+
+def _stockout_hours_value(item_data: Dict[str, object]) -> float | None:
+    raw_value = item_data.get("time_to_stockout_hours", item_data.get("time_to_stockout"))
+    parsed = _coerce_optional_decimal(raw_value)
+    return float(parsed) if parsed is not None else None
+
+
+def _severity_from_stockout_hours(stockout_hours: float | None) -> str:
+    if stockout_hours is None:
+        return "OK"
+    if stockout_hours < 8:
+        return "CRITICAL"
+    if stockout_hours < 24:
+        return "WARNING"
+    if stockout_hours < 72:
+        return "WATCH"
+    return "OK"
+
+
+def _normalize_severity(item_data: Dict[str, object]) -> str:
+    normalized = str(
+        item_data.get("severity") or item_data.get("severity_level") or ""
+    ).strip().upper()
+    if normalized in {"CRITICAL", "WARNING", "WATCH", "OK"}:
+        return normalized
+    return _severity_from_stockout_hours(_stockout_hours_value(item_data))
 
 
 def _utc_now() -> datetime:
@@ -485,6 +563,111 @@ def _supersede_open_scope_records(
     return superseded_ids
 
 
+def _line_target_qty(item: NeedsListItem) -> Decimal:
+    return item.adjusted_qty if item.adjusted_qty is not None else item.required_qty
+
+
+def _fulfillment_status_for_quantities(fulfilled_qty: Decimal, target_qty: Decimal) -> str:
+    if target_qty <= 0 or fulfilled_qty >= target_qty:
+        return "FULFILLED"
+    if fulfilled_qty > 0:
+        return "PARTIAL"
+    return "PENDING"
+
+
+def _record_line_fulfillment_change(
+    *,
+    needs_list: NeedsList,
+    item: NeedsListItem,
+    old_status: str,
+    new_status: str,
+    actor: str,
+    notes: str,
+) -> None:
+    if old_status == new_status:
+        return
+    NeedsListAudit.objects.create(
+        needs_list=needs_list,
+        needs_list_item=item,
+        action_type="FULFILLED" if new_status == "FULFILLED" else "STATUS_CHANGED",
+        field_name="fulfillment_status",
+        old_value=old_status,
+        new_value=new_status,
+        notes_text=notes,
+        actor_user_id=actor,
+    )
+
+
+def _apply_received_allocations_to_lines(needs_list: NeedsList, actor: str) -> None:
+    allocation_totals = {
+        int(row["item_id"]): Decimal(str(row["allocated_qty"] or "0"))
+        for row in NeedsListAllocationLine.objects.filter(needs_list=needs_list)
+        .values("item_id")
+        .annotate(allocated_qty=Sum("allocated_qty"))
+    }
+    if not allocation_totals:
+        return
+
+    for item in needs_list.items.select_for_update():
+        received_qty = allocation_totals.get(int(item.item_id))
+        if received_qty is None or received_qty <= 0:
+            continue
+
+        old_status = item.fulfillment_status
+        target_qty = _line_target_qty(item)
+        item.fulfilled_qty = min(item.fulfilled_qty + received_qty, target_qty)
+        item.coverage_qty = max(item.coverage_qty, min(target_qty, item.fulfilled_qty))
+        item.fulfillment_status = _fulfillment_status_for_quantities(
+            item.fulfilled_qty,
+            target_qty,
+        )
+        item.update_by_id = actor
+        item.save(
+            update_fields=[
+                "fulfilled_qty",
+                "coverage_qty",
+                "fulfillment_status",
+                "update_by_id",
+                "update_dtime",
+            ]
+        )
+        _record_line_fulfillment_change(
+            needs_list=needs_list,
+            item=item,
+            old_status=old_status,
+            new_status=item.fulfillment_status,
+            actor=actor,
+            notes="Fulfillment updated from received allocation quantities.",
+        )
+
+
+def _mark_all_lines_fulfilled(needs_list: NeedsList, actor: str) -> None:
+    for item in needs_list.items.select_for_update():
+        old_status = item.fulfillment_status
+        target_qty = _line_target_qty(item)
+        item.fulfilled_qty = target_qty
+        item.coverage_qty = max(item.coverage_qty, target_qty)
+        item.fulfillment_status = "FULFILLED"
+        item.update_by_id = actor
+        item.save(
+            update_fields=[
+                "fulfilled_qty",
+                "coverage_qty",
+                "fulfillment_status",
+                "update_by_id",
+                "update_dtime",
+            ]
+        )
+        _record_line_fulfillment_change(
+            needs_list=needs_list,
+            item=item,
+            old_status=old_status,
+            new_status=item.fulfillment_status,
+            actor=actor,
+            notes="Needs list completion marked remaining line quantity fulfilled.",
+        )
+
+
 def _safe_get_warehouse_name(warehouse_id: int) -> str:
     try:
         return data_access.get_warehouse_name(warehouse_id)
@@ -651,8 +834,8 @@ def _normalize_snapshot_item(
         "effective_criticality_source": effective_criticality_source,
         "criticality_level": effective_criticality_level,
         "criticality_source": effective_criticality_source,
-        "warehouse_id": item_data.get("warehouse_id", warehouse_id),
-        "warehouse_name": item_data.get("warehouse_name", warehouse_name),
+        "warehouse_id": item_data.get("warehouse_id") or warehouse_id,
+        "warehouse_name": item_data.get("warehouse_name") or warehouse_name,
         "uom_code": item_data.get("uom_code", "EA"),
         "burn_rate_per_hour": round(burn_rate_per_hour_value, 4),
         "burn_rate": round(burn_rate_per_hour_value, 4),
@@ -669,7 +852,7 @@ def _normalize_snapshot_item(
         "gap_qty": round(gap_qty, 2),
         "time_to_stockout": time_to_stockout_hours,
         "time_to_stockout_hours": time_to_stockout_hours,
-        "severity": item_data.get("severity", "OK"),
+        "severity": _normalize_severity(item_data),
         "horizon": {
             "A": {"recommended_qty": round(horizon_a_qty, 2)},
             "B": {"recommended_qty": round(horizon_b_qty, 2)},
@@ -741,6 +924,17 @@ def create_draft(
     selected_method = payload.get("selected_method")
     selected_item_keys = payload.get("selected_item_keys")
     filters = payload.get("filters")
+    normalized_snapshot_items = [
+        _normalize_snapshot_item(
+            dict(item),
+            warehouse_id=_coerce_int(warehouse_id, 0) or None,
+            warehouse_name=None,
+            item_lookup={},
+        )
+        for item in items
+        if isinstance(item, dict)
+    ]
+    data_freshness_level = _overall_freshness_level(normalized_snapshot_items)
 
     windows = phase_window_policy.get_effective_phase_windows(int(event_id), str(phase or "BASELINE"))
     demand_window_hours = int(windows["demand_hours"])
@@ -780,7 +974,7 @@ def create_draft(
                     demand_window_hours=demand_window_hours,
                     planning_window_hours=planning_window_hours,
                     safety_factor=Decimal('1.25'),  # Default safety factor
-                    data_freshness_level='HIGH',  # TODO: Calculate from actual data freshness
+                    data_freshness_level=data_freshness_level,
                     status_code='DRAFT',
                     total_gap_qty=total_gap_qty,
                     create_by_id=actor,
@@ -793,6 +987,8 @@ def create_draft(
                         "selected_item_keys": selected_item_keys,
                         "filters": filters,
                         "warnings": warnings_list,
+                        "data_freshness_level": data_freshness_level,
+                        "snapshot_items": normalized_snapshot_items,
                     },
                 )
             break
@@ -880,7 +1076,7 @@ def create_draft(
             "coverage_qty": _coerce_decimal(coverage_qty),
             "gap_qty": _coerce_decimal(item_data.get('gap_qty')),
             "time_to_stockout_hours": time_to_stockout,
-            "severity_level": item_data.get('severity', 'OK'),
+            "severity_level": _normalize_severity(item_data),
             "effective_criticality_level": effective_criticality_level,
             "effective_criticality_source": effective_criticality_source,
             "horizon_a_qty": _coerce_decimal(horizon_a_qty),
@@ -1106,12 +1302,13 @@ def _serialize_record_headers(needs_lists: Sequence[NeedsList]) -> list[Dict[str
             {
                 "needs_list_id": str(needs_list_id),
                 "needs_list_no": needs_list.needs_list_no,
-                "status": needs_list.status_code,
+                "status": _canonical_status(needs_list.status_code),
                 "event_id": needs_list.event_id,
                 "event_name": event_name,
                 "warehouse_id": needs_list.warehouse_id,
                 "warehouse_name": warehouse_name,
                 "phase": needs_list.event_phase,
+                "data_freshness_level": needs_list.data_freshness_level,
                 "selected_method": selected_method,
                 "created_by": needs_list.create_by_id,
                 "created_at": _iso_or_none(needs_list.create_dtime),
@@ -1154,6 +1351,7 @@ def list_record_headers(
             "event_id",
             "warehouse_id",
             "event_phase",
+            "data_freshness_level",
             "status_code",
             "create_by_id",
             "create_dtime",
@@ -1211,6 +1409,7 @@ def list_record_headers_page(
             "event_id",
             "warehouse_id",
             "event_phase",
+            "data_freshness_level",
             "status_code",
             "create_by_id",
             "create_dtime",
@@ -1364,7 +1563,7 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
 
         # Update fields from record
         if 'status' in record:
-            needs_list.status_code = record['status']
+            needs_list.status_code = _canonical_status(record['status'])
         if 'updated_by' in record:
             needs_list.update_by_id = record['updated_by']
 
@@ -1668,16 +1867,17 @@ def transition_status(
     except ObjectDoesNotExist:
         raise ValueError(f'needs_list_id {needs_list_id} not found')
 
-    target_status = str(to_status or "").upper()
+    requested_status = str(to_status or "").strip().upper()
+    target_status = _canonical_status(requested_status)
     requested_stage = _normalize_in_progress_stage(stage)
-    if target_status in _IN_PROGRESS_STAGE_BY_STATUS:
+    if requested_status in _IN_PROGRESS_STAGE_BY_STATUS:
         target_status = "IN_PROGRESS"
         if requested_stage is None:
-            requested_stage = _normalize_in_progress_stage(to_status)
+            requested_stage = _normalize_in_progress_stage(requested_status)
 
     metadata = _load_workflow_metadata(needs_list)
     metadata_changed = False
-    old_status = needs_list.status_code
+    old_status = _canonical_status(needs_list.status_code)
     needs_list.status_code = target_status
     needs_list.update_by_id = actor or 'SYSTEM'
     actor_value = actor or "SYSTEM"
@@ -1685,14 +1885,14 @@ def transition_status(
     # Update workflow timestamps based on new status
     now = _utc_now()
     now_iso = now.isoformat()
-    if target_status == 'PENDING_APPROVAL':
-        needs_list.submitted_at = now
-        needs_list.submitted_by = actor
-    elif target_status == 'UNDER_REVIEW':
-        needs_list.under_review_at = now
-        needs_list.under_review_by = actor
-        # Escalation transitions are mapped to UNDER_REVIEW in DB-backed mode.
-        if reason and str(reason).strip():
+    if target_status == 'SUBMITTED':
+        if requested_status == "ESCALATED":
+            needs_list.under_review_at = now
+            needs_list.under_review_by = actor
+        elif old_status != "SUBMITTED" or not needs_list.submitted_at:
+            needs_list.submitted_at = now
+            needs_list.submitted_by = actor
+        if requested_status == "ESCALATED" and reason and str(reason).strip():
             metadata["escalated_at"] = now_iso
             metadata["escalated_by"] = actor_value
             metadata["escalation_reason"] = str(reason).strip()
@@ -1708,17 +1908,15 @@ def transition_status(
         needs_list.rejected_at = now
         needs_list.rejected_by = actor
         needs_list.rejection_reason = reason
-    elif target_status == 'RETURNED':
+        if requested_status == 'CANCELLED':
+            needs_list.cancelled_at = now
+            needs_list.cancelled_by = actor
+    elif target_status == 'MODIFIED':
         needs_list.reviewed_at = now
         needs_list.reviewed_by = actor
         needs_list.returned_at = now
         needs_list.returned_by = actor
         needs_list.returned_reason = reason
-    elif target_status == 'CANCELLED':
-        needs_list.cancelled_at = now
-        needs_list.cancelled_by = actor
-        needs_list.rejection_reason = reason  # Reuse rejection_reason field
-
     if target_status == "IN_PROGRESS":
         if requested_stage is None:
             raise ValueError("IN_PROGRESS transitions require an explicit stage.")
@@ -1747,6 +1945,7 @@ def transition_status(
             metadata["received_at"] = now_iso
             metadata["received_by"] = actor_value
             metadata_changed = True
+            _apply_received_allocations_to_lines(needs_list, actor_value)
         else:
             raise ValueError(f"Unsupported IN_PROGRESS stage: {requested_stage}")
     elif target_status == "FULFILLED":
@@ -1756,6 +1955,7 @@ def transition_status(
         if not metadata.get("completed_by"):
             metadata["completed_by"] = actor_value
             metadata_changed = True
+        _mark_all_lines_fulfilled(needs_list, actor_value)
 
     if metadata_changed:
         _save_workflow_metadata(needs_list, metadata)
@@ -1820,6 +2020,15 @@ def _needs_list_to_dict(
     selected_item_keys = metadata.get("selected_item_keys")
     filters = metadata.get("filters")
     supersedes_needs_list_ids = metadata.get("supersedes_needs_list_ids")
+    snapshot_items_by_id: dict[int, Dict[str, object]] = {}
+    raw_snapshot_items = metadata.get("snapshot_items")
+    if isinstance(raw_snapshot_items, list):
+        for raw_item in raw_snapshot_items:
+            if not isinstance(raw_item, dict):
+                continue
+            item_id = _coerce_int(raw_item.get("item_id"), 0)
+            if item_id > 0:
+                snapshot_items_by_id[item_id] = dict(raw_item)
     if isinstance(supersedes_needs_list_ids, list):
         supersedes_needs_list_ids = [
             str(needs_list_id).strip()
@@ -1866,7 +2075,17 @@ def _needs_list_to_dict(
 
         items = []
         for item in db_items_list:
+            snapshot_item = snapshot_items_by_id.get(item.item_id, {})
+            time_to_stockout_value = (
+                float(item.time_to_stockout_hours)
+                if item.time_to_stockout_hours is not None
+                else snapshot_item.get(
+                    "time_to_stockout",
+                    snapshot_item.get("time_to_stockout_hours"),
+                )
+            )
             raw_item = {
+                **snapshot_item,
                 "item_id": item.item_id,
                 "uom_code": item.uom_code,
                 "burn_rate": float(item.burn_rate),
@@ -1881,9 +2100,8 @@ def _needs_list_to_dict(
                 "required_qty": float(item.required_qty),
                 "coverage_qty": float(item.coverage_qty),
                 "gap_qty": float(item.gap_qty),
-                "time_to_stockout": float(item.time_to_stockout_hours)
-                if item.time_to_stockout_hours is not None
-                else None,
+                "time_to_stockout": time_to_stockout_value,
+                "time_to_stockout_hours": time_to_stockout_value,
                 "severity": item.severity_level,
                 "horizon_a_qty": float(item.horizon_a_qty),
                 "horizon_b_qty": float(item.horizon_b_qty),
@@ -1977,9 +2195,10 @@ def _needs_list_to_dict(
         'warehouses': warehouses,
         'phase': needs_list.event_phase,
         'as_of_datetime': calculation_as_of,
+        'data_freshness_level': needs_list.data_freshness_level,
         'planning_window_days': needs_list.planning_window_hours / 24,  # Convert back to days
         'filters': filters,
-        'status': needs_list.status_code,
+        'status': _canonical_status(needs_list.status_code),
         'created_by': needs_list.create_by_id,
         'created_at': needs_list.create_dtime.isoformat(),
         'updated_by': needs_list.update_by_id,
@@ -2002,9 +2221,9 @@ def _needs_list_to_dict(
         'received_at': stage_fields.get("received_at"),
         'completed_by': stage_fields.get("completed_by"),
         'completed_at': stage_fields.get("completed_at"),
-        'cancelled_by': needs_list.cancelled_by if needs_list.status_code == 'CANCELLED' else None,
-        'cancelled_at': needs_list.cancelled_at.isoformat() if needs_list.status_code == 'CANCELLED' and needs_list.cancelled_at else None,
-        'cancel_reason': needs_list.rejection_reason if needs_list.status_code == 'CANCELLED' else None,
+        'cancelled_by': needs_list.cancelled_by,
+        'cancelled_at': needs_list.cancelled_at.isoformat() if needs_list.cancelled_at else None,
+        'cancel_reason': needs_list.rejection_reason if needs_list.cancelled_at else None,
         'escalated_by': metadata.get("escalated_by"),
         'escalated_at': metadata.get("escalated_at"),
         'escalation_reason': metadata.get("escalation_reason"),
@@ -2016,10 +2235,10 @@ def _needs_list_to_dict(
         'supersede_reason': metadata.get("supersede_reason") or metadata.get("superseded_reason"),
         'returned_by': needs_list.returned_by,
         'returned_at': needs_list.returned_at.isoformat() if needs_list.returned_at else None,
-        'return_reason': needs_list.returned_reason if needs_list.status_code == 'RETURNED' else None,
+        'return_reason': needs_list.returned_reason,
         'rejected_by': needs_list.rejected_by,
         'rejected_at': needs_list.rejected_at.isoformat() if needs_list.rejected_at else None,
-        'reject_reason': needs_list.rejection_reason if needs_list.status_code == 'REJECTED' else None,
+        'reject_reason': needs_list.rejection_reason if _canonical_status(needs_list.status_code) == 'REJECTED' else None,
         'line_overrides': line_overrides,
         'line_review_notes': line_review_notes,
         'selected_method': selected_method,
@@ -2027,6 +2246,7 @@ def _needs_list_to_dict(
         'snapshot': {
             'items': items,
             'warnings': list(warnings),
+            'data_freshness_level': needs_list.data_freshness_level,
             'planning_window_days': needs_list.planning_window_hours / 24,
             'as_of_datetime': calculation_as_of,
             'event_name': event_name,

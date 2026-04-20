@@ -193,8 +193,8 @@ CREATE TABLE IF NOT EXISTS public.needs_list (
     CONSTRAINT c_needs_list_phase CHECK (event_phase IN ('SURGE', 'STABILIZED', 'BASELINE')),
     CONSTRAINT c_needs_list_freshness CHECK (data_freshness_level IN ('HIGH', 'MEDIUM', 'LOW')),
     CONSTRAINT c_needs_list_status CHECK (status_code IN (
-        'DRAFT', 'PENDING_APPROVAL', 'UNDER_REVIEW', 'APPROVED', 'REJECTED',
-        'RETURNED', 'IN_PROGRESS', 'FULFILLED', 'CANCELLED', 'SUPERSEDED'
+        'DRAFT', 'MODIFIED', 'SUBMITTED', 'APPROVED', 'REJECTED',
+        'IN_PROGRESS', 'FULFILLED', 'SUPERSEDED'
     )),
     CONSTRAINT c_needs_list_gap CHECK (total_gap_qty >= 0.00)
 );
