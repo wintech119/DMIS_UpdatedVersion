@@ -1854,27 +1854,10 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     planning_window_hours = int(windows["planning_hours"])
     planning_window_days = planning_window_hours / 24
 
-    horizon_a_setting = getattr(settings, "NEEDS_HORIZON_A_DAYS", 7)
-    try:
-        horizon_a_hours = int(horizon_a_setting) * 24
-    except (TypeError, ValueError):
-        logger.warning(
-            "Invalid NEEDS_HORIZON_A_DAYS setting %r, defaulting to 7",
-            horizon_a_setting,
-        )
-        horizon_a_hours = 7 * 24
-    horizon_b_days_setting = getattr(settings, "NEEDS_HORIZON_B_DAYS", None)
-    if horizon_b_days_setting is None:
-        horizon_b_hours = max(planning_window_hours - horizon_a_hours, 0)
-    else:
-        try:
-            horizon_b_hours = int(horizon_b_days_setting or 0) * 24
-        except (TypeError, ValueError):
-            logger.warning(
-                "Invalid NEEDS_HORIZON_B_DAYS setting %r, defaulting to 0",
-                horizon_b_days_setting,
-            )
-            horizon_b_hours = 0
+    horizon_lead_times = phase_window_policy.get_default_horizon_lead_times()
+    horizon_a_hours = int(horizon_lead_times["A"]["lead_time_hours"])
+    horizon_b_hours = int(horizon_lead_times["B"]["lead_time_hours"])
+    horizon_c_hours = int(horizon_lead_times["C"]["lead_time_hours"])
 
     (
         available_by_item,
@@ -1943,6 +1926,7 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         safety_factor=safety_factor,
         horizon_a_hours=horizon_a_hours,
         horizon_b_hours=horizon_b_hours,
+        horizon_c_hours=horizon_c_hours,
         burn_source=burn_source,
         as_of_dt=as_of_dt,
         phase=phase,
@@ -1994,6 +1978,28 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         "event_id": event_id,
         "warehouse_id": warehouse_id,
         "phase": phase,
+        "phase_window": windows,
+        "horizon_lead_times_hours": {
+            key: int(value["lead_time_hours"])
+            for key, value in horizon_lead_times.items()
+        },
+        "freshness_summary": {
+            "HIGH": sum(
+                1
+                for item in items
+                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "HIGH"
+            ),
+            "MEDIUM": sum(
+                1
+                for item in items
+                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "MEDIUM"
+            ),
+            "LOW": sum(
+                1
+                for item in items
+                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "LOW"
+            ),
+        },
         "items": items,
         "warnings": warnings,
     }

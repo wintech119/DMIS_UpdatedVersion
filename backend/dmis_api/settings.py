@@ -1070,7 +1070,7 @@ def _get_float_env(name: str, default: float) -> float:
 # Values are tenant_code entries and are compared case-insensitively.
 NATIONAL_PHASE_WINDOW_ADMIN_CODES = _get_csv_env(
     "NATIONAL_PHASE_WINDOW_ADMIN_CODES",
-    ["OFFICE-OF-DISASTER-P", "ODPEM-NEOC"],
+    ["OFFICE-OF-DISASTER-P"],
 )
 
 NEEDS_SAFETY_FACTOR = _get_float_env("NEEDS_SAFETY_FACTOR", 1.25)

@@ -19,9 +19,10 @@ from api.rbac import (
     PERM_CRITICALITY_HAZARD_APPROVE,
     PERM_CRITICALITY_HAZARD_MANAGE,
     PERM_CRITICALITY_OVERRIDE_MANAGE,
+    PERM_EVENT_PHASE_WINDOW_MANAGE,
 )
 from api.tenancy import TenantContext, TenantMembership
-from replenishment import apps as replenishment_apps, rules, views, workflow_store_db
+from replenishment import apps as replenishment_apps, phase_window_views, rules, views, workflow_store_db
 try:
     from replenishment import workflow_store
 except ImportError:  # pragma: no cover - test fallback for repos without the legacy file store module.
@@ -38,6 +39,7 @@ from replenishment.services import (
     criticality as criticality_service,
     data_access,
     needs_list,
+    phase_window_policy,
     procurement as procurement_service,
 )
 from replenishment.services.needs_list import (
@@ -543,15 +545,17 @@ class NeedsListServiceTests(SimpleTestCase):
             warnings=[],
             procurement_available=False,
             mapping_best_effort=False,
+            freshness_level="HIGH",
         )
         level_present, _, _ = compute_confidence_and_warnings(
             burn_source="reliefpkg",
             warnings=[],
             procurement_available=True,
             mapping_best_effort=False,
+            freshness_level="HIGH",
         )
-        self.assertEqual(level_missing, "low")
-        self.assertEqual(level_present, "high")
+        self.assertEqual(level_missing, "LOW")
+        self.assertEqual(level_present, "HIGH")
 
     def test_time_to_stockout_handles_zero_burn(self) -> None:
         self.assertEqual(
@@ -574,6 +578,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=0,
             horizon_b_hours=0,
+            horizon_c_hours=336,
             burn_source="none",
             as_of_dt=as_of_dt,
             phase="BASELINE",
@@ -581,7 +586,8 @@ class NeedsListServiceTests(SimpleTestCase):
             base_warnings=["burn_data_missing"],
         )
         item_one = items[0]
-        self.assertEqual(item_one["confidence"]["level"], "low")
+        self.assertEqual(item_one["confidence"]["level"], "LOW")
+        self.assertEqual(item_one["freshness"]["state"], "LOW")
         self.assertIn("burn_rate_estimated", item_one["warnings"])
         self.assertEqual(fallback_counts["category_avg"], 2)
 
@@ -589,7 +595,7 @@ class NeedsListServiceTests(SimpleTestCase):
         state, warnings, _ = needs_list.compute_freshness_state(
             "BASELINE", None, timezone.now()
         )
-        self.assertEqual(state, "unknown")
+        self.assertEqual(state, "LOW")
         self.assertIn("inventory_timestamp_unavailable", warnings)
 
     def test_horizon_b_recommended_with_zero_inbound(self) -> None:
@@ -606,6 +612,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=24,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=timezone.now(),
             phase="BASELINE",
@@ -632,6 +639,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=48,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="STABILIZED",
@@ -657,6 +665,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=24,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="SURGE",
@@ -695,6 +704,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=24,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="SURGE",
@@ -730,6 +740,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=24,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="SURGE",
@@ -765,6 +776,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=24,
             horizon_b_hours=24,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="SURGE",
@@ -790,6 +802,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=0,
             horizon_b_hours=0,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="BASELINE",
@@ -818,6 +831,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=0,
             horizon_b_hours=0,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="BASELINE",
@@ -827,7 +841,8 @@ class NeedsListServiceTests(SimpleTestCase):
         item = items[0]
         self.assertEqual(item["burn_rate_per_hour"], 1.5)
         self.assertIn("burn_rate_estimated", item["warnings"])
-        self.assertEqual(item["confidence"]["level"], "low")
+        self.assertEqual(item["confidence"]["level"], "LOW")
+        self.assertEqual(item["freshness"]["state"], "LOW")
         self.assertNotIn("burn_no_rows_in_window", item["warnings"])
 
     def test_burn_zero_freshness_unknown_no_estimate(self) -> None:
@@ -845,6 +860,7 @@ class NeedsListServiceTests(SimpleTestCase):
             safety_factor=1.0,
             horizon_a_hours=0,
             horizon_b_hours=0,
+            horizon_c_hours=336,
             burn_source="reliefpkg",
             as_of_dt=as_of_dt,
             phase="BASELINE",
@@ -852,11 +868,11 @@ class NeedsListServiceTests(SimpleTestCase):
             base_warnings=[],
         )
         item = items[0]
-        self.assertEqual(item["burn_rate_per_hour"], 0.0)
-        self.assertEqual(item["time_to_stockout"], "N/A - No current demand")
-        self.assertIn("burn_no_rows_in_window", item["warnings"])
+        self.assertEqual(item["burn_rate_per_hour"], 1.5)
+        self.assertIn("burn_rate_estimated", item["warnings"])
         self.assertIn("inventory_timestamp_unavailable", item["warnings"])
-        self.assertNotIn("burn_rate_estimated", item["warnings"])
+        self.assertEqual(item["confidence"]["level"], "LOW")
+        self.assertEqual(item["freshness"]["state"], "LOW")
 
     def test_procurement_approval_band_low_baseline(self) -> None:
         approval, warnings = rules.get_procurement_approval(2_000_000, "BASELINE")
@@ -902,27 +918,32 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(approval["approver_role"], "Logistics Manager (Kemar)")
         self.assertEqual(warnings, [])
         self.assertIn("Transfer workflow selected", rationale)
-    def test_default_windows_are_v41(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(rules.get_windows_version(), "v41")
+    def test_default_windows_match_backlog_v3_2(self) -> None:
+        self.assertEqual(
+            rules.get_phase_windows("SURGE"),
+            {"demand_hours": 6, "planning_hours": 24},
+        )
+        self.assertEqual(
+            rules.get_phase_windows("STABILIZED"),
+            {"demand_hours": 72, "planning_hours": 72},
+        )
+        self.assertEqual(
+            rules.get_phase_windows("BASELINE"),
+            {"demand_hours": 720, "planning_hours": 168},
+        )
+
+    def test_phase_windows_ignore_deprecated_env_version_override(self) -> None:
+        with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
             self.assertEqual(
                 rules.get_phase_windows("SURGE"),
-                {"demand_hours": 6, "planning_hours": 72},
-            )
-            self.assertEqual(
-                rules.get_phase_windows("STABILIZED"),
-                {"demand_hours": 72, "planning_hours": 168},
-            )
-            self.assertEqual(
-                rules.get_phase_windows("BASELINE"),
-                {"demand_hours": 720, "planning_hours": 720},
+                {"demand_hours": 6, "planning_hours": 24},
             )
 
-    def test_windows_version_override_v40(self) -> None:
-        with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
-            windows = rules.get_phase_windows("SURGE")
-            self.assertEqual(windows["planning_hours"], 24)
-            self.assertEqual(windows["demand_hours"], 6)
+    def test_default_horizon_lead_times_match_backlog(self) -> None:
+        self.assertEqual(
+            rules.get_default_horizon_lead_times(),
+            {"A": 8, "B": 72, "C": 336},
+        )
 
     def test_freshness_thresholds_matrix(self) -> None:
         self.assertEqual(
@@ -1070,6 +1091,282 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0].get("needs_list_id"), "EX-NO-WAREHOUSE-SAME")
         self.assertEqual(conflicts[0].get("overlap_item_ids"), [10])
+
+
+class GlobalPhaseWindowPolicyTests(SimpleTestCase):
+    @override_settings(
+        NATIONAL_PHASE_WINDOW_ADMIN_CODES=[
+            "ODPEM-NEOC",
+            "OFFICE-OF-DISASTER-P",
+            "ODPEM-LOGISTICS",
+        ]
+    )
+    def test_authority_codes_filter_stale_or_non_odpem_overrides(self) -> None:
+        self.assertEqual(
+            phase_window_policy._configured_admin_codes(),
+            ["OFFICE_OF_DISASTER_P"],
+        )
+
+    def test_hour_validation_rejects_float_truncation(self) -> None:
+        self.assertEqual(
+            phase_window_policy._coerce_positive_hours(" 6 ", "demand_hours"),
+            6,
+        )
+        self.assertEqual(
+            phase_window_policy._coerce_positive_hours(6, "demand_hours"),
+            6,
+        )
+
+        for bad_value in (True, False, 6.1, "6.1", "+6", "six", ""):
+            with self.subTest(value=bad_value):
+                with self.assertRaises(phase_window_policy.PhaseWindowPolicyError):
+                    phase_window_policy._coerce_positive_hours(
+                        bad_value,
+                        "demand_hours",
+                    )
+
+    def test_expire_active_global_phase_window_configs_targets_full_active_scope(self) -> None:
+        cursor = MagicMock()
+        now = timezone.now()
+        today = timezone.localdate()
+
+        phase_window_policy._expire_active_global_phase_window_configs(
+            cursor,
+            tenant_id=27,
+            config_key="replenishment.phase_window.surge",
+            actor_ref="phase-admin",
+            now=now,
+            today=today,
+        )
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("tenant_id = %s", sql)
+        self.assertIn("config_key = %s", sql)
+        self.assertIn("effective_date <= %s", sql)
+        self.assertIn("expiry_date IS NULL", sql)
+        self.assertNotIn("config_id =", sql.lower())
+        self.assertEqual(
+            params,
+            [
+                today - timedelta(days=1),
+                "phase-admin",
+                now,
+                27,
+                "replenishment.phase_window.surge",
+                today,
+                today,
+            ],
+        )
+
+    def test_effective_phase_windows_fall_back_to_backlog_default(self) -> None:
+        with patch(
+            "replenishment.services.phase_window_policy._resolve_authoritative_phase_window_tenant",
+            return_value={"tenant_id": 27, "tenant_code": "OFFICE-OF-DISASTER-P", "tenant_name": "ODPEM"},
+        ), patch(
+            "replenishment.services.phase_window_policy._fetch_effective_global_phase_window_config",
+            return_value=None,
+        ):
+            windows = phase_window_policy.get_effective_phase_windows(14, "SURGE")
+
+        self.assertEqual(windows["event_id"], 14)
+        self.assertEqual(windows["scope"], "global")
+        self.assertTrue(windows["applies_globally"])
+        self.assertEqual(windows["source"], "backlog_default")
+        self.assertEqual(windows["demand_hours"], 6)
+        self.assertEqual(windows["planning_hours"], 24)
+
+    def test_effective_phase_windows_prefer_global_tenant_config(self) -> None:
+        record = phase_window_policy.GlobalPhaseWindowConfigRecord(
+            config_id=91,
+            tenant_id=27,
+            tenant_code="OFFICE-OF-DISASTER-P",
+            tenant_name="ODPEM",
+            effective_date="2026-04-18",
+            update_dtime="2026-04-18T12:00:00Z",
+            value={
+                "phase": "SURGE",
+                "demand_hours": 12,
+                "planning_hours": 36,
+                "justification": "Backlog-authorized hurricane recalibration",
+                "audit": {
+                    "prior_values": {"demand_hours": 6, "planning_hours": 24},
+                    "new_values": {"demand_hours": 12, "planning_hours": 36},
+                },
+            },
+        )
+        with patch(
+            "replenishment.services.phase_window_policy._resolve_authoritative_phase_window_tenant",
+            return_value={"tenant_id": 27, "tenant_code": "OFFICE-OF-DISASTER-P", "tenant_name": "ODPEM"},
+        ), patch(
+            "replenishment.services.phase_window_policy._fetch_effective_global_phase_window_config",
+            return_value=record,
+        ):
+            windows = phase_window_policy.get_effective_phase_windows(99, "SURGE")
+
+        self.assertEqual(windows["source"], "tenant_config_global")
+        self.assertEqual(windows["demand_hours"], 12)
+        self.assertEqual(windows["planning_hours"], 36)
+        self.assertEqual(
+            windows["audit"]["prior_values"],
+            {"demand_hours": 6, "planning_hours": 24},
+        )
+        self.assertEqual(
+            windows["audit"]["new_values"],
+            {"demand_hours": 12, "planning_hours": 36},
+        )
+
+
+class GlobalPhaseWindowViewTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = APIRequestFactory()
+        self.national_context = TenantContext(
+            requested_tenant_id=27,
+            active_tenant_id=27,
+            active_tenant_code="OFFICE-OF-DISASTER-P",
+            active_tenant_type="NATIONAL",
+            memberships=(
+                TenantMembership(
+                    tenant_id=27,
+                    tenant_code="OFFICE-OF-DISASTER-P",
+                    tenant_name="ODPEM National",
+                    tenant_type="NATIONAL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+    def _request(self, payload: dict[str, object]):
+        request = self.factory.put(
+            "/api/v1/replenishment/events/14/phase-windows/SURGE",
+            payload,
+            format="json",
+        )
+        user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="phase-admin",
+            username="phase-admin",
+        )
+        force_authenticate(request, user=user)
+        return request
+
+    @patch(
+        "api.permissions.resolve_roles_and_permissions",
+        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch(
+        "replenishment.phase_window_views.resolve_roles_and_permissions",
+        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch("replenishment.phase_window_views._tenant_context")
+    @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")
+    def test_put_requires_justification(
+        self,
+        mock_set_windows,
+        mock_tenant_context,
+        _mock_phase_view_roles,
+        _mock_permission_roles,
+    ) -> None:
+        mock_tenant_context.return_value = self.national_context
+
+        response = phase_window_views.event_phase_window_detail(
+            self._request({"demand_hours": 6, "planning_hours": 24}),
+            14,
+            "SURGE",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("payload", response.data["errors"])
+        mock_set_windows.assert_not_called()
+
+    @patch(
+        "api.permissions.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch(
+        "replenishment.phase_window_views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch("replenishment.phase_window_views._tenant_context")
+    @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")
+    def test_put_rejects_non_backlog_authorized_role_even_with_permission(
+        self,
+        mock_set_windows,
+        mock_tenant_context,
+        _mock_phase_view_roles,
+        _mock_permission_roles,
+    ) -> None:
+        mock_tenant_context.return_value = self.national_context
+
+        response = phase_window_views.event_phase_window_detail(
+            self._request(
+                {
+                    "demand_hours": 6,
+                    "planning_hours": 24,
+                    "justification": "Backlog alignment",
+                }
+            ),
+            14,
+            "SURGE",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("authorization", response.data["errors"])
+        mock_set_windows.assert_not_called()
+
+    @patch(
+        "api.permissions.resolve_roles_and_permissions",
+        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch(
+        "replenishment.phase_window_views.resolve_roles_and_permissions",
+        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+    )
+    @patch("replenishment.phase_window_views._tenant_context")
+    @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")
+    def test_put_persists_global_windows_with_justification(
+        self,
+        mock_set_windows,
+        mock_tenant_context,
+        _mock_phase_view_roles,
+        _mock_permission_roles,
+    ) -> None:
+        mock_tenant_context.return_value = self.national_context
+        mock_set_windows.return_value = {
+            "phase": "SURGE",
+            "scope": "global",
+            "applies_globally": True,
+            "demand_hours": 6,
+            "planning_hours": 24,
+            "source": "tenant_config_global",
+            "config_id": 91,
+        }
+
+        response = phase_window_views.event_phase_window_detail(
+            self._request(
+                {
+                    "demand_hours": 6,
+                    "planning_hours": 24,
+                    "justification": "Align to Product Backlog v3.2",
+                }
+            ),
+            14,
+            "SURGE",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_set_windows.assert_called_once_with(
+            phase="SURGE",
+            demand_hours=6,
+            planning_hours=24,
+            justification="Align to Product Backlog v3.2",
+            actor="phase-admin",
+            tenant_id=27,
+        )
+        self.assertEqual(response.data["windows"]["scope"], "global")
+        self.assertTrue(response.data["windows"]["applies_globally"])
 
 
 class CriticalityResolverTests(SimpleTestCase):
@@ -1450,12 +1747,21 @@ class NeedsListPreviewApiTests(TestCase):
         body = response.json()
         self.assertIn("warnings", body)
         self.assertEqual(len(body["items"]), 1)
+        self.assertEqual(
+            body.get("phase_window", {}).get("source"),
+            "backlog_default",
+        )
+        self.assertEqual(
+            body.get("horizon_lead_times_hours"),
+            {"A": 8, "B": 72, "C": 336},
+        )
         item = body["items"][0]
         self.assertIn("required_qty", item)
         self.assertIn("time_to_stockout", item)
         self.assertIn("effective_criticality_level", item)
         self.assertIn("effective_criticality_source", item)
-        self.assertEqual(item.get("freshness_state"), "Unknown")
+        self.assertEqual(item.get("freshness_state"), "LOW")
+        self.assertEqual(body.get("freshness_summary"), {"HIGH": 0, "MEDIUM": 0, "LOW": 1})
 
     @override_settings(
         AUTH_ENABLED=False,
