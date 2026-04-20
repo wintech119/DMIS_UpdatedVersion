@@ -1077,7 +1077,10 @@ def get_category_burn_fallback_rates(
         "window_start": start_dt.isoformat(),
         "window_end": end_dt.isoformat(),
         "row_count": 0,
-        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+        "filter": (
+            "reliefpkg_item.fr_inventory_id warehouse scope, "
+            "reliefpkg.status_code IN ('D','R'), dispatch_dtime window"
+        ),
     }
 
     try:
@@ -1089,7 +1092,7 @@ def get_category_burn_fallback_rates(
                 JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
                 JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
                 JOIN {schema}.item i ON i.item_id = rpi.item_id
-                WHERE rp.to_inventory_id = %s
+                WHERE rpi.fr_inventory_id = %s
                   AND rp.status_code IN ('D','R')
                   AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
                   AND rp.dispatch_dtime BETWEEN %s AND %s
@@ -1125,7 +1128,10 @@ def get_burn_by_item(
         "window_end": end_dt.isoformat(),
         "row_count": 0,
         # Legacy analytics mapping: dispatched/received packages are status_code IN ('D','R').
-        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+        "filter": (
+            "reliefpkg_item.fr_inventory_id warehouse scope, "
+            "reliefpkg.status_code IN ('D','R'), dispatch_dtime window"
+        ),
     }
     if _is_sqlite():
         return {}, ["db_unavailable_preview_stub"], "none", debug
@@ -1137,14 +1143,15 @@ def get_burn_by_item(
     try:
         with connection.cursor() as cursor:
             # Doc concept "validated/submitted fulfillment" mapped to legacy analytics filter:
-            # relief packages with status_code IN ('D','R') and dispatch_dtime in window.
+            # relief package items sourced from this warehouse, with packages
+            # status_code IN ('D','R') and dispatch_dtime in window.
             cursor.execute(
                 f"""
                 SELECT rpi.item_id, SUM(rpi.item_qty) AS qty
                 FROM {schema}.reliefpkg_item rpi
                 JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
                 JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
-                WHERE rp.to_inventory_id = %s
+                WHERE rpi.fr_inventory_id = %s
                   AND rp.status_code IN ('D','R')
                   AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
                   AND rp.dispatch_dtime BETWEEN %s AND %s

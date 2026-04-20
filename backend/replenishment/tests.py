@@ -1686,7 +1686,8 @@ class NeedsListPreviewApiTests(TestCase):
         self.assertIn("debug_summary", body)
         self.assertEqual(
             body["debug_summary"]["burn"].get("filter"),
-            "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+            "reliefpkg_item.fr_inventory_id warehouse scope, "
+            "reliefpkg.status_code IN ('D','R'), dispatch_dtime window",
         )
 
     @override_settings(
@@ -1732,7 +1733,12 @@ class NeedsListPreviewApiTests(TestCase):
             {1: 24.0},
             [],
             "reliefpkg",
-            {"filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window"},
+            {
+                "filter": (
+                    "reliefpkg_item.fr_inventory_id warehouse scope, "
+                    "reliefpkg.status_code IN ('D','R'), dispatch_dtime window"
+                )
+            },
         )
         mock_fallback.return_value = ({}, [], {})
         mock_categories.return_value = ({1: 10}, [])
@@ -1977,6 +1983,75 @@ class NeedsListPreviewMultiApiTests(TestCase):
         body = response.json()
         self.assertEqual(len(body["warehouses"]), 1)
         self.assertEqual(body["warehouses"][0]["warehouse_name"], "Kingston Central")
+
+
+class DataAccessBurnQueryTests(SimpleTestCase):
+    def _mock_connection_for_destination_only_rows(self, rows) -> tuple[MagicMock, MagicMock]:
+        cursor = MagicMock()
+
+        def execute(sql, params):
+            cursor.executed_sql = sql
+            cursor.executed_params = params
+            cursor.fetchall.return_value = rows if "rp.to_inventory_id = %s" in sql else []
+
+        cursor.execute.side_effect = execute
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = cursor_context
+        return cursor, mock_connection
+
+    def test_burn_query_ignores_destination_only_packages(self) -> None:
+        cursor, mock_connection = self._mock_connection_for_destination_only_rows(
+            [(10, Decimal("12.0"))]
+        )
+
+        with patch("replenishment.services.data_access._is_sqlite", return_value=False), patch(
+            "replenishment.services.data_access._schema_name",
+            return_value="public",
+        ), patch(
+            "replenishment.services.data_access.connection",
+            mock_connection,
+        ):
+            burn_by_item, warnings, source, _debug = data_access.get_burn_by_item(
+                event_id=1,
+                warehouse_id=7,
+                demand_window_hours=24,
+                as_of_dt=timezone.now(),
+            )
+
+        self.assertEqual(burn_by_item, {})
+        self.assertEqual(source, "none")
+        self.assertIn("burn_data_missing", warnings)
+        self.assertIn("rpi.fr_inventory_id = %s", cursor.executed_sql)
+        self.assertNotIn("rp.to_inventory_id = %s", cursor.executed_sql)
+        self.assertEqual(cursor.executed_params[0], 7)
+
+    def test_category_fallback_query_ignores_destination_only_packages(self) -> None:
+        cursor, mock_connection = self._mock_connection_for_destination_only_rows(
+            [(3, Decimal("48.0"))]
+        )
+
+        with patch("replenishment.services.data_access._is_sqlite", return_value=False), patch(
+            "replenishment.services.data_access._schema_name",
+            return_value="public",
+        ), patch(
+            "replenishment.services.data_access.connection",
+            mock_connection,
+        ):
+            category_rates, warnings, _debug = data_access.get_category_burn_fallback_rates(
+                event_id=1,
+                warehouse_id=7,
+                lookback_days=30,
+                as_of_dt=timezone.now(),
+            )
+
+        self.assertEqual(category_rates, {})
+        self.assertEqual(warnings, [])
+        self.assertIn("rpi.fr_inventory_id = %s", cursor.executed_sql)
+        self.assertNotIn("rp.to_inventory_id = %s", cursor.executed_sql)
+        self.assertEqual(cursor.executed_params[0], 7)
 
 
 class DataAccessAtomicityTests(TestCase):
