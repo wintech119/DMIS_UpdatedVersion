@@ -32,7 +32,6 @@ from operations.constants import (
     ACTION_PARTIAL_RELEASE_APPROVED,
     ACTION_PARTIAL_RELEASE_REQUESTED,
     ACTION_PICKUP_RELEASE_COMPLETED,
-    ACTION_STAGED_OVERRIDE_APPROVED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -6285,9 +6284,6 @@ def approve_override(
         status_code=current_request_status,
     )
     package = legacy_service._current_package_for_request(reliefrqst_id)
-    override_approval_reason = (
-        str(payload.get("override_note") or payload.get("override_reason_code") or "").strip() or None
-    )
     if package is not None:
         package_record = _sync_operations_package(
             package,
@@ -6364,15 +6360,6 @@ def approve_override(
                         tenant_id=request_record.beneficiary_tenant_id,
                         queue_code=QUEUE_CODE_DISPATCH,
                     )
-            _record_staged_action_audit(
-                action_code=ACTION_STAGED_OVERRIDE_APPROVED,
-                actor_id=actor_id,
-                actor_roles=normalized_roles,
-                package_record=package_record,
-                tenant_id=request_record.beneficiary_tenant_id,
-                warehouse_id=package_record.staging_warehouse_id or package_record.source_warehouse_id,
-                action_reason=override_approval_reason,
-            )
         else:
             _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
             assign_roles_to_queue(

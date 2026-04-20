@@ -20,7 +20,6 @@ from operations.constants import (
     ACTION_PARTIAL_RELEASE_APPROVED,
     ACTION_PARTIAL_RELEASE_REQUESTED,
     ACTION_PICKUP_RELEASE_COMPLETED,
-    ACTION_STAGED_OVERRIDE_APPROVED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -1544,14 +1543,14 @@ class OperationsWorkflowContractTests(TestCase):
 
         package_record.refresh_from_db()
         self.assertEqual(package_record.status_code, PACKAGE_STATUS_CONSOLIDATING)
-        action_audit = OperationsActionAudit.objects.get(
-            action_code=ACTION_STAGED_OVERRIDE_APPROVED,
-            package_id=91,
-        )
+        action_audits = OperationsActionAudit.objects.filter(package_id=91)
+        self.assertEqual(action_audits.count(), 1)
+        action_audit = action_audits.get()
         self.assertEqual(action_audit.entity_type, "PACKAGE")
         self.assertEqual(action_audit.entity_id, 91)
-        self.assertEqual(action_audit.tenant_id, 20)
-        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_code, contract_services.ACTION_OVERRIDE_APPROVED)
+        self.assertEqual(action_audit.tenant_id, 27)
+        self.assertEqual(action_audit.warehouse_id, 4)
         self.assertEqual(action_audit.action_reason, "Supervisor approved staged route.")
         self.assertEqual(action_audit.acted_by_user_id, "manager-1")
         self.assertEqual(action_audit.acted_by_role_code, ROLE_LOGISTICS_MANAGER)
