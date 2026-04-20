@@ -36,6 +36,9 @@ class OperationsApiTests(SimpleTestCase):
     def setUp(self) -> None:
         self.client = APIClient()
         cache.clear()
+        active_event_patcher = patch("operations.views.data_access.get_active_event", return_value={})
+        active_event_patcher.start()
+        self.addCleanup(active_event_patcher.stop)
 
     def tearDown(self) -> None:
         cache.clear()
@@ -2042,6 +2045,9 @@ class OperationsViewHelperTests(SimpleTestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
         cache.clear()
+        active_event_patcher = patch("operations.views.data_access.get_active_event", return_value={})
+        active_event_patcher.start()
+        self.addCleanup(active_event_patcher.stop)
 
     def tearDown(self) -> None:
         cache.clear()

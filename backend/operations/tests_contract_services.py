@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Iterable
 from unittest.mock import MagicMock, Mock, patch
 
-from django.db import DatabaseError, IntegrityError, connection
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
@@ -5367,6 +5368,43 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertLessEqual(lock.lock_expires_at, timezone.now())
         self.assertEqual(unlock_notification.recipient_tenant_id, 27)
         self.assertNotEqual(unlock_notification.recipient_tenant_id, request_record.beneficiary_tenant_id)
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_release_package_lock_survives_agency_scope_database_error(
+        self,
+        load_request_mock,
+        _current_package_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+        safe_fetchone = operations_policy._safe_fetchone
+
+        def fail_agency_lookup(sql: str, params: Iterable[object] | None = None) -> tuple[object, ...] | None:
+            if "FROM agency" in sql:
+                return safe_fetchone("SELECT 1 FROM missing_legacy_agency_scope_table")
+            return safe_fetchone(sql, params)
+
+        with patch("operations.policy._safe_fetchone", side_effect=fail_agency_lookup):
+            with transaction.atomic():
+                result = contract_services.release_package_lock(
+                    70,
+                    actor_id="manager_tst",
+                    actor_roles=[ROLE_LOGISTICS_MANAGER],
+                    tenant_context=self.odpem_context,
+                    force=True,
+                )
+                self.assertTrue(OperationsReliefRequest.objects.filter(relief_request_id=70).exists())
+
+        self.assertFalse(result["released"])
+        self.assertEqual(result["message"], "No current package exists for this request.")
 
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")

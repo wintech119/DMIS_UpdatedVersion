@@ -36,7 +36,6 @@ import { OperationsWorkspaceStateService } from '../services/operations-workspac
 import {
   AllocationCommitResponse,
   OverrideReviewResponse,
-  PackageAbandonDraftResponse,
   PackageLockReleaseResponse,
 } from '../models/operations.model';
 import {
@@ -397,7 +396,7 @@ export class PackageFulfillmentWorkspaceComponent {
         finalize(() => this.store.setSubmitting(false)),
       )
       .subscribe({
-        next: (_response: PackageAbandonDraftResponse) => {
+        next: () => {
           this.notifications.showSuccess('Fulfillment released. The request is back in the queue.');
           const reliefrqstId = this.reliefrqstId();
           if (reliefrqstId) {
