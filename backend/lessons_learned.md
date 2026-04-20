@@ -183,28 +183,34 @@ create_role_notifications(
 ### Closeout Expectation
 - If a change touches allocation enforcement or execution-linked package allocation options, mention this lesson in the closeout and confirm the ranked-allocation enforcement regressions were run.
 
-## Staged Fulfillment Actions Need Dual Workflow Evidence
+## Staged Workflow Actions Need Dual-Ledger Evidence
 
 ### Symptom
-- Consolidation leg dispatch/receipt, pickup release, and partial-release actions could update lifecycle state without writing `operations_action_audit`, and partial-release request/approval evidence lived only on mutable package fields.
+- Staged fulfillment actions could move lifecycle state through `operations_status_history` while leaving no immutable operational evidence row in `operations_action_audit`.
+- Partial-release request and approval state lived only on mutable package fields, making the request/approval/split transaction harder to audit independently.
 
 ### Root Cause
-- The package fulfillment closure work treated `operations_status_history` as sufficient lifecycle evidence for staged actions, even though the freeze requires both lifecycle history and immutable operational action evidence for staged/consolidation workflows.
-- Partial-release request state was stored directly on `OperationsPackage`, which made the request/approval transaction less explicit than the frozen `operations_partial_release_request` workflow record.
+- Lifecycle history and operational evidence were treated as interchangeable even though the frozen design assigns different responsibilities to each table.
+- Partial-release compatibility fields on `operations_package` were allowed to carry the workflow transaction without a first-class request row.
 
 ### Invariant
-- Frozen staged, consolidation, override, and partial-release actions that materially change workflow state must write both `operations_status_history` and `operations_action_audit`.
-- Partial-release request and approval transactions must be reconstructable from `operations_partial_release_request`; package split lineage remains authoritative through `OperationsPackage.split_from_package`.
+- Material staged/consolidation actions that change workflow state must write both lifecycle status history and immutable action audit evidence.
+- Partial-release request and approval must have a durable `operations_partial_release_request` row; package split lineage remains authoritative through package parent/child links.
 
 ### Correct Architectural Rule
-- Use `operations_status_history` for lifecycle transitions and `operations_action_audit` for immutable action evidence; do not substitute one ledger for the other.
-- Keep package compatibility fields in sync only as convenience state. The partial-release request row is the workflow evidence for request, approval, and released/residual child references.
+- Use `operations_status_history` for lifecycle transitions and `operations_action_audit` for operational evidence such as actor, role, tenant, package, leg, warehouse, reason, and artifact reference.
+- Keep `OperationsPackage.partial_release_*` fields in sync only for compatibility; do not treat them as the authoritative request/approval record.
+- Isolate optional draft allocation metadata lookups in a savepoint so a failed batch lookup cannot poison the surrounding package read transaction.
 
 ### Regression Tests That Must Exist
-- Consolidation leg dispatch and receipt each write a status-history row and a matching action-audit row.
-- Pickup release completion writes package status history and a pickup release action-audit row.
-- Partial-release request creates a pending workflow row, writes consolidation-status history, and writes action audit.
-- Partial-release approval updates the workflow row with approved metadata and released/residual child package ids, and failed split approval leaves child references unset.
+- Staged override approval writes both package status history and action audit.
+- Consolidation leg dispatch writes both leg status history and action audit.
+- Consolidation leg receipt writes both leg status history and action audit.
+- Pickup release completion writes package status history and action audit.
+- Partial-release request creates a pending workflow row, writes package status history, writes action audit, and preserves package compatibility fields.
+- Partial-release approval updates the workflow row to approved with released/residual child ids and writes action audit.
+- Failed partial-release approval leaves child references unset and does not create approval audit evidence.
+- Draft package reads still return saved allocation lines with null batch metadata when batch metadata lookup fails.
 
 ### Closeout Expectation
-- If a change touches staged fulfillment, consolidation, pickup release, or partial release, mention this lesson in the closeout and confirm the dual-ledger and partial-release workflow-record regressions were run.
+- If a change touches staged fulfillment, consolidation, pickup release, partial release, or package draft allocation hydration, mention this lesson in the closeout and confirm the dual-ledger and fallback regression tests were run.

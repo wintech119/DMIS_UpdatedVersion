@@ -41,16 +41,16 @@ def record_action_audit(
     entity_type: str,
     entity_id: int,
     action_code: str,
-    actor_id: str,
-    actor_role_code: str,
+    acted_by_user_id: str,
+    acted_by_role_code: str,
     package_id: int | None = None,
     consolidation_leg_id: int | None = None,
     tenant_id: int | None = None,
     warehouse_id: int | None = None,
     action_reason: str | None = None,
     artifact_reference: str | None = None,
-) -> None:
-    OperationsActionAudit.objects.create(
+) -> OperationsActionAudit:
+    return OperationsActionAudit.objects.create(
         entity_type=entity_type,
         entity_id=int(entity_id),
         package_id=package_id,
@@ -58,10 +58,10 @@ def record_action_audit(
         tenant_id=tenant_id,
         warehouse_id=warehouse_id,
         action_code=action_code,
-        action_reason=action_reason,
-        artifact_reference=artifact_reference,
-        acted_by_user_id=actor_id,
-        acted_by_role_code=actor_role_code,
+        action_reason=(str(action_reason).strip()[:500] if action_reason else None),
+        artifact_reference=(str(artifact_reference).strip()[:255] if artifact_reference else None),
+        acted_by_user_id=acted_by_user_id,
+        acted_by_role_code=acted_by_role_code,
     )
 
 

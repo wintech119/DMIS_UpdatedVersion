@@ -148,11 +148,12 @@ class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
 
 class OperationsPartialReleaseRequestModelTests(_OperationsRequestFactoryMixin, TestCase):
     def test_partial_release_request_records_pending_workflow_evidence(self) -> None:
-        request = self._create_request(82)
+        request = self._create_request(90)
         package = OperationsPackage.objects.create(
-            package_id=102,
-            package_no="PK00102",
+            package_id=190,
+            package_no="PK00190",
             relief_request=request,
+            fulfillment_mode="DELIVER_FROM_STAGING",
             status_code="CONSOLIDATING",
             create_by_id="tester",
             update_by_id="tester",
@@ -160,59 +161,63 @@ class OperationsPartialReleaseRequestModelTests(_OperationsRequestFactoryMixin, 
 
         partial_request = OperationsPartialReleaseRequest.objects.create(
             package=package,
-            request_reason="Release received legs for urgent shelter opening",
+            request_reason="Release received legs now",
             approval_status_code=PARTIAL_RELEASE_STATUS_PENDING,
-            requested_by_user_id="logistics-officer-1",
+            requested_by_user_id="logistics-1",
         )
 
         self.assertEqual(partial_request.package, package)
-        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_PENDING)
         self.assertEqual(package.partial_release_requests.get(), partial_request)
+        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_PENDING)
+        self.assertIsNone(partial_request.approved_by_user_id)
 
-    def test_partial_release_request_can_reference_released_and_residual_children(self) -> None:
-        request = self._create_request(83)
+    def test_partial_release_request_can_reference_split_children_for_audit_convenience(self) -> None:
+        request = self._create_request(91)
         parent = OperationsPackage.objects.create(
-            package_id=103,
-            package_no="PK00103",
+            package_id=191,
+            package_no="PK00191",
             relief_request=request,
+            fulfillment_mode="DELIVER_FROM_STAGING",
             status_code="SPLIT",
             create_by_id="tester",
             update_by_id="tester",
         )
-        released = OperationsPackage.objects.create(
-            package_id=104,
-            package_no="PK00104",
+        released_child = OperationsPackage.objects.create(
+            package_id=192,
+            package_no="PK00191-R1",
             relief_request=request,
-            split_from_package=parent,
+            fulfillment_mode="DELIVER_FROM_STAGING",
             status_code="READY_FOR_DISPATCH",
+            split_from_package=parent,
             create_by_id="tester",
             update_by_id="tester",
         )
-        residual = OperationsPackage.objects.create(
-            package_id=105,
-            package_no="PK00105",
+        residual_child = OperationsPackage.objects.create(
+            package_id=193,
+            package_no="PK00191-R2",
             relief_request=request,
-            split_from_package=parent,
+            fulfillment_mode="DELIVER_FROM_STAGING",
             status_code="CONSOLIDATING",
+            split_from_package=parent,
             create_by_id="tester",
             update_by_id="tester",
         )
 
         partial_request = OperationsPartialReleaseRequest.objects.create(
             package=parent,
-            request_reason="Release arrived stock",
+            request_reason="Release received legs now",
             approval_status_code=PARTIAL_RELEASE_STATUS_APPROVED,
-            requested_by_user_id="logistics-officer-1",
-            approved_by_user_id="logistics-manager-1",
+            requested_by_user_id="logistics-1",
+            approved_by_user_id="manager-1",
             approved_at=timezone.now(),
-            released_child_package=released,
-            residual_child_package=residual,
+            released_child_package=released_child,
+            residual_child_package=residual_child,
         )
 
-        self.assertEqual(partial_request.released_child_package, released)
-        self.assertEqual(partial_request.residual_child_package, residual)
-        self.assertEqual(released.released_by_partial_release_requests.get(), partial_request)
-        self.assertEqual(residual.residual_by_partial_release_requests.get(), partial_request)
+        self.assertEqual(partial_request.released_child_package, released_child)
+        self.assertEqual(partial_request.residual_child_package, residual_child)
+        self.assertEqual(released_child.released_by_partial_release_requests.get(), partial_request)
+        self.assertEqual(residual_child.residual_by_partial_release_requests.get(), partial_request)
 
 
 class StagingSelectionRecommendationTests(TestCase):

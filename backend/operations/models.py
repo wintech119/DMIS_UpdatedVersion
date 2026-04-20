@@ -589,6 +589,7 @@ class OperationsActionAudit(models.Model):
     class Meta:
         db_table = "operations_action_audit"
         indexes = [
-            models.Index(fields=["entity_type", "entity_id", "acted_at"], name="ops_action_audit_entity"),
-            models.Index(fields=["action_code", "acted_at"], name="ops_action_audit_code"),
+            models.Index(fields=["entity_type", "entity_id", "acted_at"], name="ops_action_entity_time"),
+            models.Index(fields=["package", "action_code"], name="ops_action_pkg_code"),
+            models.Index(fields=["consolidation_leg", "action_code"], name="ops_action_leg_code"),
         ]

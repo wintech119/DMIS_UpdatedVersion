@@ -20,6 +20,7 @@ from operations.constants import (
     ACTION_PARTIAL_RELEASE_APPROVED,
     ACTION_PARTIAL_RELEASE_REQUESTED,
     ACTION_PICKUP_RELEASE_COMPLETED,
+    ACTION_STAGED_OVERRIDE_APPROVED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -52,6 +53,7 @@ from operations.constants import (
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_FULFILLMENT,
     QUEUE_CODE_OVERRIDE,
+    QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
     QUEUE_CODE_PICKUP_RELEASE,
     QUEUE_CODE_RECEIPT,
     QUEUE_CODE_STAGING_RECEIPT,
@@ -68,8 +70,8 @@ from operations.constants import (
 )
 from operations.exceptions import OperationValidationError
 from operations.models import (
-    OperationsAllocationLine,
     OperationsActionAudit,
+    OperationsAllocationLine,
     OperationsConsolidationLeg,
     OperationsConsolidationLegItem,
     OperationsConsolidationReceipt,
@@ -1469,6 +1471,98 @@ class OperationsWorkflowContractTests(TestCase):
             ).exists()
         )
         self.assertFalse(package_record.consolidation_legs.exists())
+
+    @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.approve_override")
+    def test_approve_override_writes_action_audit_for_staged_package(
+        self,
+        approve_override_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+        _mock_request_level_tenant,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=91,
+            package_no="PK00091",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity="2",
+            source_type="ON_HAND",
+            uom_code="EA",
+            create_by_id="fulfiller-1",
+            update_by_id="fulfiller-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=91,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="P",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+        approve_override_mock.return_value = {"reliefrqst_id": 70, "status": "COMMITTED"}
+
+        contract_services.approve_override(
+            70,
+            payload={
+                "allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Supervisor approved staged route.",
+            },
+            actor_id="manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="override-staged-70",
+        )
+
+        package_record.refresh_from_db()
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_CONSOLIDATING)
+        action_audit = OperationsActionAudit.objects.get(
+            action_code=ACTION_STAGED_OVERRIDE_APPROVED,
+            package_id=91,
+        )
+        self.assertEqual(action_audit.entity_type, "PACKAGE")
+        self.assertEqual(action_audit.entity_id, 91)
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Supervisor approved staged route.")
+        self.assertEqual(action_audit.acted_by_user_id, "manager-1")
+        self.assertEqual(action_audit.acted_by_role_code, ROLE_LOGISTICS_MANAGER)
+        self.assertTrue(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=91,
+                from_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+                to_status_code=PACKAGE_STATUS_COMMITTED,
+            ).exists()
+        )
 
     @patch("operations.contract_services._save_package_allocation")
     @patch("operations.contract_services._current_package_for_request")
@@ -3853,16 +3947,18 @@ class OperationsWorkflowContractTests(TestCase):
             ).exists()
         )
         receipt = OperationsConsolidationReceipt.objects.get(leg=leg)
-        receipt_audit = OperationsActionAudit.objects.get(
+        action_audit = OperationsActionAudit.objects.get(
             action_code=ACTION_CONSOLIDATION_LEG_RECEIVED,
-            package_id=190,
             consolidation_leg_id=int(leg.leg_id),
         )
-        self.assertEqual(receipt_audit.entity_type, "CONSOLIDATION_LEG")
-        self.assertEqual(receipt_audit.entity_id, int(leg.leg_id))
-        self.assertEqual(receipt_audit.tenant_id, 20)
-        self.assertEqual(receipt_audit.warehouse_id, 55)
-        self.assertEqual(receipt_audit.artifact_reference, f"consolidation_receipt:{receipt.receipt_id}")
+        self.assertEqual(action_audit.entity_type, "CONSOLIDATION_LEG")
+        self.assertEqual(action_audit.entity_id, int(leg.leg_id))
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.acted_by_user_id, "logistics-manager-1")
+        self.assertEqual(action_audit.acted_by_role_code, ROLE_LOGISTICS_MANAGER)
+        self.assertEqual(action_audit.artifact_reference, f"consolidation_receipt:{int(receipt.receipt_id)}")
         self.assertTrue(
             OperationsStatusHistory.objects.filter(
                 entity_type="CONSOLIDATION_LEG",
@@ -3972,16 +4068,18 @@ class OperationsWorkflowContractTests(TestCase):
                 assigned_role_code=ROLE_INVENTORY_CLERK,
             ).exists()
         )
-        dispatch_audit = OperationsActionAudit.objects.get(
+        action_audit = OperationsActionAudit.objects.get(
             action_code=ACTION_CONSOLIDATION_LEG_DISPATCHED,
-            package_id=191,
             consolidation_leg_id=int(leg.leg_id),
         )
-        self.assertEqual(dispatch_audit.entity_type, "CONSOLIDATION_LEG")
-        self.assertEqual(dispatch_audit.entity_id, int(leg.leg_id))
-        self.assertEqual(dispatch_audit.tenant_id, 20)
-        self.assertEqual(dispatch_audit.warehouse_id, 4)
-        self.assertEqual(dispatch_audit.artifact_reference, "PK00191-L01")
+        self.assertEqual(action_audit.entity_type, "CONSOLIDATION_LEG")
+        self.assertEqual(action_audit.entity_id, int(leg.leg_id))
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 4)
+        self.assertEqual(action_audit.acted_by_user_id, "logistics-manager-1")
+        self.assertEqual(action_audit.acted_by_role_code, ROLE_LOGISTICS_MANAGER)
+        self.assertEqual(action_audit.artifact_reference, "PK00191-L01")
         self.assertTrue(
             OperationsStatusHistory.objects.filter(
                 entity_type="CONSOLIDATION_LEG",
@@ -4194,23 +4292,24 @@ class OperationsWorkflowContractTests(TestCase):
                 }
             ],
         )
-        pickup_audit = OperationsActionAudit.objects.get(
+        action_audit = OperationsActionAudit.objects.get(
             action_code=ACTION_PICKUP_RELEASE_COMPLETED,
-            package_id=192,
+            package_id=int(package_record.package_id),
         )
-        self.assertEqual(pickup_audit.entity_type, "PACKAGE")
-        self.assertEqual(pickup_audit.entity_id, 192)
-        self.assertEqual(pickup_audit.tenant_id, 20)
-        self.assertEqual(pickup_audit.warehouse_id, 55)
-        self.assertEqual(pickup_audit.action_reason, "Pickup at gate")
+        self.assertEqual(action_audit.entity_type, "PACKAGE")
+        self.assertEqual(action_audit.entity_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Pickup at gate")
+        self.assertEqual(action_audit.acted_by_user_id, "logistics-manager-1")
         self.assertEqual(
-            pickup_audit.artifact_reference,
-            f"pickup_release:{pickup_release_record.pickup_release_id}",
+            action_audit.artifact_reference,
+            f"pickup_release:{int(pickup_release_record.pickup_release_id)}",
         )
         self.assertTrue(
             OperationsStatusHistory.objects.filter(
                 entity_type="PACKAGE",
-                entity_id=192,
+                entity_id=int(package_record.package_id),
                 from_status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
                 to_status_code=PACKAGE_STATUS_RECEIVED,
             ).exists()
@@ -5735,7 +5834,7 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service._request_items", return_value=[])
     @patch("operations.contract_services.legacy_service._package_detail")
-    def test_get_package_returns_draft_allocation_lines_when_batch_metadata_lookup_fails(
+    def test_get_package_returns_draft_allocation_lines_with_saved_uom_when_batch_metadata_lookup_fails(
         self,
         package_detail_mock,
         _request_items_mock,
@@ -8477,14 +8576,12 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._load_package")
     @patch("operations.contract_services.create_role_notifications")
     @patch("operations.contract_services.assign_roles_to_queue")
-    @patch("operations.contract_services._update_package_workflow_fields")
     @patch("operations.contract_services._package_leg_summary", return_value={"received_legs": 1, "total_legs": 2})
     @patch("operations.contract_services._package_context_by_package_id")
     def test_request_partial_release_reuses_cached_response_for_same_idempotency_key(
         self,
         package_context_mock,
         _package_leg_summary_mock,
-        update_package_workflow_fields_mock,
         assign_roles_mock,
         create_notifications_mock,
         load_package_mock,
@@ -8539,11 +8636,321 @@ class OperationsWorkflowContractTests(TestCase):
             1,
         )
         package_context_mock.assert_called_once()
-        update_package_workflow_fields_mock.assert_called_once()
         assign_roles_mock.assert_called_once()
         create_notifications_mock.assert_called_once()
         load_package_mock.assert_called_once_with(90)
         package_summary_payload_mock.assert_called_once()
+        self.assertEqual(
+            OperationsPartialReleaseRequest.objects.filter(
+                package_id=90,
+                approval_status_code=PARTIAL_RELEASE_STATUS_PENDING,
+            ).count(),
+            1,
+        )
+
+    @patch("operations.contract_services._package_leg_summary", return_value={"received_legs": 1, "total_legs": 2})
+    @patch("operations.contract_services._package_context_by_package_id")
+    @patch("operations.contract_services.legacy_service._load_package")
+    def test_request_partial_release_syncs_compatibility_fields_and_action_audit(
+        self,
+        load_package_mock,
+        package_context_mock,
+        _package_leg_summary_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=194)
+        package_record = OperationsPackage.objects.create(
+            package_id=194,
+            package_no="PK00194",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=CONSOLIDATION_STATUS_PARTIALLY_RECEIVED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package = self._package_stub(reliefpkg_id=194, reliefrqst_id=194, agency_id=501, status_code="P")
+        package_context_mock.return_value = (
+            package,
+            self._request_stub(reliefrqst_id=194, agency_id=501),
+            request_record,
+            package_record,
+        )
+        load_package_mock.return_value = package
+
+        result = contract_services.request_partial_release(
+            194,
+            payload={"reason": "Release received legs now"},
+            actor_id="logistics-officer-1",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="partial-request-194",
+        )
+
+        partial_request = OperationsPartialReleaseRequest.objects.get(package_id=194)
+        package_record.refresh_from_db()
+        self.assertEqual(result["status"], CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED)
+        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_PENDING)
+        self.assertEqual(partial_request.request_reason, "Release received legs now")
+        self.assertEqual(partial_request.requested_by_user_id, "logistics-officer-1")
+        self.assertEqual(package_record.partial_release_requested_by_id, "logistics-officer-1")
+        self.assertEqual(package_record.partial_release_request_reason, "Release received legs now")
+        self.assertEqual(package_record.consolidation_status, CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED)
+        self.assertTrue(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=194,
+                from_status_code=CONSOLIDATION_STATUS_PARTIALLY_RECEIVED,
+                to_status_code=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+            ).exists()
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            action_code=ACTION_PARTIAL_RELEASE_REQUESTED,
+            package_id=194,
+        )
+        self.assertEqual(action_audit.entity_type, "PACKAGE")
+        self.assertEqual(action_audit.entity_id, 194)
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Release received legs now")
+        self.assertEqual(action_audit.acted_by_user_id, "logistics-officer-1")
+        self.assertEqual(
+            action_audit.artifact_reference,
+            f"partial_release_request:{int(partial_request.partial_release_request_id)}",
+        )
+
+    @patch("operations.contract_services.split_package")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_approve_partial_release_records_child_package_ids_and_action_audit_with_custom_reason(
+        self,
+        package_context_mock,
+        split_package_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=195)
+        package_record = OperationsPackage.objects.create(
+            package_id=195,
+            package_no="PK00195",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+            partial_release_requested_by_id="logistics-officer-1",
+            partial_release_requested_at=timezone.now(),
+            partial_release_request_reason="Release received legs now",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        released_child = OperationsPackage.objects.create(
+            package_id=196,
+            package_no="PK00195-R1",
+            relief_request=request_record,
+            status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
+            split_from_package=package_record,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        residual_child = OperationsPackage.objects.create(
+            package_id=197,
+            package_no="PK00195-R2",
+            relief_request=request_record,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            split_from_package=package_record,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        partial_request = OperationsPartialReleaseRequest.objects.create(
+            package=package_record,
+            request_reason="Release received legs now",
+            approval_status_code=PARTIAL_RELEASE_STATUS_PENDING,
+            requested_by_user_id="logistics-officer-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+            entity_type="PACKAGE",
+            entity_id=195,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package = self._package_stub(reliefpkg_id=195, reliefrqst_id=195, agency_id=501, status_code="P")
+        package_context_mock.return_value = (
+            package,
+            self._request_stub(reliefrqst_id=195, agency_id=501),
+            request_record,
+            package_record,
+        )
+        split_package_mock.return_value = {
+            "parent": {"reliefpkg_id": 195},
+            "released_child": {"reliefpkg_id": int(released_child.package_id)},
+            "residual_child": {"reliefpkg_id": int(residual_child.package_id)},
+        }
+
+        result = contract_services.approve_partial_release(
+            195,
+            payload={"approval_reason": "Enough stock staged"},
+            actor_id="logistics-manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="partial-approve-195",
+        )
+
+        partial_request.refresh_from_db()
+        package_record.refresh_from_db()
+        self.assertEqual(result["released_child"]["reliefpkg_id"], 196)
+        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_APPROVED)
+        self.assertEqual(partial_request.approved_by_user_id, "logistics-manager-1")
+        self.assertEqual(partial_request.released_child_package_id, 196)
+        self.assertEqual(partial_request.residual_child_package_id, 197)
+        self.assertEqual(package_record.partial_release_approved_by_id, "logistics-manager-1")
+        self.assertEqual(package_record.partial_release_approval_reason, "Enough stock staged")
+        action_audit = OperationsActionAudit.objects.get(
+            action_code=ACTION_PARTIAL_RELEASE_APPROVED,
+            package_id=195,
+        )
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Enough stock staged")
+        self.assertEqual(action_audit.acted_by_user_id, "logistics-manager-1")
+        self.assertEqual(
+            action_audit.artifact_reference,
+            f"partial_release_request:{int(partial_request.partial_release_request_id)}",
+        )
+
+    @patch("operations.contract_services.split_package")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_approve_partial_release_failed_split_preserves_pending_workflow_record(
+        self,
+        package_context_mock,
+        split_package_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=198)
+        package_record = OperationsPackage.objects.create(
+            package_id=198,
+            package_no="PK00198",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+            partial_release_requested_by_id="logistics-officer-1",
+            partial_release_requested_at=timezone.now(),
+            partial_release_request_reason="Release received legs now",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        partial_request = OperationsPartialReleaseRequest.objects.create(
+            package=package_record,
+            request_reason="Release received legs now",
+            approval_status_code=PARTIAL_RELEASE_STATUS_PENDING,
+            requested_by_user_id="logistics-officer-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+            entity_type="PACKAGE",
+            entity_id=198,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=198, reliefrqst_id=198, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=198, agency_id=501),
+            request_record,
+            package_record,
+        )
+        split_package_mock.side_effect = OperationValidationError({"split": "Split allocation partitioning failed."})
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.approve_partial_release(
+                198,
+                payload={"approval_reason": "Enough stock staged"},
+                actor_id="logistics-manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="partial-approve-198",
+            )
+
+        partial_request.refresh_from_db()
+        package_record.refresh_from_db()
+        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_PENDING)
+        self.assertIsNone(partial_request.approved_by_user_id)
+        self.assertIsNone(partial_request.released_child_package_id)
+        self.assertIsNone(partial_request.residual_child_package_id)
+        self.assertIsNone(package_record.partial_release_approved_by_id)
+        self.assertFalse(
+            OperationsActionAudit.objects.filter(
+                action_code=ACTION_PARTIAL_RELEASE_APPROVED,
+                package_id=198,
+            ).exists()
+        )
+
+    @patch("operations.contract_services._request_summary_payload", return_value={"reliefrqst_id": 199})
+    @patch("operations.contract_services.ItemBatch.objects.filter", side_effect=DatabaseError("metadata unavailable"))
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._request_items", return_value=[])
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_package_returns_draft_allocation_lines_when_batch_metadata_lookup_fails(
+        self,
+        load_request_mock,
+        current_package_mock,
+        _request_items_mock,
+        get_agency_scope_mock,
+        _batch_filter_mock,
+        _request_summary_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=199)
+        package_record = OperationsPackage.objects.create(
+            package_id=199,
+            package_no="PK00199",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            status_code=PACKAGE_STATUS_DRAFT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity="2",
+            source_type="ON_HAND",
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=199,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=199,
+            reliefrqst_id=199,
+            agency_id=501,
+            status_code="A",
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        result = contract_services.get_package(
+            199,
+            actor_id="logistics-manager-1",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        allocation_line = result["package"]["allocation"]["allocation_lines"][0]
+        self.assertEqual(allocation_line["item_id"], 101)
+        self.assertEqual(allocation_line["batch_id"], 1001)
+        self.assertIsNone(allocation_line["batch_no"])
+        self.assertIsNone(allocation_line["batch_date"])
+        self.assertIsNone(allocation_line["expiry_date"])
+        self.assertEqual(allocation_line["uom_code"], "EA")
+        self.assertEqual(OperationsPackage.objects.filter(package_id=199).count(), 1)
 
     @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 194})
     @patch("operations.contract_services.legacy_service._load_package")
