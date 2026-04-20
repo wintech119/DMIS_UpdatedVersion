@@ -255,6 +255,156 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
+def _normalize_scope_warehouse_ids(raw_value: object, primary_warehouse_id: object = None) -> list[int]:
+    values: list[int] = []
+    if isinstance(raw_value, (list, tuple, set)):
+        candidates = list(raw_value)
+    elif raw_value in (None, ""):
+        candidates = []
+    else:
+        candidates = [raw_value]
+
+    for candidate in candidates:
+        warehouse_id = _coerce_int(candidate, 0)
+        if warehouse_id > 0:
+            values.append(warehouse_id)
+
+    primary_id = _coerce_int(primary_warehouse_id, 0)
+    if primary_id > 0:
+        values.append(primary_id)
+
+    return sorted(set(values))
+
+
+def _normalize_scope_selected_item_keys(raw_value: object) -> list[str]:
+    if not isinstance(raw_value, (list, tuple, set)):
+        return []
+    return sorted(
+        {
+            str(value).strip()
+            for value in raw_value
+            if str(value).strip()
+        }
+    )
+
+
+def _normalize_scope_item_warehouse_keys(
+    items: Iterable[Dict[str, object]],
+    warehouse_ids: Sequence[int],
+) -> list[str]:
+    default_warehouse_id = warehouse_ids[0] if len(warehouse_ids) == 1 else 0
+    keys: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = _coerce_int(item.get("item_id"), 0)
+        if item_id <= 0:
+            continue
+        item_warehouse_id = _coerce_int(item.get("warehouse_id"), 0) or default_warehouse_id
+        keys.add(f"{item_id}_{item_warehouse_id}")
+    return sorted(keys)
+
+
+def _build_recommendation_scope(
+    *,
+    event_id: object,
+    phase: object,
+    warehouse_ids: Sequence[int],
+    items: Iterable[Dict[str, object]],
+    selected_item_keys: object,
+) -> dict[str, object]:
+    item_warehouse_keys = _normalize_scope_item_warehouse_keys(items, warehouse_ids)
+    return {
+        "event_id": _coerce_int(event_id, 0),
+        "phase": str(phase or "").strip().upper(),
+        "warehouse_ids": sorted(set(int(warehouse_id) for warehouse_id in warehouse_ids if int(warehouse_id) > 0)),
+        "item_warehouse_keys": item_warehouse_keys,
+        "selected_item_keys": (
+            []
+            if item_warehouse_keys
+            else _normalize_scope_selected_item_keys(selected_item_keys)
+        ),
+    }
+
+
+def _recommendation_scope_for_record(
+    needs_list: NeedsList,
+    metadata: Dict[str, object] | None = None,
+) -> dict[str, object]:
+    metadata = metadata if metadata is not None else _load_workflow_metadata(needs_list)
+    raw_scope = metadata.get("recommendation_scope")
+    if isinstance(raw_scope, dict):
+        warehouse_ids = _normalize_scope_warehouse_ids(
+            raw_scope.get("warehouse_ids"),
+            None,
+        )
+        return _build_recommendation_scope(
+            event_id=raw_scope.get("event_id", needs_list.event_id),
+            phase=raw_scope.get("phase", needs_list.event_phase),
+            warehouse_ids=warehouse_ids,
+            items=[],
+            selected_item_keys=raw_scope.get("selected_item_keys"),
+        ) | {
+            "item_warehouse_keys": sorted(
+                {
+                    str(value).strip()
+                    for value in raw_scope.get("item_warehouse_keys", [])
+                    if str(value).strip()
+                }
+            )
+        }
+
+    snapshot_items = metadata.get("snapshot_items")
+    if not isinstance(snapshot_items, list):
+        snapshot_items = []
+    if not snapshot_items:
+        snapshot_items = [
+            {
+                "item_id": item.item_id,
+                "warehouse_id": needs_list.warehouse_id if needs_list.warehouse_id > 0 else None,
+            }
+            for item in needs_list.items.all()
+        ]
+    warehouse_ids = _normalize_scope_warehouse_ids(
+        metadata.get("warehouse_ids"),
+        needs_list.warehouse_id,
+    )
+    return _build_recommendation_scope(
+        event_id=needs_list.event_id,
+        phase=needs_list.event_phase,
+        warehouse_ids=warehouse_ids,
+        items=[item for item in snapshot_items if isinstance(item, dict)],
+        selected_item_keys=metadata.get("selected_item_keys"),
+    )
+
+
+def _recommendation_scopes_match(
+    existing_scope: dict[str, object],
+    new_scope: dict[str, object],
+) -> bool:
+    for key in ("event_id", "phase", "warehouse_ids"):
+        if existing_scope.get(key) != new_scope.get(key):
+            return False
+
+    existing_item_keys = existing_scope.get("item_warehouse_keys") or []
+    new_item_keys = new_scope.get("item_warehouse_keys") or []
+    if existing_item_keys and new_item_keys and existing_item_keys != new_item_keys:
+        return False
+
+    existing_selected_keys = existing_scope.get("selected_item_keys") or []
+    new_selected_keys = new_scope.get("selected_item_keys") or []
+    if (
+        not existing_item_keys
+        and not new_item_keys
+        and existing_selected_keys
+        and new_selected_keys
+        and existing_selected_keys != new_selected_keys
+    ):
+        return False
+
+    return True
+
+
 def _normalize_in_progress_stage(stage: object) -> str | None:
     normalized = str(stage or "").strip().upper()
     if not normalized:
@@ -498,6 +648,7 @@ def _supersede_open_scope_records(
     phase: str,
     actor: str | None,
     superseding_needs_list: NeedsList,
+    recommendation_scope: dict[str, object],
 ) -> list[str]:
     """
     Mark existing open records for the same scope and actor as SUPERSEDED.
@@ -531,6 +682,12 @@ def _supersede_open_scope_records(
             continue
 
         metadata = _load_workflow_metadata(existing)
+        if not _recommendation_scopes_match(
+            _recommendation_scope_for_record(existing, metadata),
+            recommendation_scope,
+        ):
+            continue
+
         metadata["superseded_at"] = superseded_at
         metadata["superseded_by"] = actor_value
         metadata["supersede_reason"] = "Replaced by newer draft calculation."
@@ -565,6 +722,10 @@ def _supersede_open_scope_records(
 
 def _line_target_qty(item: NeedsListItem) -> Decimal:
     return item.adjusted_qty if item.adjusted_qty is not None else item.required_qty
+
+
+def _line_remaining_qty(item: NeedsListItem) -> Decimal:
+    return max(_line_target_qty(item) - item.fulfilled_qty, Decimal("0.00"))
 
 
 def _fulfillment_status_for_quantities(fulfilled_qty: Decimal, target_qty: Decimal) -> str:
@@ -641,17 +802,21 @@ def _apply_received_allocations_to_lines(needs_list: NeedsList, actor: str) -> N
         )
 
 
-def _mark_all_lines_fulfilled(needs_list: NeedsList, actor: str) -> None:
+def _finalize_fulfilled_lines_or_raise(needs_list: NeedsList, actor: str) -> None:
     for item in needs_list.items.select_for_update():
         old_status = item.fulfillment_status
         target_qty = _line_target_qty(item)
-        item.fulfilled_qty = target_qty
-        item.coverage_qty = max(item.coverage_qty, target_qty)
+        remaining_qty = _line_remaining_qty(item)
+        if remaining_qty > 0:
+            raise ValueError(
+                f"Cannot complete needs list while item {item.item_id} has remaining quantity."
+            )
+
         item.fulfillment_status = "FULFILLED"
+        item.coverage_qty = max(item.coverage_qty, target_qty)
         item.update_by_id = actor
         item.save(
             update_fields=[
-                "fulfilled_qty",
                 "coverage_qty",
                 "fulfillment_status",
                 "update_by_id",
@@ -664,7 +829,7 @@ def _mark_all_lines_fulfilled(needs_list: NeedsList, actor: str) -> None:
             old_status=old_status,
             new_status=item.fulfillment_status,
             actor=actor,
-            notes="Needs list completion marked remaining line quantity fulfilled.",
+            notes="Needs list completion confirmed fulfilled line quantity.",
         )
 
 
@@ -878,6 +1043,14 @@ def _normalize_snapshot_item(
         normalized["fulfilled_qty"] = round(_coerce_float(item_data.get("fulfilled_qty"), 0.0), 2)
     if item_data.get("fulfillment_status") is not None:
         normalized["fulfillment_status"] = str(item_data.get("fulfillment_status") or "").strip() or None
+    for optional_key in (
+        "transfer_scope",
+        "transfer_qty",
+        "donation_restriction",
+        "donation_restriction_reason",
+    ):
+        if optional_key in item_data:
+            normalized[optional_key] = item_data.get(optional_key)
     if isinstance(item_data.get("triggers"), dict):
         normalized["triggers"] = item_data.get("triggers")
     if isinstance(item_data.get("confidence"), dict):
@@ -918,25 +1091,54 @@ def create_draft(
     # Extract header data
     event_id = payload.get('event_id')
     warehouse_id = payload.get('warehouse_id')
-    phase = payload.get('phase')
+    raw_item_warehouse_ids = sorted(
+        {
+            item_warehouse_id
+            for item in items
+            if isinstance(item, dict)
+            and (item_warehouse_id := _coerce_int(item.get("warehouse_id"), 0)) > 0
+        }
+    )
+    warehouse_ids = sorted(
+        set(_normalize_scope_warehouse_ids(payload.get("warehouse_ids"), warehouse_id))
+        | set(raw_item_warehouse_ids)
+    )
+    stored_warehouse_id = _coerce_int(warehouse_id, 0)
+    if stored_warehouse_id <= 0:
+        if warehouse_ids:
+            stored_warehouse_id = warehouse_ids[0]
+        else:
+            raise ValueError("warehouse_id or warehouse_ids is required to create a needs list draft.")
+    if stored_warehouse_id not in warehouse_ids:
+        warehouse_ids = sorted({*warehouse_ids, stored_warehouse_id})
+
+    phase = str(payload.get('phase') or "BASELINE").strip().upper()
     as_of_datetime = payload.get('as_of_datetime')
     planning_window_days = payload.get('planning_window_days')
     selected_method = payload.get("selected_method")
     selected_item_keys = payload.get("selected_item_keys")
     filters = payload.get("filters")
+    default_item_warehouse_id = stored_warehouse_id if len(warehouse_ids) <= 1 else None
     normalized_snapshot_items = [
         _normalize_snapshot_item(
             dict(item),
-            warehouse_id=_coerce_int(warehouse_id, 0) or None,
+            warehouse_id=_coerce_int(item.get("warehouse_id"), 0) or default_item_warehouse_id,
             warehouse_name=None,
             item_lookup={},
         )
         for item in items
         if isinstance(item, dict)
     ]
+    recommendation_scope = _build_recommendation_scope(
+        event_id=event_id,
+        phase=phase,
+        warehouse_ids=warehouse_ids,
+        items=normalized_snapshot_items,
+        selected_item_keys=selected_item_keys,
+    )
     data_freshness_level = _overall_freshness_level(normalized_snapshot_items)
 
-    windows = phase_window_policy.get_effective_phase_windows(int(event_id), str(phase or "BASELINE"))
+    windows = phase_window_policy.get_effective_phase_windows(int(event_id), phase)
     demand_window_hours = int(windows["demand_hours"])
     planning_window_hours = int(windows["planning_hours"])
     if planning_window_days is not None:
@@ -962,13 +1164,13 @@ def create_draft(
     needs_list: NeedsList | None = None
     last_integrity_error: IntegrityError | None = None
     for _ in range(_NEEDS_LIST_NO_MAX_RETRIES):
-        needs_list_no = _generate_needs_list_no(event_id, warehouse_id)
+        needs_list_no = _generate_needs_list_no(event_id, stored_warehouse_id)
         try:
             with transaction.atomic():
                 needs_list = NeedsList.objects.create(
                     needs_list_no=needs_list_no,
                     event_id=event_id,
-                    warehouse_id=warehouse_id,
+                    warehouse_id=stored_warehouse_id,
                     event_phase=phase,
                     calculation_dtime=calculation_dtime,
                     demand_window_hours=demand_window_hours,
@@ -986,6 +1188,8 @@ def create_draft(
                         "selected_method": selected_method,
                         "selected_item_keys": selected_item_keys,
                         "filters": filters,
+                        "warehouse_ids": warehouse_ids,
+                        "recommendation_scope": recommendation_scope,
                         "warnings": warnings_list,
                         "data_freshness_level": data_freshness_level,
                         "snapshot_items": normalized_snapshot_items,
@@ -1005,10 +1209,11 @@ def create_draft(
 
     superseded_ids = _supersede_open_scope_records(
         event_id=int(event_id),
-        warehouse_id=int(warehouse_id),
-        phase=str(phase or ""),
+        warehouse_id=stored_warehouse_id,
+        phase=phase,
         actor=actor,
         superseding_needs_list=needs_list,
+        recommendation_scope=recommendation_scope,
     )
     if superseded_ids:
         metadata = _load_workflow_metadata(needs_list)
@@ -1614,6 +1819,62 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
                     metadata[key] = value
                     metadata_changed = True
 
+        metadata_keys = (
+            "selected_method",
+            "selected_item_keys",
+            "filters",
+            "warehouse_ids",
+            "submitted_approval_summary",
+            "approval_tier",
+            "approval_rationale",
+            "downstream_actions",
+        )
+        for key in metadata_keys:
+            if key in record:
+                metadata[key] = record.get(key)
+                metadata_changed = True
+
+        snapshot = record.get("snapshot")
+        snapshot_fulfillment_updates: list[dict[str, object]] = []
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("items"), list):
+            raw_snapshot_items = [
+                item for item in snapshot.get("items") or [] if isinstance(item, dict)
+            ]
+            snapshot_fulfillment_updates = raw_snapshot_items
+            warehouse_ids = _normalize_scope_warehouse_ids(
+                record.get("warehouse_ids") or snapshot.get("warehouse_ids") or metadata.get("warehouse_ids"),
+                record.get("warehouse_id") or needs_list.warehouse_id,
+            )
+            default_item_warehouse_id = (
+                warehouse_ids[0]
+                if len(warehouse_ids) == 1
+                else (_coerce_int(record.get("warehouse_id"), 0) or None)
+            )
+            normalized_snapshot_items = [
+                _normalize_snapshot_item(
+                    dict(item),
+                    warehouse_id=_coerce_int(item.get("warehouse_id"), 0) or default_item_warehouse_id,
+                    warehouse_name=item.get("warehouse_name"),
+                    item_lookup={},
+                )
+                for item in raw_snapshot_items
+            ]
+            metadata["snapshot_items"] = normalized_snapshot_items
+            metadata["warehouse_ids"] = warehouse_ids
+            if not metadata.get("selected_method") and snapshot.get("selected_method"):
+                metadata["selected_method"] = snapshot.get("selected_method")
+            metadata["recommendation_scope"] = _build_recommendation_scope(
+                event_id=needs_list.event_id,
+                phase=needs_list.event_phase,
+                warehouse_ids=warehouse_ids,
+                items=normalized_snapshot_items,
+                selected_item_keys=record.get(
+                    "selected_item_keys",
+                    metadata.get("selected_item_keys"),
+                ),
+            )
+            metadata_changed = True
+
         if metadata_changed:
             _save_workflow_metadata(needs_list, metadata)
 
@@ -1633,6 +1894,30 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
                 item.save()
             except ObjectDoesNotExist:
                 pass  # Item not found, skip
+
+        for raw_item in snapshot_fulfillment_updates:
+            if "fulfilled_qty" not in raw_item and "fulfillment_status" not in raw_item:
+                continue
+            item_id = _coerce_int(raw_item.get("item_id"), 0)
+            if item_id <= 0:
+                continue
+            try:
+                item = needs_list.items.get(item_id=item_id)
+            except ObjectDoesNotExist:
+                continue
+            update_fields = ["update_by_id", "update_dtime"]
+            if raw_item.get("fulfilled_qty") is not None:
+                item.fulfilled_qty = _coerce_decimal(raw_item.get("fulfilled_qty"), "0")
+                item.fulfillment_status = _fulfillment_status_for_quantities(
+                    item.fulfilled_qty,
+                    _line_target_qty(item),
+                )
+                update_fields.extend(["fulfilled_qty", "fulfillment_status"])
+            elif raw_item.get("fulfillment_status") is not None:
+                item.fulfillment_status = str(raw_item.get("fulfillment_status") or "").strip().upper()
+                update_fields.append("fulfillment_status")
+            item.update_by_id = record.get("updated_by") or needs_list.update_by_id
+            item.save(update_fields=list(dict.fromkeys(update_fields)))
 
     except ObjectDoesNotExist:
         raise ValueError(f"Needs list {needs_list_id} not found")
@@ -1949,13 +2234,13 @@ def transition_status(
         else:
             raise ValueError(f"Unsupported IN_PROGRESS stage: {requested_stage}")
     elif target_status == "FULFILLED":
+        _finalize_fulfilled_lines_or_raise(needs_list, actor_value)
         if not metadata.get("completed_at"):
             metadata["completed_at"] = now_iso
             metadata_changed = True
         if not metadata.get("completed_by"):
             metadata["completed_by"] = actor_value
             metadata_changed = True
-        _mark_all_lines_fulfilled(needs_list, actor_value)
 
     if metadata_changed:
         _save_workflow_metadata(needs_list, metadata)
@@ -2050,17 +2335,28 @@ def _needs_list_to_dict(
         audit_logs=audit_logs_list,
     )
 
-    if warehouse_name is None:
-        warehouse_name = _safe_get_warehouse_name(needs_list.warehouse_id)
+    primary_warehouse_id = needs_list.warehouse_id if needs_list.warehouse_id > 0 else None
+    warehouse_ids = _normalize_scope_warehouse_ids(
+        metadata.get("warehouse_ids"),
+        primary_warehouse_id,
+    )
+    if warehouse_name is None and primary_warehouse_id is not None:
+        warehouse_name = _safe_get_warehouse_name(primary_warehouse_id)
     if event_name is None:
         event_name = _safe_get_event_name(needs_list.event_id)
-    warehouses = [
-        {
-            "warehouse_id": needs_list.warehouse_id,
-            "warehouse_name": warehouse_name,
-        }
-    ]
-    warehouse_ids = [needs_list.warehouse_id]
+    warehouses = []
+    for scoped_warehouse_id in warehouse_ids:
+        scoped_name = (
+            warehouse_name
+            if scoped_warehouse_id == primary_warehouse_id and warehouse_name is not None
+            else _safe_get_warehouse_name(scoped_warehouse_id)
+        )
+        warehouses.append(
+            {
+                "warehouse_id": scoped_warehouse_id,
+                "warehouse_name": scoped_name,
+            }
+        )
 
     # If items not provided, load from database.
     db_items_list: list[NeedsListItem] | None = None
@@ -2116,7 +2412,7 @@ def _needs_list_to_dict(
             items.append(
                 _normalize_snapshot_item(
                     raw_item,
-                    warehouse_id=needs_list.warehouse_id,
+                    warehouse_id=primary_warehouse_id,
                     warehouse_name=warehouse_name,
                     item_lookup=item_lookup,
                 )
@@ -2135,7 +2431,7 @@ def _needs_list_to_dict(
         items = [
             _normalize_snapshot_item(
                 dict(item),
-                warehouse_id=needs_list.warehouse_id,
+                warehouse_id=primary_warehouse_id,
                 warehouse_name=warehouse_name,
                 item_lookup=item_lookup,
             )
@@ -2190,7 +2486,7 @@ def _needs_list_to_dict(
         'needs_list_no': needs_list.needs_list_no,
         'event_id': needs_list.event_id,
         'event_name': event_name,
-        'warehouse_id': needs_list.warehouse_id,
+        'warehouse_id': primary_warehouse_id,
         'warehouse_ids': warehouse_ids,
         'warehouses': warehouses,
         'phase': needs_list.event_phase,
@@ -2211,8 +2507,10 @@ def _needs_list_to_dict(
         'review_started_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
         'approved_by': needs_list.approved_by,
         'approved_at': needs_list.approved_at.isoformat() if needs_list.approved_at else None,
-        'approval_tier': None,  # TODO: Add to model if needed
-        'approval_rationale': None,
+        'approval_tier': metadata.get("approval_tier"),
+        'approval_rationale': metadata.get("approval_rationale"),
+        'submitted_approval_summary': metadata.get("submitted_approval_summary"),
+        'downstream_actions': metadata.get("downstream_actions"),
         'prep_started_by': stage_fields.get("prep_started_by"),
         'prep_started_at': stage_fields.get("prep_started_at"),
         'dispatched_by': stage_fields.get("dispatched_by"),

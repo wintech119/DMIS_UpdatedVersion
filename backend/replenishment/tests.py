@@ -28,6 +28,7 @@ workflow_store = workflow_store_db
 from replenishment.models import (
     NeedsList,
     NeedsListAudit,
+    NeedsListDonationDraftLine,
     NeedsListItem,
     Procurement,
     ProcurementItem,
@@ -119,6 +120,280 @@ class ReplenishmentBootstrapTests(SimpleTestCase):
 
 
 
+def _ensure_legacy_reference_tables(cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parish (
+            parish_code VARCHAR(2) PRIMARY KEY,
+            parish_name VARCHAR(80) NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ref_tenant_type (
+            tenant_type_code VARCHAR(20) PRIMARY KEY,
+            tenant_type_name VARCHAR(80) NOT NULL,
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ref_event_phase (
+            phase_code VARCHAR(15) PRIMARY KEY,
+            phase_name VARCHAR(80) NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 1,
+            description VARCHAR(255),
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS "user" (
+            user_id INTEGER PRIMARY KEY,
+            username VARCHAR(80) NOT NULL,
+            email VARCHAR(120),
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant (
+            tenant_id INTEGER PRIMARY KEY,
+            tenant_code VARCHAR(30) NOT NULL,
+            tenant_name VARCHAR(120) NOT NULL,
+            tenant_type VARCHAR(20) NOT NULL,
+            parish_code VARCHAR(2),
+            data_scope VARCHAR(30),
+            pii_access VARCHAR(30),
+            mobile_priority VARCHAR(30),
+            offline_required BOOLEAN NOT NULL DEFAULT FALSE,
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant_user (
+            user_id INTEGER NOT NULL,
+            tenant_id INTEGER NOT NULL,
+            is_primary_tenant BOOLEAN NOT NULL DEFAULT TRUE,
+            access_level VARCHAR(30),
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (user_id, tenant_id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant_config (
+            config_id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            config_key VARCHAR(120) NOT NULL,
+            config_value TEXT NOT NULL DEFAULT '{}',
+            config_type VARCHAR(30),
+            effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            expiry_date DATE,
+            description VARCHAR(255),
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        "ALTER TABLE tenant_config ADD COLUMN IF NOT EXISTS config_type VARCHAR(30)"
+    )
+    cursor.execute(
+        "ALTER TABLE tenant_config ADD COLUMN IF NOT EXISTS description VARCHAR(255)"
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS custodian (
+            custodian_id INTEGER PRIMARY KEY,
+            custodian_name VARCHAR(120) NOT NULL,
+            address1_text VARCHAR(255),
+            parish_code VARCHAR(2),
+            contact_name VARCHAR(80),
+            phone_no VARCHAR(20),
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1,
+            tenant_id INTEGER
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS warehouse (
+            warehouse_id INTEGER PRIMARY KEY,
+            warehouse_name VARCHAR(120) NOT NULL,
+            warehouse_type VARCHAR(30),
+            address1_text VARCHAR(255),
+            address2_text VARCHAR(255),
+            parish_code VARCHAR(2),
+            contact_name VARCHAR(80),
+            phone_no VARCHAR(20),
+            email_text VARCHAR(100),
+            custodian_id INTEGER,
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            reason_desc VARCHAR(255),
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1,
+            min_stock_threshold NUMERIC(15,2) NOT NULL DEFAULT 0.00,
+            last_sync_dtime TIMESTAMPTZ,
+            sync_status VARCHAR(30),
+            tenant_id INTEGER
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant_warehouse (
+            tenant_id INTEGER NOT NULL,
+            warehouse_id INTEGER NOT NULL,
+            effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            expiry_date DATE,
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (tenant_id, warehouse_id, effective_date)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS item (
+            item_id INTEGER PRIMARY KEY,
+            item_code VARCHAR(30),
+            item_name VARCHAR(120) NOT NULL,
+            category_id INTEGER,
+            criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL',
+            status_code VARCHAR(10) NOT NULL DEFAULT 'A',
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    cursor.execute(
+        "ALTER TABLE item ADD COLUMN IF NOT EXISTS criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL'"
+    )
+    cursor.execute(
+        "ALTER TABLE item ADD COLUMN IF NOT EXISTS default_uom_code VARCHAR(25)"
+    )
+    cursor.execute(
+        "ALTER TABLE item ADD COLUMN IF NOT EXISTS can_expire_flag BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    cursor.execute(
+        "ALTER TABLE item ADD COLUMN IF NOT EXISTS issuance_order VARCHAR(10) NOT NULL DEFAULT 'FIFO'"
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            inventory_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            available_qty NUMERIC(15,4) NOT NULL DEFAULT 0.0000,
+            reserved_qty NUMERIC(15,4) NOT NULL DEFAULT 0.0000,
+            status_code VARCHAR(10) NOT NULL DEFAULT 'A',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (inventory_id, item_id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS itembatch (
+            batch_id INTEGER PRIMARY KEY,
+            inventory_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            batch_no VARCHAR(80),
+            batch_date DATE,
+            expiry_date DATE,
+            usable_qty NUMERIC(15,4) NOT NULL DEFAULT 0.0000,
+            reserved_qty NUMERIC(15,4) NOT NULL DEFAULT 0.0000,
+            uom_code VARCHAR(25) NOT NULL DEFAULT 'EA',
+            status_code VARCHAR(10) NOT NULL DEFAULT 'A',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dnintake_item (
+            donation_id INTEGER NOT NULL DEFAULT 0,
+            inventory_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            batch_no VARCHAR(80),
+            status_code VARCHAR(10) NOT NULL DEFAULT 'V'
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event (
+            event_id INTEGER PRIMARY KEY,
+            event_type VARCHAR(30),
+            start_date DATE,
+            event_name VARCHAR(120) NOT NULL,
+            event_desc VARCHAR(255),
+            impact_desc VARCHAR(255),
+            status_code VARCHAR(1) NOT NULL DEFAULT 'A',
+            closed_date DATE,
+            reason_desc VARCHAR(255),
+            create_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            create_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            update_by_id VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+            update_dtime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            version_nbr INTEGER NOT NULL DEFAULT 1,
+            current_phase VARCHAR(15),
+            phase_changed_at TIMESTAMPTZ,
+            phase_changed_by VARCHAR(20)
+        )
+        """
+    )
+
+
 def _ensure_legacy_reference_rows() -> None:
     if connection.vendor != "postgresql":
         return
@@ -170,6 +445,57 @@ def _ensure_legacy_reference_rows() -> None:
         ),
         (
             """
+            INSERT INTO "user" (
+                user_id,
+                username,
+                email,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            SELECT
+                user_id,
+                username,
+                username || '@example.test',
+                'A',
+                'SYSTEM',
+                NOW(),
+                'SYSTEM',
+                NOW(),
+                1
+            FROM (
+                VALUES
+                    (1001, 'dev-user'),
+                    (1002, 'submitter'),
+                    (1003, 'reviewer'),
+                    (1004, 'executor'),
+                    (1005, 'creator'),
+                    (1006, 'delegate'),
+                    (1007, 'tenant-reader'),
+                    (1008, 'tenant-b-user'),
+                    (1009, 'approver'),
+                    (1010, 'exec'),
+                    (1011, 'director-user'),
+                    (1012, 'officer-1'),
+                    (1013, 'manager-1'),
+                    (1014, 'another-user'),
+                    (1015, 'neoc-reader'),
+                    (1016, 'exec-user'),
+                    (1017, 'submitter-1'),
+                    (1018, 'submitter-2'),
+                    (1019, 'approver-1'),
+                    (1020, 'approver-2'),
+                    (1021, 'logistics-1')
+            ) AS fixture_users(user_id, username)
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            [],
+        ),
+        (
+            """
             INSERT INTO tenant (
                 tenant_id,
                 tenant_code,
@@ -205,6 +531,59 @@ def _ensure_legacy_reference_rows() -> None:
                 1
             )
             ON CONFLICT (tenant_id) DO NOTHING
+            """,
+            [],
+        ),
+        (
+            """
+            INSERT INTO tenant_user (
+                user_id,
+                tenant_id,
+                is_primary_tenant,
+                access_level,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            SELECT
+                user_id,
+                1,
+                TRUE,
+                'WRITE',
+                'A',
+                'SYSTEM',
+                NOW(),
+                'SYSTEM',
+                NOW(),
+                1
+            FROM "user"
+            WHERE username IN (
+                'dev-user',
+                'submitter',
+                'reviewer',
+                'executor',
+                'creator',
+                'delegate',
+                'tenant-reader',
+                'tenant-b-user',
+                'approver',
+                'exec',
+                'director-user',
+                'officer-1',
+                'manager-1',
+                'another-user',
+                'neoc-reader',
+                'exec-user',
+                'submitter-1',
+                'submitter-2',
+                'approver-1',
+                'approver-2',
+                'logistics-1'
+            )
+            ON CONFLICT (user_id, tenant_id) DO NOTHING
             """,
             [],
         ),
@@ -400,6 +779,63 @@ def _ensure_legacy_reference_rows() -> None:
         ),
         (
             """
+            INSERT INTO tenant_warehouse (
+                tenant_id,
+                warehouse_id,
+                effective_date,
+                expiry_date,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (1, %s, CURRENT_DATE, NULL, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (tenant_id, warehouse_id, effective_date) DO NOTHING
+            """,
+            [1],
+        ),
+        (
+            """
+            INSERT INTO tenant_warehouse (
+                tenant_id,
+                warehouse_id,
+                effective_date,
+                expiry_date,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (1, %s, CURRENT_DATE, NULL, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (tenant_id, warehouse_id, effective_date) DO NOTHING
+            """,
+            [2],
+        ),
+        (
+            """
+            INSERT INTO tenant_warehouse (
+                tenant_id,
+                warehouse_id,
+                effective_date,
+                expiry_date,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (1, %s, CURRENT_DATE, NULL, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (tenant_id, warehouse_id, effective_date) DO NOTHING
+            """,
+            [10],
+        ),
+        (
+            """
             INSERT INTO event (
                 event_id,
                 event_type,
@@ -486,11 +922,89 @@ def _ensure_legacy_reference_rows() -> None:
             """,
             [5, "TEST EVENT 5"],
         ),
+        (
+            """
+            INSERT INTO item (
+                item_id,
+                item_code,
+                item_name,
+                category_id,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (%s, %s, %s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (item_id) DO NOTHING
+            """,
+            [1, "TEST-ITEM-1", "TEST ITEM 1", 10],
+        ),
+        (
+            """
+            INSERT INTO item (
+                item_id,
+                item_code,
+                item_name,
+                category_id,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (%s, %s, %s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (item_id) DO NOTHING
+            """,
+            [9, "TEST-ITEM-9", "TEST ITEM 9", 10],
+        ),
+        (
+            """
+            INSERT INTO item (
+                item_id,
+                item_code,
+                item_name,
+                category_id,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (%s, %s, %s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (item_id) DO NOTHING
+            """,
+            [100, "TEST-ITEM-100", "TEST ITEM 100", 10],
+        ),
+        (
+            """
+            INSERT INTO item (
+                item_id,
+                item_code,
+                item_name,
+                category_id,
+                status_code,
+                create_by_id,
+                create_dtime,
+                update_by_id,
+                update_dtime,
+                version_nbr
+            )
+            VALUES (%s, %s, %s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            ON CONFLICT (item_id) DO NOTHING
+            """,
+            [123, "TEST-ITEM-123", "TEST ITEM 123", 10],
+        ),
     ]
 
     with transaction.atomic():
         with connection.cursor() as cursor:
+            _ensure_legacy_reference_tables(cursor)
             cursor.execute("DELETE FROM needs_list_audit")
+            cursor.execute("DELETE FROM needs_list_donation_draft_line")
             cursor.execute("DELETE FROM needs_list_item")
             cursor.execute("DELETE FROM needs_list_workflow_metadata")
             cursor.execute("DELETE FROM needs_list")
@@ -2153,6 +2667,12 @@ class NeedsListWorkflowApiTests(TestCase):
     def _draft_payload(self) -> dict:
         return {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"}
 
+    def _mark_db_workflow_lines_fulfilled(self, needs_list_id: object) -> None:
+        for item in NeedsListItem.objects.filter(needs_list_id=int(needs_list_id)):
+            item.fulfilled_qty = item.required_qty
+            item.fulfillment_status = "FULFILLED"
+            item.save(update_fields=["fulfilled_qty", "fulfillment_status", "update_dtime"])
+
     @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
     def test_accessible_read_warehouse_ids_keeps_read_all_context_unbounded(self) -> None:
         request = APIRequestFactory().get(
@@ -2648,12 +3168,17 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch(
+        "replenishment.views.get_replenishment_export_audit_schema_status",
+        return_value=("ok", ""),
+    )
     @patch("replenishment.views.logger.info")
     @patch("replenishment.views.import_module")
     def test_donations_export_post_queues_and_deduplicates_async_jobs(
         self,
         mock_import_module,
         mock_logger_info,
+        _mock_schema_status,
     ) -> None:
         record = {
             "needs_list_id": "NL-A",
@@ -2722,10 +3247,15 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch(
+        "replenishment.views.get_replenishment_export_audit_schema_status",
+        return_value=("ok", ""),
+    )
     @patch("replenishment.views.import_module")
     def test_donations_export_post_deduplicated_requests_do_not_consume_rate_limit(
         self,
         mock_import_module,
+        _mock_schema_status,
     ) -> None:
         record = {
             "needs_list_id": "NL-A",
@@ -2772,12 +3302,17 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch(
+        "replenishment.views.get_replenishment_export_audit_schema_status",
+        return_value=("ok", ""),
+    )
     @patch("replenishment.views.logger.warning")
     @patch("replenishment.views.import_module")
     def test_donations_export_post_rate_limits_after_five_requests(
         self,
         mock_import_module,
         mock_logger_warning,
+        _mock_schema_status,
     ) -> None:
         records = [
             {
@@ -3056,7 +3591,7 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
-    def test_donations_allocate_returns_not_implemented(self) -> None:
+    def test_donations_allocate_requires_persisted_allocation_context(self) -> None:
         record = {
             "needs_list_id": "NL-A",
             "status": "APPROVED",
@@ -3072,10 +3607,10 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.status_code, 409)
         self.assertEqual(
-            response.json().get("errors", {}).get("donations"),
-            "donation_allocation_not_implemented",
+            response.json().get("errors", {}).get("needs_list_id"),
+            "Needs list is not DB-backed.",
         )
         self.assertIsNone(response.json().get("allocated_count"))
 
@@ -3131,10 +3666,15 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch(
+        "replenishment.views.get_replenishment_export_audit_schema_status",
+        return_value=("ok", ""),
+    )
     @patch("replenishment.views.import_module")
     def test_procurement_export_post_queues_procurement_async_job(
         self,
         mock_import_module,
+        _mock_schema_status,
     ) -> None:
         record = {
             "needs_list_id": "NL-A",
@@ -3578,8 +4118,362 @@ class NeedsListWorkflowApiTests(TestCase):
                     {},
                     format="json",
                 )
-                self.assertEqual(approve.status_code, 200)
+                self.assertEqual(approve.status_code, 200, approve.json())
                 self.assertEqual(approve.json().get("status"), "APPROVED")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="creator",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_creator_cannot_approve_after_delegate_submits(self) -> None:
+        record = {
+            "needs_list_id": "NL-DELEGATE",
+            "status": "SUBMITTED",
+            "created_by": "creator",
+            "submitted_by": "delegate",
+            "warehouse_id": 1,
+            "snapshot": {"items": [{"item_id": 1, "required_qty": 1}]},
+        }
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record",
+            return_value=record,
+        ), patch(
+            "replenishment.views.workflow_store.transition_status",
+        ) as mock_transition_status:
+            approve = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-DELEGATE/approve",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(approve.status_code, 409)
+        self.assertIn("generator and submitter", approve.json()["errors"]["approval"])
+        mock_transition_status.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_approve_persists_downstream_draft_actions(self) -> None:
+        needs_list = NeedsList.objects.create(
+            needs_list_id=42,
+            needs_list_no="NL-DOWNSTREAM-001",
+            event_id=1,
+            warehouse_id=10,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="SUBMITTED",
+            total_gap_qty=10,
+            create_by_id="creator",
+            update_by_id="creator",
+            submitted_by="submitter",
+            submitted_at=timezone.now(),
+        )
+        NeedsListItem.objects.create(
+            needs_list=needs_list,
+            item_id=101,
+            uom_code="EA",
+            burn_rate=1,
+            burn_rate_source="CALCULATED",
+            available_stock=0,
+            reserved_qty=0,
+            inbound_transfer_qty=0,
+            inbound_donation_qty=0,
+            inbound_procurement_qty=0,
+            required_qty=10,
+            coverage_qty=0,
+            gap_qty=10,
+            severity_level="WARNING",
+            horizon_a_qty=2,
+            horizon_b_qty=3,
+            horizon_c_qty=5,
+            create_by_id="creator",
+            update_by_id="creator",
+        )
+        record = {
+            "needs_list_id": "42",
+            "needs_list_no": "NL-DOWNSTREAM-001",
+            "status": "SUBMITTED",
+            "created_by": "creator",
+            "submitted_by": "submitter",
+            "warehouse_id": 10,
+            "event_id": 1,
+            "phase": "BASELINE",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "required_qty": 10,
+                        "horizon": {
+                            "A": {"recommended_qty": 2},
+                            "B": {"recommended_qty": 3},
+                            "C": {"recommended_qty": 5},
+                        },
+                    }
+                ]
+            },
+        }
+        approved_record = {
+            **record,
+            "status": "APPROVED",
+            "approved_by": "reviewer",
+            "approved_at": "2026-04-10T12:00:00Z",
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record",
+            return_value=record,
+        ), patch(
+            "replenishment.views.workflow_store.transition_status",
+            return_value=approved_record,
+        ), patch(
+            "replenishment.views.workflow_store.update_record",
+        ) as mock_update_record, patch(
+            "replenishment.views._approval_summary_for_record",
+            return_value={
+                "total_required_qty": 10,
+                "total_estimated_cost": None,
+                "approval": {"tier": "TIER_1"},
+                "warnings": [],
+                "rationale": "Tier 1 approval required.",
+                "escalation_required": False,
+            },
+        ), patch(
+            "replenishment.views.approval_service.required_roles_for_approval",
+            return_value={"EXECUTIVE"},
+        ), patch(
+            "replenishment.views.resolve_roles_and_permissions",
+            return_value=(["EXECUTIVE"], []),
+        ), patch(
+            "replenishment.views.data_access.get_warehouses_with_stock",
+            return_value=(
+                {
+                    101: [
+                        {
+                            "warehouse_id": 2,
+                            "warehouse_name": "Source Warehouse",
+                            "available_qty": 10,
+                        }
+                    ]
+                },
+                [],
+            ),
+        ), patch(
+            "replenishment.views.data_access.create_draft_transfers_if_absent",
+            return_value=([{"transfer_id": 77}], 1, False, []),
+        ), patch(
+            "replenishment.views.allocation_dispatch.get_allocation_options",
+            return_value={
+                "items": [
+                    {
+                        "item_id": 101,
+                        "candidates": [
+                            {
+                                "source_type": "DONATION",
+                                "source_record_id": 8,
+                                "inventory_id": 10,
+                                "batch_id": 88,
+                                "available_qty": 3,
+                            }
+                        ],
+                    }
+                ]
+            },
+        ), patch(
+            "replenishment.views.procurement_service.create_procurement_from_needs_list",
+            return_value={"procurement_id": 55, "status_code": "DRAFT"},
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/42/approve",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        downstream_actions = response.json().get("downstream_actions")
+        self.assertEqual(downstream_actions["transfer"]["status"], "CREATED")
+        self.assertEqual(downstream_actions["donation"]["status"], "DRAFT")
+        self.assertEqual(downstream_actions["procurement"]["status"], "CREATED")
+        self.assertEqual(
+            NeedsListDonationDraftLine.objects.filter(
+                needs_list=needs_list,
+                item_id=101,
+                status_code="DRAFT",
+            ).count(),
+            1,
+        )
+        updated_record = mock_update_record.call_args.args[1]
+        self.assertEqual(
+            updated_record["downstream_actions"]["transfer"]["transfers"],
+            [{"transfer_id": 77}],
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_approve_rejects_downstream_transfer_generation_error(self) -> None:
+        record = {
+            "needs_list_id": "NL-TRANSFER-ERROR",
+            "status": "SUBMITTED",
+            "created_by": "creator",
+            "submitted_by": "submitter",
+            "warehouse_id": 10,
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "required_qty": 2,
+                        "horizon": {"A": {"recommended_qty": 2}},
+                    }
+                ]
+            },
+        }
+        approved_record = {**record, "status": "APPROVED", "approved_by": "reviewer"}
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record",
+            return_value=record,
+        ), patch(
+            "replenishment.views.workflow_store.transition_status",
+            return_value=approved_record,
+        ), patch(
+            "replenishment.views.workflow_store.update_record",
+        ) as mock_update_record, patch(
+            "replenishment.views._approval_summary_for_record",
+            return_value={
+                "total_required_qty": 2,
+                "total_estimated_cost": None,
+                "approval": {"tier": "TIER_1"},
+                "warnings": [],
+                "rationale": "Tier 1 approval required.",
+                "escalation_required": False,
+            },
+        ), patch(
+            "replenishment.views.approval_service.required_roles_for_approval",
+            return_value={"EXECUTIVE"},
+        ), patch(
+            "replenishment.views.resolve_roles_and_permissions",
+            return_value=(["EXECUTIVE"], []),
+        ), patch(
+            "replenishment.views.data_access.get_warehouses_with_stock",
+            return_value=({101: [{"warehouse_id": 2, "available_qty": 2}]}, []),
+        ), patch(
+            "replenishment.views.data_access.create_draft_transfers_if_absent",
+            return_value=([], 0, False, ["db_error_insert_transfer"]),
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-TRANSFER-ERROR/approve",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertIn("downstream_actions", body["errors"])
+        self.assertEqual(body["downstream_actions"]["transfer"]["status"], "ERROR")
+        mock_update_record.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_approve_rejects_downstream_procurement_generation_error(self) -> None:
+        record = {
+            "needs_list_id": "NL-PROC-ERROR",
+            "needs_list_no": "NL-PROC-ERROR",
+            "status": "SUBMITTED",
+            "created_by": "creator",
+            "submitted_by": "submitter",
+            "warehouse_id": 10,
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "required_qty": 5,
+                        "horizon": {"C": {"recommended_qty": 5}},
+                    }
+                ]
+            },
+        }
+        approved_record = {**record, "status": "APPROVED", "approved_by": "reviewer"}
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record",
+            return_value=record,
+        ), patch(
+            "replenishment.views.workflow_store.transition_status",
+            return_value=approved_record,
+        ), patch(
+            "replenishment.views.workflow_store.update_record",
+        ) as mock_update_record, patch(
+            "replenishment.views._approval_summary_for_record",
+            return_value={
+                "total_required_qty": 5,
+                "total_estimated_cost": None,
+                "approval": {"tier": "TIER_1"},
+                "warnings": [],
+                "rationale": "Tier 1 approval required.",
+                "escalation_required": False,
+            },
+        ), patch(
+            "replenishment.views.approval_service.required_roles_for_approval",
+            return_value={"EXECUTIVE"},
+        ), patch(
+            "replenishment.views.resolve_roles_and_permissions",
+            return_value=(["EXECUTIVE"], []),
+        ), patch(
+            "replenishment.views.procurement_service.create_procurement_from_needs_list",
+            side_effect=procurement_service.ProcurementError(
+                "Procurement draft failed.",
+                code="procurement_draft_failed",
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-PROC-ERROR/approve",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertIn("downstream_actions", body["errors"])
+        self.assertEqual(body["downstream_actions"]["procurement"]["status"], "ERROR")
+        mock_update_record.assert_not_called()
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -5846,36 +6740,20 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(first_after.get("status"), "DRAFT")
             self.assertNotIn(first["needs_list_id"], second.get("supersedes_needs_list_ids", []))
 
-    def test_create_draft_treats_empty_and_none_warehouse_ids_as_same_scope(self) -> None:
+    def test_create_draft_rejects_missing_warehouse_scope(self) -> None:
         with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
-            first = workflow_store.create_draft(
-                {
-                    "event_id": 1,
-                    "warehouse_id": None,
-                    "warehouse_ids": None,
-                    "phase": "BASELINE",
-                },
-                [],
-                [],
-                "submitter",
-            )
-            second = workflow_store.create_draft(
-                {
-                    "event_id": 1,
-                    "warehouse_id": None,
-                    "warehouse_ids": [],
-                    "phase": "BASELINE",
-                },
-                [],
-                [],
-                "submitter",
-            )
-            first_after = workflow_store.get_record(first["needs_list_id"])
-
-            self.assertIsNotNone(first_after)
-            self.assertEqual(first_after.get("status"), "SUPERSEDED")
-            self.assertEqual(first_after.get("superseded_by"), second.get("needs_list_id"))
-            self.assertIn(first["needs_list_id"], second.get("supersedes_needs_list_ids", []))
+            with self.assertRaisesRegex(ValueError, "warehouse_id or warehouse_ids"):
+                workflow_store.create_draft(
+                    {
+                        "event_id": 1,
+                        "warehouse_id": None,
+                        "warehouse_ids": [],
+                        "phase": "BASELINE",
+                    },
+                    [],
+                    [],
+                    "submitter",
+                )
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -5980,7 +6858,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     {},
                     format="json",
                 )
-                self.assertEqual(approve.status_code, 200)
+                self.assertEqual(approve.status_code, 200, approve.json())
                 body = approve.json()
                 self.assertEqual(body.get("status"), "APPROVED")
                 self.assertEqual(body.get("approval_tier"), "Tier 3")
@@ -6519,8 +7397,10 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
     def test_execution_happy_path(
         self,
+        mock_dispatch_package,
         mock_available,
         mock_donations,
         mock_transfers,
@@ -6528,6 +7408,12 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_fallback,
         mock_categories,
     ) -> None:
+        mock_dispatch_package.return_value = {
+            "reliefrqst_id": 9001,
+            "reliefpkg_id": 9101,
+            "waybill_no": "WB-EP02-1",
+            "waybill_payload": {},
+        }
         mock_available.return_value = ({1: 10.0}, [], None)
         mock_donations.return_value = ({}, [])
         mock_transfers.return_value = ({}, [])
@@ -6575,6 +7461,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(received.status_code, 200)
+                self._mark_db_workflow_lines_fulfilled(needs_list_id)
                 completed = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
                     {},
@@ -6635,6 +7522,47 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="executor",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_completed_rejects_partial_line_fulfillment(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "status": "RECEIVED",
+            "warehouse_id": 10,
+            "received_at": "2026-04-10T12:00:00Z",
+        }
+        mock_transition_status.side_effect = ValueError(
+            "Cannot complete needs list while item 101 has remaining quantity."
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/mark-completed",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("remaining quantity", response.json()["errors"]["status"])
+        mock_update_record.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -6647,8 +7575,10 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
     def test_db_mode_enforces_execution_stage_sequence(
         self,
+        mock_dispatch_package,
         mock_available,
         mock_donations,
         mock_transfers,
@@ -6656,6 +7586,12 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_fallback,
         mock_categories,
     ) -> None:
+        mock_dispatch_package.return_value = {
+            "reliefrqst_id": 9002,
+            "reliefpkg_id": 9102,
+            "waybill_no": "WB-EP02-2",
+            "waybill_payload": {},
+        }
         mock_available.return_value = ({1: 10.0}, [], None)
         mock_donations.return_value = ({}, [])
         mock_transfers.return_value = ({}, [])
@@ -6739,6 +7675,7 @@ class NeedsListWorkflowApiTests(TestCase):
                 )
                 self.assertEqual(received.status_code, 200)
                 self.assertIsNotNone(received.json().get("received_at"))
+                self._mark_db_workflow_lines_fulfilled(needs_list_id)
 
                 completed = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
@@ -6878,8 +7815,10 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
     def test_cancel_constraints(
         self,
+        mock_dispatch_package,
         mock_available,
         mock_donations,
         mock_transfers,
@@ -6887,6 +7826,12 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_fallback,
         mock_categories,
     ) -> None:
+        mock_dispatch_package.return_value = {
+            "reliefrqst_id": 9003,
+            "reliefpkg_id": 9103,
+            "waybill_no": "WB-EP02-3",
+            "waybill_payload": {},
+        }
         mock_available.return_value = ({1: 10.0}, [], None)
         mock_donations.return_value = ({}, [])
         mock_transfers.return_value = ({}, [])
@@ -7018,8 +7963,151 @@ class NeedsListWorkflowApiTests(TestCase):
 
 
 class WorkflowStoreDbSerializationTests(TestCase):
+    def _create_workflow_needs_list(
+        self,
+        *,
+        needs_list_no: str,
+        status_code: str = "DRAFT",
+        required_qty: Decimal = Decimal("10.00"),
+        fulfilled_qty: Decimal = Decimal("0.00"),
+        fulfillment_status: str = "PENDING",
+    ) -> NeedsList:
+        needs_list = NeedsList.objects.create(
+            needs_list_no=needs_list_no,
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            data_freshness_level="HIGH",
+            status_code=status_code,
+            total_gap_qty=required_qty,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsListItem.objects.create(
+            needs_list=needs_list,
+            item_id=9,
+            uom_code="EA",
+            burn_rate=Decimal("1.0000"),
+            burn_rate_source="CALCULATED",
+            available_stock=Decimal("0.00"),
+            reserved_qty=Decimal("0.00"),
+            inbound_transfer_qty=Decimal("0.00"),
+            inbound_donation_qty=Decimal("0.00"),
+            inbound_procurement_qty=Decimal("0.00"),
+            required_qty=required_qty,
+            coverage_qty=fulfilled_qty,
+            gap_qty=max(required_qty - fulfilled_qty, Decimal("0.00")),
+            time_to_stockout_hours=Decimal("1.00"),
+            severity_level="CRITICAL",
+            horizon_a_qty=Decimal("0.00"),
+            horizon_b_qty=Decimal("0.00"),
+            horizon_c_qty=required_qty,
+            fulfilled_qty=fulfilled_qty,
+            fulfillment_status=fulfillment_status,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        return needs_list
+
     def test_iso_or_none_preserves_nulls(self) -> None:
         self.assertIsNone(workflow_store_db._iso_or_none(None))
+
+    def test_transition_to_fulfilled_rejects_unreceived_quantities(self) -> None:
+        needs_list = self._create_workflow_needs_list(
+            needs_list_no="NL-PARTIAL-FULFILLMENT",
+            status_code="IN_PROGRESS",
+            required_qty=Decimal("10.00"),
+            fulfilled_qty=Decimal("4.00"),
+            fulfillment_status="PARTIAL",
+        )
+
+        with self.assertRaisesRegex(ValueError, "remaining quantity"):
+            workflow_store_db.transition_status(
+                {"needs_list_id": str(needs_list.needs_list_id)},
+                "FULFILLED",
+                "executor",
+            )
+
+        needs_list.refresh_from_db()
+        item = needs_list.items.get(item_id=9)
+        self.assertEqual(needs_list.status_code, "IN_PROGRESS")
+        self.assertEqual(item.fulfilled_qty, Decimal("4.00"))
+        self.assertEqual(item.fulfillment_status, "PARTIAL")
+
+    def test_transition_to_fulfilled_preserves_actual_fulfilled_quantity(self) -> None:
+        needs_list = self._create_workflow_needs_list(
+            needs_list_no="NL-FULL-FULFILLMENT",
+            status_code="IN_PROGRESS",
+            required_qty=Decimal("10.00"),
+            fulfilled_qty=Decimal("10.00"),
+            fulfillment_status="PARTIAL",
+        )
+
+        updated = workflow_store_db.transition_status(
+            {"needs_list_id": str(needs_list.needs_list_id)},
+            "FULFILLED",
+            "executor",
+        )
+
+        needs_list.refresh_from_db()
+        item = needs_list.items.get(item_id=9)
+        self.assertEqual(updated["status"], "FULFILLED")
+        self.assertEqual(needs_list.status_code, "FULFILLED")
+        self.assertEqual(item.fulfilled_qty, Decimal("10.00"))
+        self.assertEqual(item.fulfillment_status, "FULFILLED")
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_update_record_persists_approval_metadata_after_reload(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+        needs_list = self._create_workflow_needs_list(
+            needs_list_no="NL-APPROVAL-METADATA",
+            status_code="SUBMITTED",
+            required_qty=Decimal("10.00"),
+        )
+        approval_summary = {
+            "total_required_qty": 10,
+            "approval": {"tier": "TIER_1", "approver_role": "Executive"},
+            "warnings": [],
+            "rationale": "Tier 1 approval required.",
+            "policy_version": "test",
+        }
+        downstream_actions = {
+            "transfer": {"status": "SKIPPED"},
+            "donation": {"status": "DRAFT", "lines": []},
+            "procurement": {"status": "CREATED", "procurement": {"procurement_id": 55}},
+        }
+
+        workflow_store_db.update_record(
+            str(needs_list.needs_list_id),
+            {
+                "status": "APPROVED",
+                "submitted_approval_summary": approval_summary,
+                "approval_tier": "TIER_1",
+                "approval_rationale": "Tier 1 approval required.",
+                "downstream_actions": downstream_actions,
+            },
+        )
+
+        reloaded = workflow_store_db.get_record(str(needs_list.needs_list_id))
+        self.assertIsNotNone(reloaded)
+        assert reloaded is not None
+        self.assertEqual(reloaded["approval_tier"], "TIER_1")
+        self.assertEqual(reloaded["approval_rationale"], "Tier 1 approval required.")
+        self.assertEqual(reloaded["submitted_approval_summary"], approval_summary)
+        self.assertEqual(reloaded["downstream_actions"], downstream_actions)
 
     @patch("replenishment.workflow_store_db.data_access.get_event_name")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
@@ -8863,6 +9951,28 @@ class ProcurementNumberGenerationTests(TestCase):
 
         self.assertEqual(created.get("procurement_no"), next_no)
         self.assertTrue(Procurement.objects.filter(procurement_no=next_no).exists())
+
+    def test_create_procurement_from_needs_list_returns_existing_draft_idempotently(self) -> None:
+        needs_list = self._create_needs_list_with_horizon_c("NL-PROC-IDEMPOTENT-001")
+        existing = Procurement.objects.create(
+            procurement_no="PROC-IDEMPOTENT-001",
+            needs_list=needs_list,
+            event_id=needs_list.event_id,
+            target_warehouse_id=needs_list.warehouse_id,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        result = procurement_service.create_procurement_from_needs_list(
+            str(needs_list.needs_list_id),
+            actor_id="tester",
+        )
+
+        self.assertTrue(result.get("already_exists"))
+        self.assertEqual(result.get("procurement_id"), existing.procurement_id)
+        self.assertEqual(Procurement.objects.filter(needs_list=needs_list).count(), 1)
 
     @patch("replenishment.services.procurement.time.sleep", return_value=None)
     def test_create_procurement_standalone_raises_after_retry_exhaustion(self, _mock_sleep) -> None:

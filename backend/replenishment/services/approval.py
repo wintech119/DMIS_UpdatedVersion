@@ -466,9 +466,10 @@ def evaluate_appendix_c_authority(
         horizon_a = _safe_float((horizon.get("A") or {}).get("recommended_qty"))
         horizon_b = _safe_float((horizon.get("B") or {}).get("recommended_qty"))
 
-        if horizon_a > 0:
+        explicit_transfer_qty = _safe_float(item.get("transfer_qty"))
+        if horizon_a > 0 or explicit_transfer_qty > 0:
             transfer_scope = item.get("transfer_scope")
-            transfer_qty = _safe_float(item.get("transfer_qty") or horizon_a)
+            transfer_qty = explicit_transfer_qty or horizon_a
             if not transfer_scope:
                 warnings.append("transfer_scope_unavailable")
             else:

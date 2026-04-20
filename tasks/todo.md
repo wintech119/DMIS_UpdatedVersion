@@ -1,5 +1,11 @@
 # Current Task Plan
 
+## EP02 Backend Workflow Review Fixes
+
+1. Completed: fixed remaining workflow review findings around supersede scoping, downstream draft durability, approval failure semantics, and regression coverage.
+2. Completed: reran focused replenishment workflow tests and the broader workflow API class.
+3. In progress: complete backend/architecture review closeout and summarize the stable API contract changes.
+
 ## EP02 Backend Workflow Persistence
 
 1. Completed: read Product Backlog v3.2 rows FR02.83-FR02.85, FR02.90-FR02.98, and FR02.100-FR02.101 plus the EP02 Codex review.

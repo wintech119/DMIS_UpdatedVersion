@@ -303,16 +303,35 @@ def create_procurement_from_needs_list(
     needs_list_id: str, actor_id: str
 ) -> Dict[str, Any]:
     """Create a procurement order from a needs list's Horizon C items."""
-    try:
-        nl = NeedsList.objects.get(needs_list_no=needs_list_id)
-    except NeedsList.DoesNotExist:
+    lookup_value = str(needs_list_id or "").strip()
+    if not lookup_value:
         raise ProcurementError("Needs list not found.", code="not_found")
+    try:
+        nl = NeedsList.objects.get(needs_list_no=lookup_value)
+    except NeedsList.DoesNotExist:
+        if lookup_value.isdigit():
+            try:
+                nl = NeedsList.objects.get(needs_list_id=int(lookup_value))
+            except NeedsList.DoesNotExist:
+                raise ProcurementError("Needs list not found.", code="not_found")
+        else:
+            raise ProcurementError("Needs list not found.", code="not_found")
 
     if nl.status_code not in ("APPROVED", "IN_PROGRESS", "FULFILLED"):
         raise ProcurementError(
             "Needs list must be approved before creating procurement.",
             code="invalid_status",
         )
+
+    existing_procurement = (
+        Procurement.objects.filter(needs_list=nl)
+        .order_by("procurement_id")
+        .first()
+    )
+    if existing_procurement is not None:
+        serialized = _serialize_procurement(existing_procurement)
+        serialized["already_exists"] = True
+        return serialized
 
     # Get Horizon C items
     horizon_c_items = nl.items.filter(horizon_c_qty__gt=0)

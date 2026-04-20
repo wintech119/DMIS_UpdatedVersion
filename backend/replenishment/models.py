@@ -491,6 +491,68 @@ class NeedsListAllocationLine(AuditedModel):
         )
 
 
+class NeedsListDonationDraftLine(AuditedModel):
+    """
+    Durable Horizon B donation allocation draft generated when a needs list is approved.
+
+    These rows preserve the review-time donation options without executing an allocation.
+    The later wizard can turn them into formal allocation lines when a human commits.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        SUPERSEDED = 'SUPERSEDED', 'Superseded'
+
+    donation_draft_line_id = models.AutoField(primary_key=True)
+    needs_list = models.ForeignKey(
+        NeedsList,
+        on_delete=models.CASCADE,
+        related_name='donation_draft_lines',
+    )
+    needs_list_item = models.ForeignKey(
+        NeedsListItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='donation_draft_lines',
+    )
+    item_id = models.IntegerField(db_index=True)
+    uom_code = models.CharField(max_length=25)
+    required_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0.0000'))],
+    )
+    allocated_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0.0000'))],
+    )
+    inventory_id = models.IntegerField(null=True, blank=True)
+    batch_id = models.IntegerField(null=True, blank=True)
+    source_record_id = models.IntegerField(null=True, blank=True, db_index=True)
+    candidate_payload_json = models.JSONField(null=True, blank=True, editable=False)
+    status_code = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=True,
+    )
+
+    class Meta:
+        db_table = 'needs_list_donation_draft_line'
+        ordering = ['needs_list_id', 'item_id', 'donation_draft_line_id']
+        indexes = [
+            models.Index(fields=['needs_list', 'status_code']),
+            models.Index(fields=['item_id', 'status_code']),
+        ]
+
+    def __str__(self):
+        return f"{self.needs_list.needs_list_no} - Donation draft item {self.item_id}"
+
+
 # =============================================================================
 # Burn Rate Tracking
 # =============================================================================

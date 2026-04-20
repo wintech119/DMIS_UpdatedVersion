@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.cache import cache
 from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.utils import timezone
@@ -71,6 +72,7 @@ from replenishment import rules, workflow_store_db
 from replenishment.models import (
     NeedsList,
     NeedsListAllocationLine,
+    NeedsListDonationDraftLine,
     NeedsListExecutionLink,
     Procurement,
 )
@@ -523,59 +525,63 @@ def _upsert_execution_link(
             "Execution links cannot transition to DISPATCHED without both reliefrqst_id and reliefpkg_id."
         )
     now = timezone.now()
-    try:
-        defaults: Dict[str, Any] = {
-            "update_by_id": actor_user_id,
-            "execution_status": execution_status,
-        }
-        if reliefrqst_id is not None:
-            defaults["reliefrqst_id"] = reliefrqst_id
-        if reliefpkg_id is not None:
-            defaults["reliefpkg_id"] = reliefpkg_id
-        if selected_method is not None:
-            defaults["selected_method"] = selected_method
-        if waybill_no is not None:
-            defaults["waybill_no"] = waybill_no
-        if waybill_payload is not None:
-            defaults["waybill_payload_json"] = waybill_payload
-        if prepared:
-            defaults["prepared_at"] = now
-            defaults["prepared_by"] = actor_user_id
-        if committed:
-            defaults["committed_at"] = now
-            defaults["committed_by"] = actor_user_id
-        if override_requested:
-            defaults["override_requested_at"] = now
-            defaults["override_requested_by"] = actor_user_id
-        if override_approved:
-            defaults["override_approved_at"] = now
-            defaults["override_approved_by"] = actor_user_id
-        if dispatched:
-            defaults["dispatched_at"] = now
-            defaults["dispatched_by"] = actor_user_id
-        if received:
-            defaults["received_at"] = now
-            defaults["received_by"] = actor_user_id
-        if cancelled:
-            defaults["cancelled_at"] = now
-            defaults["cancelled_by"] = actor_user_id
+    defaults: Dict[str, Any] = {
+        "update_by_id": actor_user_id,
+        "execution_status": execution_status,
+    }
+    if reliefrqst_id is not None:
+        defaults["reliefrqst_id"] = reliefrqst_id
+    if reliefpkg_id is not None:
+        defaults["reliefpkg_id"] = reliefpkg_id
+    if selected_method is not None:
+        defaults["selected_method"] = selected_method
+    if waybill_no is not None:
+        defaults["waybill_no"] = waybill_no
+    if waybill_payload is not None:
+        defaults["waybill_payload_json"] = waybill_payload
+    if prepared:
+        defaults["prepared_at"] = now
+        defaults["prepared_by"] = actor_user_id
+    if committed:
+        defaults["committed_at"] = now
+        defaults["committed_by"] = actor_user_id
+    if override_requested:
+        defaults["override_requested_at"] = now
+        defaults["override_requested_by"] = actor_user_id
+    if override_approved:
+        defaults["override_approved_at"] = now
+        defaults["override_approved_by"] = actor_user_id
+    if dispatched:
+        defaults["dispatched_at"] = now
+        defaults["dispatched_by"] = actor_user_id
+    if received:
+        defaults["received_at"] = now
+        defaults["received_by"] = actor_user_id
+    if cancelled:
+        defaults["cancelled_at"] = now
+        defaults["cancelled_by"] = actor_user_id
 
-        link, created = NeedsListExecutionLink.objects.get_or_create(
-            needs_list_id=needs_list_id,
-            defaults={
-                "create_by_id": actor_user_id,
-                "reliefrqst_id": reliefrqst_id,
-                **defaults,
-            },
-        )
-        if created:
+    try:
+        with transaction.atomic():
+            link, created = NeedsListExecutionLink.objects.get_or_create(
+                needs_list_id=needs_list_id,
+                defaults={
+                    "create_by_id": actor_user_id,
+                    "reliefrqst_id": reliefrqst_id,
+                    **defaults,
+                },
+            )
+            if created:
+                return link
+            for field, value in defaults.items():
+                setattr(link, field, value)
+            link.save()
             return link
-        for field, value in defaults.items():
-            setattr(link, field, value)
-        link.save()
-        return link
-    except (DatabaseError, OperationalError, ProgrammingError):
-        return None
+    except (DatabaseError, OperationalError, ProgrammingError) as exc:
+        raise allocation_dispatch.AllocationDispatchError(
+            "Could not persist the needs list execution link.",
+            code="execution_link_persistence_failed",
+        ) from exc
 
 
 def _replace_execution_allocation_lines(
@@ -589,60 +595,65 @@ def _replace_execution_allocation_lines(
     supervisor_user_id: str | None = None,
 ) -> None:
     try:
-        NeedsListAllocationLine.objects.filter(needs_list=needs_list).delete()
-        item_map = {item.item_id: item for item in needs_list.items.all()}
-        now = timezone.now()
-        rows: list[NeedsListAllocationLine] = []
-        for index, selection in enumerate(selections, start=1):
-            needs_item = item_map.get(selection["item_id"])
-            rows.append(
-                NeedsListAllocationLine(
-                    needs_list=needs_list,
-                    needs_list_item=needs_item,
-                    item_id=selection["item_id"],
-                    inventory_id=selection.get("inventory_id") or 0,
-                    batch_id=selection.get("batch_id") or 0,
-                    uom_code=selection.get("uom_code") or getattr(needs_item, "uom_code", None) or "EA",
-                    source_type=selection.get("source_type") or "ON_HAND",
-                    source_record_id=selection.get("source_record_id"),
-                    allocated_qty=selection["quantity"],
-                    allocation_rank=index,
-                    rule_bypass_flag=rule_bypass_flag,
-                    override_reason_code=override_reason_code,
-                    override_note=override_note,
-                    supervisor_approved_by=supervisor_user_id,
-                    supervisor_approved_at=now if supervisor_user_id else None,
-                    create_by_id=actor_user_id,
-                    update_by_id=actor_user_id,
+        with transaction.atomic():
+            NeedsListAllocationLine.objects.filter(needs_list=needs_list).delete()
+            item_map = {item.item_id: item for item in needs_list.items.all()}
+            now = timezone.now()
+            rows: list[NeedsListAllocationLine] = []
+            for index, selection in enumerate(selections, start=1):
+                needs_item = item_map.get(selection["item_id"])
+                rows.append(
+                    NeedsListAllocationLine(
+                        needs_list=needs_list,
+                        needs_list_item=needs_item,
+                        item_id=selection["item_id"],
+                        inventory_id=selection.get("inventory_id") or 0,
+                        batch_id=selection.get("batch_id") or 0,
+                        uom_code=selection.get("uom_code") or getattr(needs_item, "uom_code", None) or "EA",
+                        source_type=selection.get("source_type") or "ON_HAND",
+                        source_record_id=selection.get("source_record_id"),
+                        allocated_qty=selection["quantity"],
+                        allocation_rank=index,
+                        rule_bypass_flag=rule_bypass_flag,
+                        override_reason_code=override_reason_code,
+                        override_note=override_note,
+                        supervisor_approved_by=supervisor_user_id,
+                        supervisor_approved_at=now if supervisor_user_id else None,
+                        create_by_id=actor_user_id,
+                        update_by_id=actor_user_id,
+                    )
                 )
-            )
-        NeedsListAllocationLine.objects.bulk_create(rows)
-    except (DatabaseError, OperationalError, ProgrammingError):
-        return
+            NeedsListAllocationLine.objects.bulk_create(rows)
+    except (DatabaseError, OperationalError, ProgrammingError) as exc:
+        raise allocation_dispatch.AllocationDispatchError(
+            "Could not persist execution allocation lines.",
+            code="execution_allocation_persistence_failed",
+        ) from exc
 
 
 def _stored_execution_allocation_lines(needs_list_id: int) -> list[dict[str, Any]]:
     try:
-        rows = list(
-            NeedsListAllocationLine.objects.filter(needs_list_id=needs_list_id)
-            .order_by("allocation_rank", "allocation_line_id")
-            .values(
-                "needs_list_item_id",
-                "item_id",
-                "inventory_id",
-                "batch_id",
-                "uom_code",
-                "source_type",
-                "source_record_id",
-                "allocated_qty",
-                "allocation_rank",
-                "rule_bypass_flag",
-                "override_reason_code",
-                "override_note",
-                "supervisor_approved_by",
-                "supervisor_approved_at",
+        with transaction.atomic():
+            rows = list(
+                NeedsListAllocationLine.objects.filter(needs_list_id=needs_list_id)
+                .order_by("allocation_rank", "allocation_line_id")
+                .values(
+                    "needs_list_item_id",
+                    "item_id",
+                    "inventory_id",
+                    "batch_id",
+                    "uom_code",
+                    "source_type",
+                    "source_record_id",
+                    "allocated_qty",
+                    "allocation_rank",
+                    "rule_bypass_flag",
+                    "override_reason_code",
+                    "override_note",
+                    "supervisor_approved_by",
+                    "supervisor_approved_at",
+                )
             )
-        )
     except (DatabaseError, OperationalError, ProgrammingError):
         return []
 
@@ -671,6 +682,20 @@ def _stored_execution_allocation_lines(needs_list_id: int) -> list[dict[str, Any
             }
         )
     return allocations
+
+
+def _legacy_current_allocation_payload(context: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        with transaction.atomic():
+            return allocation_dispatch.get_current_allocation(context)
+    except (
+        allocation_dispatch.AllocationDispatchError,
+        DatabaseError,
+        ObjectDoesNotExist,
+        OperationalError,
+        ProgrammingError,
+    ):
+        return {}
 
 
 def _selection_signature(lines: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
@@ -1393,14 +1418,447 @@ def _needs_list_export_preview_response(
     )
 
 
-def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
-    submitted_by = record.get("submitted_by")
-    if not submitted_by or submitted_by == actor:
+def _workflow_actor_must_be_independent(
+    record: Dict[str, Any],
+    actor: str | None,
+    *,
+    field_name: str,
+    actor_label: str,
+) -> Response | None:
+    normalized_actor = _normalize_actor(actor)
+    generated_by = _normalize_actor(record.get("created_by"))
+    submitted_by = _normalize_actor(record.get("submitted_by"))
+    blocked_actors = {value for value in (generated_by, submitted_by) if value}
+    if not normalized_actor or not submitted_by or normalized_actor in blocked_actors:
         return Response(
-            {"errors": {"review": "Reviewer must be different from submitter."}},
+            {
+                "errors": {
+                    field_name: f"{actor_label} must be different from generator and submitter."
+                }
+            },
             status=409,
         )
     return None
+
+
+def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
+    return _workflow_actor_must_be_independent(
+        record,
+        actor,
+        field_name="review",
+        actor_label="Reviewer",
+    )
+
+
+def _approver_must_be_independent(record: Dict[str, Any], actor: str | None) -> Response | None:
+    return _workflow_actor_must_be_independent(
+        record,
+        actor,
+        field_name="approval",
+        actor_label="Approver",
+    )
+
+
+def _positive_horizon_qty(item: Mapping[str, Any], horizon_key: str) -> float:
+    horizon = item.get("horizon") if isinstance(item, Mapping) else {}
+    if not isinstance(horizon, Mapping):
+        horizon = {}
+    horizon_payload = horizon.get(horizon_key) or {}
+    if not isinstance(horizon_payload, Mapping):
+        horizon_payload = {}
+    qty = _to_float_or_none(horizon_payload.get("recommended_qty"))
+    if qty is None:
+        qty = _to_float_or_none(item.get(f"horizon_{horizon_key.lower()}_qty"))
+    return qty or 0.0
+
+
+class DownstreamDraftGenerationError(Exception):
+    def __init__(self, actions: Dict[str, Any], errors: Dict[str, str]):
+        super().__init__("Downstream draft action generation failed.")
+        self.actions = actions
+        self.errors = errors
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str))
+
+
+def _decimal_quantity(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value or "0")).quantize(Decimal("0.0001"))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0.0000")
+
+
+def _transfer_warnings_are_blocking(warnings: list[Any]) -> bool:
+    return any(
+        str(warning).startswith("db_error")
+        or str(warning) == "db_unavailable_preview_stub"
+        for warning in warnings
+    )
+
+
+def _build_draft_transfer_action(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    actor: str | None,
+) -> Dict[str, Any]:
+    items = snapshot.get("items", [])
+    warehouse_id = record.get("warehouse_id")
+    event_id = record.get("event_id")
+    horizon_a_items = [
+        item for item in items
+        if isinstance(item, Mapping) and _positive_horizon_qty(item, "A") > 0
+    ]
+
+    if not horizon_a_items:
+        return {
+            "status": "SKIPPED",
+            "reason": "No Horizon A transfer items found.",
+            "transfers": [],
+            "warnings": [],
+        }
+
+    item_ids = [item["item_id"] for item in horizon_a_items]
+    source_stock, stock_warnings = data_access.get_warehouses_with_stock(item_ids, warehouse_id)
+    all_warnings = list(stock_warnings)
+
+    sources_used: dict = {}
+    for item in horizon_a_items:
+        item_id = item["item_id"]
+        needed = _positive_horizon_qty(item, "A")
+        available_sources = source_stock.get(item_id, [])
+        remaining = needed
+
+        for source in available_sources:
+            if remaining <= 0:
+                break
+            alloc_qty = min(remaining, source["available_qty"])
+            source_warehouse_id = source["warehouse_id"]
+            if source_warehouse_id not in sources_used:
+                sources_used[source_warehouse_id] = {
+                    "from_warehouse_id": source_warehouse_id,
+                    "items": [],
+                }
+            sources_used[source_warehouse_id]["items"].append(
+                {
+                    "item_id": item_id,
+                    "item_qty": alloc_qty,
+                    "uom_code": item.get("uom_code", "EA"),
+                    "inventory_id": source_warehouse_id,
+                    "item_name": item.get("item_name", f"Item {item_id}"),
+                }
+            )
+            remaining -= alloc_qty
+
+        if remaining > 0:
+            all_warnings.append(f"insufficient_source_stock_item_{item_id}")
+
+    transfer_specs = [
+        {
+            "from_warehouse_id": source_warehouse_id,
+            "to_warehouse_id": warehouse_id,
+            "event_id": event_id,
+            "reason": f"Auto-generated from needs list {record.get('needs_list_no', record.get('needs_list_id'))}",
+            "actor_id": str(actor) if actor is not None else None,
+            "items": transfer_data["items"],
+        }
+        for source_warehouse_id, transfer_data in sources_used.items()
+    ]
+
+    if not transfer_specs:
+        return {
+            "status": "SKIPPED",
+            "reason": "No feasible Horizon A transfer source stock found.",
+            "transfers": [],
+            "created_count": 0,
+            "already_exists": False,
+            "warnings": all_warnings,
+        }
+
+    transfers, created_count, already_exists, transfer_warnings = (
+        data_access.create_draft_transfers_if_absent(
+            needs_list_id=str(record.get("needs_list_id")),
+            transfer_specs=transfer_specs,
+        )
+    )
+    all_warnings.extend(transfer_warnings)
+    if _transfer_warnings_are_blocking(all_warnings):
+        return {
+            "status": "ERROR",
+            "error": "Unable to create durable Horizon A transfer drafts.",
+            "error_code": "transfer_draft_unavailable",
+            "transfers": transfers,
+            "created_count": created_count,
+            "already_exists": already_exists,
+            "warnings": all_warnings,
+        }
+    if not already_exists and created_count <= 0 and not transfers:
+        return {
+            "status": "ERROR",
+            "error": "No Horizon A transfer draft was created.",
+            "error_code": "transfer_draft_not_created",
+            "transfers": transfers,
+            "created_count": created_count,
+            "already_exists": already_exists,
+            "warnings": all_warnings,
+        }
+    status_value = "EXISTS" if already_exists else "CREATED"
+    return {
+        "status": status_value,
+        "transfers": transfers,
+        "created_count": created_count,
+        "already_exists": already_exists,
+        "warnings": all_warnings,
+    }
+
+
+def _serialize_donation_draft_line(line: NeedsListDonationDraftLine) -> Dict[str, Any]:
+    payload = line.candidate_payload_json if isinstance(line.candidate_payload_json, dict) else {}
+    return {
+        "donation_draft_line_id": line.donation_draft_line_id,
+        "item_id": line.item_id,
+        "item_name": payload.get("item_name", f"Item {line.item_id}"),
+        "uom": line.uom_code,
+        "required_qty": float(line.required_qty),
+        "allocated_qty": float(line.allocated_qty),
+        "available_donations": payload.get("available_donations", []),
+        "status": line.status_code,
+    }
+
+
+def _persist_donation_draft_lines(
+    *,
+    needs_list_pk: int,
+    lines: list[Dict[str, Any]],
+    actor: str | None,
+) -> tuple[list[Dict[str, Any]], bool]:
+    existing_lines = list(
+        NeedsListDonationDraftLine.objects.filter(
+            needs_list_id=needs_list_pk,
+            status_code=NeedsListDonationDraftLine.Status.DRAFT,
+        ).order_by("donation_draft_line_id")
+    )
+    if existing_lines:
+        return [_serialize_donation_draft_line(line) for line in existing_lines], True
+
+    needs_list = NeedsList.objects.prefetch_related("items").get(needs_list_id=needs_list_pk)
+    item_map = {item.item_id: item for item in needs_list.items.all()}
+    actor_id = str(actor or "SYSTEM")[:20]
+    rows: list[NeedsListDonationDraftLine] = []
+    for line in lines:
+        item_id = int(line["item_id"])
+        needs_item = item_map.get(item_id)
+        rows.append(
+            NeedsListDonationDraftLine(
+                needs_list=needs_list,
+                needs_list_item=needs_item,
+                item_id=item_id,
+                uom_code=str(line.get("uom") or "EA")[:25],
+                required_qty=_decimal_quantity(line.get("required_qty")),
+                allocated_qty=Decimal("0.0000"),
+                candidate_payload_json=_json_safe(
+                    {
+                        "item_name": line.get("item_name", f"Item {item_id}"),
+                        "available_donations": line.get("available_donations", []),
+                    }
+                ),
+                status_code=NeedsListDonationDraftLine.Status.DRAFT,
+                create_by_id=actor_id,
+                update_by_id=actor_id,
+            )
+        )
+    created = NeedsListDonationDraftLine.objects.bulk_create(rows)
+    return [_serialize_donation_draft_line(line) for line in created], False
+
+
+def _build_draft_donation_action(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    actor: str | None,
+) -> Dict[str, Any]:
+    items = snapshot.get("items", [])
+    warnings: list[str] = []
+    candidates_by_item: dict[int, list[dict[str, Any]]] = {}
+    needs_list_pk = _execution_needs_list_pk(record)
+    if needs_list_pk is not None:
+        try:
+            options = allocation_dispatch.get_allocation_options(needs_list_pk)
+            for group in options.get("items", []):
+                donation_candidates = [
+                    candidate
+                    for candidate in group.get("candidates", [])
+                    if str(candidate.get("source_type") or "").upper() == "DONATION"
+                ]
+                if donation_candidates:
+                    candidates_by_item[int(group["item_id"])] = donation_candidates
+        except allocation_dispatch.AllocationDispatchError as exc:
+            warnings.append(getattr(exc, "code", "allocation_options_unavailable"))
+
+    lines = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        donation_qty = _positive_horizon_qty(item, "B")
+        if donation_qty <= 0:
+            continue
+        item_id = int(item["item_id"])
+        lines.append(
+            {
+                "item_id": item_id,
+                "item_name": item.get("item_name", f"Item {item_id}"),
+                "uom": item.get("uom_code", "EA"),
+                "required_qty": donation_qty,
+                "allocated_qty": 0,
+                "available_donations": candidates_by_item.get(item_id, []),
+                "status": "DRAFT",
+            }
+        )
+
+    if not lines:
+        return {
+            "status": "SKIPPED",
+            "reason": "No Horizon B donation items found.",
+            "lines": [],
+            "warnings": warnings,
+        }
+    if needs_list_pk is None:
+        return {
+            "status": "ERROR",
+            "error": "Donation draft generation requires a persisted needs list.",
+            "error_code": "donation_draft_context_missing",
+            "lines": lines,
+            "warnings": warnings + ["donation_draft_context_missing"],
+        }
+    try:
+        persisted_lines, already_exists = _persist_donation_draft_lines(
+            needs_list_pk=needs_list_pk,
+            lines=lines,
+            actor=actor,
+        )
+    except (DatabaseError, OperationalError, ProgrammingError, NeedsList.DoesNotExist) as exc:
+        return {
+            "status": "ERROR",
+            "error": str(exc),
+            "error_code": "donation_draft_unavailable",
+            "lines": lines,
+            "warnings": warnings + ["donation_draft_unavailable"],
+        }
+    return {
+        "status": "EXISTS" if already_exists else "DRAFT",
+        "lines": persisted_lines,
+        "warnings": warnings,
+    }
+
+
+def _build_draft_procurement_action(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    actor: str | None,
+) -> Dict[str, Any]:
+    horizon_c_lines = []
+    for item in snapshot.get("items", []):
+        if not isinstance(item, Mapping):
+            continue
+        procurement_qty = _positive_horizon_qty(item, "C")
+        if procurement_qty <= 0:
+            continue
+        item_id = int(item["item_id"])
+        horizon_c_lines.append(
+            {
+                "item_id": item_id,
+                "item_name": item.get("item_name", f"Item {item_id}"),
+                "uom": item.get("uom_code", "EA"),
+                "required_qty": procurement_qty,
+                "status": "DRAFT",
+            }
+        )
+
+    if not horizon_c_lines:
+        return {
+            "status": "SKIPPED",
+            "reason": "No Horizon C procurement items found.",
+            "lines": [],
+            "warnings": [],
+        }
+
+    needs_list_ref = record.get("needs_list_no") or record.get("needs_list_id")
+    try:
+        procurement = procurement_service.create_procurement_from_needs_list(
+            str(needs_list_ref),
+            str(actor or "SYSTEM"),
+        )
+    except ProcurementError as exc:
+        return {
+            "status": "ERROR",
+            "error": exc.message,
+            "error_code": exc.code,
+            "lines": horizon_c_lines,
+            "warnings": [exc.code],
+        }
+    except (DatabaseError, ValueError) as exc:
+        return {
+            "status": "ERROR",
+            "error": str(exc),
+            "error_code": "procurement_draft_unavailable",
+            "lines": horizon_c_lines,
+            "warnings": ["procurement_draft_unavailable"],
+        }
+
+    return {
+        "status": "EXISTS" if procurement.get("already_exists") else "CREATED",
+        "procurement": procurement,
+        "lines": horizon_c_lines,
+        "warnings": [],
+    }
+
+
+def _build_downstream_draft_actions(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+    actor: str | None,
+) -> Dict[str, Any]:
+    def _action_or_error(action_name: str, builder):
+        try:
+            with transaction.atomic():
+                return builder()
+        except (DatabaseError, KeyError, TypeError, ValueError) as exc:
+            return {
+                "status": "ERROR",
+                "error": str(exc),
+                "error_code": f"{action_name}_draft_unavailable",
+                "warnings": [f"{action_name}_draft_unavailable"],
+            }
+
+    return {
+        "generated_at": timezone.now().isoformat(),
+        "generated_by": actor or "SYSTEM",
+        "transfer": _action_or_error(
+            "transfer",
+            lambda: _build_draft_transfer_action(record, snapshot, actor),
+        ),
+        "donation": _action_or_error(
+            "donation",
+            lambda: _build_draft_donation_action(record, snapshot, actor),
+        ),
+        "procurement": _action_or_error(
+            "procurement",
+            lambda: _build_draft_procurement_action(record, snapshot, actor),
+        ),
+    }
+
+
+def _downstream_action_errors(actions: Dict[str, Any]) -> Dict[str, str]:
+    errors: Dict[str, str] = {}
+    for action_name in ("transfer", "donation", "procurement"):
+        action = actions.get(action_name) or {}
+        if str(action.get("status") or "").upper() == "ERROR":
+            errors[action_name] = str(
+                action.get("error")
+                or action.get("error_code")
+                or f"{action_name} draft generation failed."
+            )
+    return errors
 
 
 def _to_float_or_none(value: object) -> float | None:
@@ -2117,14 +2575,14 @@ def _execution_payload_for_record(record: Mapping[str, Any]) -> Dict[str, Any]:
 
     allocation_lines: list[dict[str, Any]] = []
     if link.reliefrqst_id and link.reliefpkg_id:
-        try:
-            current = allocation_dispatch.get_current_allocation(
-                {
-                    "needs_list_id": link.needs_list_id,
-                    "reliefrqst_id": link.reliefrqst_id,
-                    "reliefpkg_id": link.reliefpkg_id,
-                }
-            )
+        current = _legacy_current_allocation_payload(
+            {
+                "needs_list_id": link.needs_list_id,
+                "reliefrqst_id": link.reliefrqst_id,
+                "reliefpkg_id": link.reliefpkg_id,
+            }
+        )
+        if current:
             payload.update(
                 {
                     "request_tracking_no": current.get("request_tracking_no"),
@@ -2136,13 +2594,6 @@ def _execution_payload_for_record(record: Mapping[str, Any]) -> Dict[str, Any]:
             )
             allocation_lines = list(current.get("allocation_lines") or [])
             payload["reserved_stock_summary"] = current.get("reserved_stock_summary") or {}
-        except (
-            allocation_dispatch.AllocationDispatchError,
-            DatabaseError,
-            OperationalError,
-            ProgrammingError,
-        ):
-            allocation_lines = []
 
     if not allocation_lines:
         try:
@@ -2296,6 +2747,7 @@ def _serialize_workflow_record(
             "return_reason_code": record.get("return_reason_code"),
             "reject_reason": record.get("reject_reason"),
             "approval_summary": approval_summary,
+            "downstream_actions": record.get("downstream_actions"),
             "tenant_id": _record_tenant_id(record, snapshot),
         }
     )
@@ -4836,11 +5288,9 @@ def needs_list_approve(request, needs_list_id: str):
         return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
     actor = _actor_id(request)
-    if not record.get("submitted_by") or record.get("submitted_by") == actor:
-        return Response(
-            {"errors": {"approval": "Approver must be different from submitter."}},
-            status=409,
-        )
+    approver_error = _approver_must_be_independent(record, actor)
+    if approver_error:
+        return approver_error
 
     comment = (request.data or {}).get("comment")
     snapshot = workflow_store.apply_overrides(record)
@@ -4877,11 +5327,38 @@ def needs_list_approve(request, needs_list_id: str):
     if not role_set.intersection(required_roles):
         return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 
-    record = workflow_store.transition_status(record, "APPROVED", actor)
-    record["approval_tier"] = approval.get("tier")
-    record["approval_rationale"] = approval_rationale
-    record["submitted_approval_summary"] = approval_summary
-    workflow_store.update_record(needs_list_id, record)
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(record, "APPROVED", actor)
+            record["approval_tier"] = approval.get("tier")
+            record["approval_rationale"] = approval_rationale
+            record["submitted_approval_summary"] = approval_summary
+            downstream_actions = _build_downstream_draft_actions(
+                record,
+                snapshot,
+                actor,
+            )
+            downstream_errors = _downstream_action_errors(downstream_actions)
+            if downstream_errors:
+                raise DownstreamDraftGenerationError(
+                    downstream_actions,
+                    downstream_errors,
+                )
+            record["downstream_actions"] = downstream_actions
+            workflow_store.update_record(needs_list_id, record)
+    except DownstreamDraftGenerationError as exc:
+        return Response(
+            {
+                "errors": {
+                    "downstream_actions": (
+                        "Approval requires downstream draft actions to be generated."
+                    ),
+                    **exc.errors,
+                },
+                "downstream_actions": exc.actions,
+            },
+            status=409,
+        )
 
     logger.info(
         "needs_list_approved",
@@ -5056,25 +5533,28 @@ def needs_list_start_preparation(request, needs_list_id: str):
 
     actor_user_id = _actor_id(request) or "SYSTEM"
     target_status = _workflow_target_status("IN_PREPARATION")
-    with transaction.atomic():
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="IN_PREPARATION",
-        )
-        workflow_store.update_record(needs_list_id, record)
-        needs_list_pk = _execution_needs_list_pk(record)
-        if needs_list_pk is not None:
-            _upsert_execution_link(
-                needs_list_id=needs_list_pk,
-                actor_user_id=actor_user_id,
-                selected_method=_normalize_selected_method_for_execution(
-                    (request.data or {}).get("selected_method") or record.get("selected_method")
-                ),
-                execution_status=NeedsListExecutionLink.ExecutionStatus.PREPARING,
-                prepared=True,
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="IN_PREPARATION",
             )
+            workflow_store.update_record(needs_list_id, record)
+            needs_list_pk = _execution_needs_list_pk(record)
+            if needs_list_pk is not None:
+                _upsert_execution_link(
+                    needs_list_id=needs_list_pk,
+                    actor_user_id=actor_user_id,
+                    selected_method=_normalize_selected_method_for_execution(
+                        (request.data or {}).get("selected_method") or record.get("selected_method")
+                    ),
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.PREPARING,
+                    prepared=True,
+                )
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
 
     logger.info(
         "needs_list_preparation_started",
@@ -5207,25 +5687,28 @@ def needs_list_mark_received(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
-    with transaction.atomic():
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="RECEIVED",
-        )
-        workflow_store.update_record(needs_list_id, record)
-        link = _execution_link_for_record(record)
-        if link is not None:
-            _upsert_execution_link(
-                needs_list_id=link.needs_list_id,
-                actor_user_id=actor_user_id,
-                reliefrqst_id=link.reliefrqst_id,
-                reliefpkg_id=link.reliefpkg_id,
-                selected_method=link.selected_method,
-                execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
-                received=True,
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="RECEIVED",
             )
+            workflow_store.update_record(needs_list_id, record)
+            link = _execution_link_for_record(record)
+            if link is not None:
+                _upsert_execution_link(
+                    needs_list_id=link.needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=link.reliefrqst_id,
+                    reliefpkg_id=link.reliefpkg_id,
+                    selected_method=link.selected_method,
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
+                    received=True,
+                )
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
 
     logger.info(
         "needs_list_received",
@@ -5272,7 +5755,10 @@ def needs_list_mark_completed(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("COMPLETED")
     with transaction.atomic():
-        record = workflow_store.transition_status(record, target_status, actor_user_id)
+        try:
+            record = workflow_store.transition_status(record, target_status, actor_user_id)
+        except ValueError as exc:
+            return Response({"errors": {"status": str(exc)}}, status=409)
         workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -5327,18 +5813,21 @@ def needs_list_cancel(request, needs_list_id: str):
 
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = record.get("status")
-    with transaction.atomic():
-        _release_execution_reservations(
-            record,
-            actor_user_id=actor_user_id,
-            reason_code="cancel",
-            cancel=True,
-        )
-        record = workflow_store.transition_status(
-            record, "CANCELLED", actor_user_id, reason=reason
-        )
-        target_status = _workflow_target_status("CANCELLED")
-        workflow_store.update_record(needs_list_id, record)
+    try:
+        with transaction.atomic():
+            _release_execution_reservations(
+                record,
+                actor_user_id=actor_user_id,
+                reason_code="cancel",
+                cancel=True,
+            )
+            record = workflow_store.transition_status(
+                record, "CANCELLED", actor_user_id, reason=reason
+            )
+            target_status = _workflow_target_status("CANCELLED")
+            workflow_store.update_record(needs_list_id, record)
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
 
     logger.info(
         "needs_list_cancelled",
@@ -5652,83 +6141,34 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             status=409,
         )
 
-    snapshot = workflow_store.apply_overrides(record)
-    items = snapshot.get("items", [])
-    warehouse_id = record.get("warehouse_id")
-    event_id = record.get("event_id")
     actor = _actor_id(request)
-
-    horizon_a_items = [
-        item for item in items
-        if (item.get("horizon") or {}).get("A", {}).get("recommended_qty") and
-           (item["horizon"]["A"]["recommended_qty"] or 0) > 0
-    ]
-
-    if not horizon_a_items:
+    snapshot = workflow_store.apply_overrides(record)
+    transfer_action = _build_draft_transfer_action(record, snapshot, actor)
+    if transfer_action.get("status") == "ERROR":
         return Response(
-            {"errors": {"items": "No Horizon A (transfer) items found."}},
+            {
+                "errors": {
+                    "transfers": transfer_action.get("error")
+                    or "Unable to create draft transfers."
+                },
+                "warnings": transfer_action.get("warnings") or [],
+            },
+            status=409,
+        )
+    if transfer_action.get("status") == "SKIPPED":
+        return Response(
+            {"errors": {"items": transfer_action.get("reason") or "No Horizon A (transfer) items found."}},
             status=400,
         )
-
-    item_ids = [item["item_id"] for item in horizon_a_items]
-    source_stock, stock_warnings = data_access.get_warehouses_with_stock(item_ids, warehouse_id)
-
-    all_warnings = list(stock_warnings)
-
-    sources_used: dict = {}
-    for item in horizon_a_items:
-        iid = item["item_id"]
-        needed = item["horizon"]["A"]["recommended_qty"]
-        available_sources = source_stock.get(iid, [])
-        remaining = needed
-
-        for source in available_sources:
-            if remaining <= 0:
-                break
-            alloc_qty = min(remaining, source["available_qty"])
-            src_wh = source["warehouse_id"]
-
-            key = src_wh
-            if key not in sources_used:
-                sources_used[key] = {"from_warehouse_id": src_wh, "items": []}
-            sources_used[key]["items"].append({
-                "item_id": iid,
-                "item_qty": alloc_qty,
-                "uom_code": item.get("uom_code", "EA"),
-                "inventory_id": src_wh,
-                "item_name": item.get("item_name", f"Item {iid}"),
-            })
-            remaining -= alloc_qty
-
-        if remaining > 0:
-            all_warnings.append(f"insufficient_source_stock_item_{iid}")
-
-    transfer_specs = [
-        {
-            "from_warehouse_id": src_wh,
-            "to_warehouse_id": warehouse_id,
-            "event_id": event_id,
-            "reason": f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
-            "actor_id": str(actor) if actor is not None else None,
-            "items": transfer_data["items"],
-        }
-        for src_wh, transfer_data in sources_used.items()
-    ]
-
-    transfers, created_count, already_exists, transfer_warnings = (
-        data_access.create_draft_transfers_if_absent(
-            needs_list_id=needs_list_id,
-            transfer_specs=transfer_specs,
-        )
-    )
-    all_warnings.extend(transfer_warnings)
-
-    if already_exists:
+    transfers = transfer_action.get("transfers") or []
+    warnings = transfer_action.get("warnings") or []
+    created_count = int(transfer_action.get("created_count") or 0)
+    if transfer_action.get("already_exists"):
         return Response(
             {
                 "errors": {"transfers": "Draft transfers already exist for this needs list."},
                 "transfers": transfers,
-                "warnings": all_warnings,
+                "warnings": warnings,
             },
             status=409,
         )
@@ -5747,7 +6187,7 @@ def needs_list_generate_transfers(request, needs_list_id: str):
     return Response({
         "needs_list_id": needs_list_id,
         "transfers": transfers,
-        "warnings": all_warnings,
+        "warnings": warnings,
     }, status=201)
 
 

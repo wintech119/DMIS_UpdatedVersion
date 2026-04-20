@@ -4,12 +4,18 @@ from datetime import date
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from operations import staging_selection
-from operations.constants import STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK
+from operations.constants import (
+    PARTIAL_RELEASE_STATUS_APPROVED,
+    PARTIAL_RELEASE_STATUS_PENDING,
+    STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
+)
 from operations.models import (
     OperationsDispatch,
     OperationsPackage,
+    OperationsPartialReleaseRequest,
     OperationsReceipt,
     OperationsReliefRequest,
 )
@@ -138,6 +144,75 @@ class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
         )
 
         self.assertEqual(package.effective_dispatch_source_warehouse_id, 55)
+
+
+class OperationsPartialReleaseRequestModelTests(_OperationsRequestFactoryMixin, TestCase):
+    def test_partial_release_request_records_pending_workflow_evidence(self) -> None:
+        request = self._create_request(82)
+        package = OperationsPackage.objects.create(
+            package_id=102,
+            package_no="PK00102",
+            relief_request=request,
+            status_code="CONSOLIDATING",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        partial_request = OperationsPartialReleaseRequest.objects.create(
+            package=package,
+            request_reason="Release received legs for urgent shelter opening",
+            approval_status_code=PARTIAL_RELEASE_STATUS_PENDING,
+            requested_by_user_id="logistics-officer-1",
+        )
+
+        self.assertEqual(partial_request.package, package)
+        self.assertEqual(partial_request.approval_status_code, PARTIAL_RELEASE_STATUS_PENDING)
+        self.assertEqual(package.partial_release_requests.get(), partial_request)
+
+    def test_partial_release_request_can_reference_released_and_residual_children(self) -> None:
+        request = self._create_request(83)
+        parent = OperationsPackage.objects.create(
+            package_id=103,
+            package_no="PK00103",
+            relief_request=request,
+            status_code="SPLIT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        released = OperationsPackage.objects.create(
+            package_id=104,
+            package_no="PK00104",
+            relief_request=request,
+            split_from_package=parent,
+            status_code="READY_FOR_DISPATCH",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        residual = OperationsPackage.objects.create(
+            package_id=105,
+            package_no="PK00105",
+            relief_request=request,
+            split_from_package=parent,
+            status_code="CONSOLIDATING",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        partial_request = OperationsPartialReleaseRequest.objects.create(
+            package=parent,
+            request_reason="Release arrived stock",
+            approval_status_code=PARTIAL_RELEASE_STATUS_APPROVED,
+            requested_by_user_id="logistics-officer-1",
+            approved_by_user_id="logistics-manager-1",
+            approved_at=timezone.now(),
+            released_child_package=released,
+            residual_child_package=residual,
+        )
+
+        self.assertEqual(partial_request.released_child_package, released)
+        self.assertEqual(partial_request.residual_child_package, residual)
+        self.assertEqual(released.released_by_partial_release_requests.get(), partial_request)
+        self.assertEqual(residual.residual_by_partial_release_requests.get(), partial_request)
 
 
 class StagingSelectionRecommendationTests(TestCase):
