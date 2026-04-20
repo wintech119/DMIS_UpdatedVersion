@@ -6,6 +6,28 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+// ── Queue row as a real <button> (Finding 8) ─────────────────────────
+// The queue row is now rendered as <div role="listitem"> wrapping a
+// <button class="ops-row">. These resets strip default <button> chrome
+// (user-agent background, border, font, alignment) so the button renders
+// pixel-identical to the previous <article class="ops-row">. The visual
+// surface — background, border, border-radius, padding, shadow, tiered
+// state rail — continues to come from `.ops-row` + `.ops-row--tiered`
+// in operations-shell.scss and is unchanged.
+:host .ops-row-item {
+  display: contents;
+}
+
+:host button.ops-row {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 @media (max-width: 768px) {
   :host .ops-row {
     grid-template-columns: 1fr;

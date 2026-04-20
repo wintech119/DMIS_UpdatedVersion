@@ -2702,13 +2702,28 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('rejects non-integer qty without mutating state', () => {
+  it('accepts decimal qty and distributes fractional values across ranked batches', () => {
+    // Backend stores qty as a decimal with up to 4 fractional places. A 12.5
+    // qty against a 30 / 40 batch split must end up at (12.5, 0) — not a
+    // silently-truncated (12, 0) or a rejection, both of which the earlier
+    // integer-only enforcement caused.
     const service = makeService();
-    const warnSpy = spyOn(console, 'warn');
     service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 12.5);
 
-    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(12.5);
+    const rows = service.selectedRowsByItem()[ITEM_ID] ?? [];
+    const row1 = rows.find((r) => r.batch_id === 1);
+    expect(Number(row1?.quantity)).toBe(12.5);
+  });
+
+  it('preserves up to 4 decimal places and snaps deeper precision to the backend contract', () => {
+    const service = makeService();
+    // 45.12345 — 5 decimals — snaps to 45.1235 (the service rounds before
+    // distributing so selectedRows match the commit payload exactly).
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45.12345);
+
+    const total = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+    expect(total).toBeCloseTo(45.1235, 4);
   });
 
   it('rejects non-finite qty without mutating state', () => {

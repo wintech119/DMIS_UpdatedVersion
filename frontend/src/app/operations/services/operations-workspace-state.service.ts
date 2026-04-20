@@ -1439,13 +1439,18 @@ export class OperationsWorkspaceStateService {
    * (FEFO/FIFO order as delivered by the backend), honoring the card-level
    * `allocatable_available_qty` cap when present and each batch's per-row cap.
    *
-   * Rejects non-finite, non-integer, or negative inputs without mutating state.
+   * Backend stores allocation quantities as decimals with up to 4 fractional
+   * places, so this method accepts fractional qty (e.g. `1.5`, `0.25`,
+   * `2.0001`). Non-finite or negative inputs are rejected without mutating
+   * state; qty with more than 4 decimal places is normalized via
+   * `toFixedQuantity()` before distribution.
+   *
    * Zeros any prior selections on tail batches when the new target is smaller
    * than the previously-distributed total so reducing qty actually releases
    * stock.
    */
   setItemWarehouseQty(itemId: number, warehouseId: number, qty: number): void {
-    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty < 0) {
+    if (!Number.isFinite(qty) || qty < 0) {
       // Reject silently with a dev-mode warning — do not truncate.
       // Gated behind isDevMode() so production bundles stay quiet when
       // legitimate transient form state briefly passes through this path.
@@ -1461,6 +1466,9 @@ export class OperationsWorkspaceStateService {
       }
       return;
     }
+    // Snap to the backend-contracted 4-decimal precision so downstream
+    // comparisons (qty > cap, tail release) use the same rounded basis.
+    const normalizedQty = this.toFixedQuantity(qty);
     const item = this.getItemGroup(itemId);
     if (!item) {
       return;
@@ -1475,7 +1483,7 @@ export class OperationsWorkspaceStateService {
       : card?.total_available != null
         ? this.toNumber(card.total_available)
         : Number.POSITIVE_INFINITY;
-    let remaining = Math.min(qty, cardCap);
+    let remaining = Math.min(normalizedQty, cardCap);
 
     for (const batch of batches) {
       const perBatchCap = this.toNumber(batch.usable_qty ?? batch.available_qty);

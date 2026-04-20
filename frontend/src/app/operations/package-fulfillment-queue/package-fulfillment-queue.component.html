@@ -107,14 +107,23 @@
         } @else {
           <div class="ops-row-list" role="list">
             @for (row of filteredItems(); track trackByRequestId($index, row)) {
-              <article
-                class="ops-row ops-row--interactive ops-row--tiered"
-                [class]="stageClass(row)"
-                tabindex="0"
-                role="listitem"
-                (click)="fulfillRequest(row)"
-                (keydown.enter)="fulfillRequest(row)"
-                (keydown.space)="fulfillRequest(row); $event.preventDefault()">
+              <!--
+                A11y: the outer <div role="listitem"> keeps the list
+                structure so AT still announces "list, item X of Y", while
+                the inner <button> is a real interactive control (native
+                Enter/Space activation, focusable, announced as a button).
+                The button carries the .ops-row visual treatment; styling
+                resets in the component SCSS make the <button> render
+                identically to the previous <article>. No nested
+                interactive controls live inside the button.
+              -->
+              <div class="ops-row-item" role="listitem">
+                <button
+                  type="button"
+                  class="ops-row ops-row--interactive ops-row--tiered"
+                  [class]="stageClass(row)"
+                  [attr.aria-label]="formatRowAction(row)"
+                  (click)="fulfillRequest(row)">
                 <div class="ops-row__lead">
                   <div class="ops-row__identity">
                     <p class="ops-row__title">
@@ -186,7 +195,8 @@
                   <span class="ops-age" [class]="ageClass(row)">{{ formatAge(row.create_dtime ?? row.request_date) }}</span>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
-              </article>
+                </button>
+              </div>
             }
           </div>
         }

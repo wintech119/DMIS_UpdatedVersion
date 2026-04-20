@@ -200,6 +200,43 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     this.router.navigate(['/operations/package-fulfillment', item.reliefrqst_id]);
   }
 
+  /**
+   * Builds the accessible action label for the stretched-link row button.
+   * Announced to assistive technology so screen-reader users hear what
+   * selecting the row will do ("Open fulfillment for REQ-95009, Parish
+   * Shelter, High urgency, Draft"), preserving parity with sighted users
+   * who read the visual row content.
+   */
+  formatRowAction(row: PackageQueueItem): string {
+    const tracking = row.tracking_no ?? `REQ-${row.reliefrqst_id}`;
+    const agency = row.agency_name ?? `Agency ${row.agency_id}`;
+    const urgency = formatOperationsUrgency(row.urgency_ind);
+    const stage = this.getFulfillmentStage(row);
+    const stageLabel = stage === 'excluded' ? null : this.stageLabel(stage);
+    const parts = [
+      `Open fulfillment for ${tracking}`,
+      agency,
+      urgency ? `${urgency} urgency` : null,
+      stageLabel,
+    ].filter((part): part is string => Boolean(part));
+    return parts.join(', ');
+  }
+
+  private stageLabel(stage: Exclude<FulfillmentStage, 'excluded'>): string {
+    switch (stage) {
+      case 'awaiting':
+        return 'Awaiting fulfillment';
+      case 'drafts':
+        return 'Draft to resume';
+      case 'preparing':
+        return 'Preparing';
+      case 'ready':
+        return 'Ready to dispatch';
+      default:
+        return 'All requests';
+    }
+  }
+
   trackByRequestId(_index: number, item: PackageQueueItem): number {
     return item.reliefrqst_id;
   }

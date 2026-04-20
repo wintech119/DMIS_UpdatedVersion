@@ -323,4 +323,90 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(getOperationsPackageTone('DRAFT')).toBe('muted');
     expect(getOperationsPackageTone('A')).toBe('muted');
   });
+
+  // ─── Finding 8: row is a real <button>, nested inside a listitem wrapper ───
+  it('renders each queue row as a real <button> while keeping list semantics', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({ results: [buildQueueItem({ reliefrqst_id: 55, tracking_no: 'RQ-55' })] }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    const listitem = fixture.nativeElement.querySelector('[role="listitem"]');
+    expect(listitem).withContext('row should remain inside a listitem so the list still announces').not.toBeNull();
+    expect(listitem?.hasAttribute('tabindex'))
+      .withContext('listitem wrapper must not be focusable on its own')
+      .toBeFalse();
+
+    const button = listitem?.querySelector('button.ops-row');
+    expect(button).withContext('row must be a real <button>, not a transparent overlay').not.toBeNull();
+    expect(button?.getAttribute('type')).toBe('button');
+    expect(button?.classList.contains('ops-row--interactive')).toBeTrue();
+    expect(button?.getAttribute('aria-label'))
+      .withContext('button should carry a descriptive aria-label')
+      .toMatch(/Open fulfillment for RQ-55/);
+  });
+
+  it('navigates to the fulfillment workspace when the row button is activated', () => {
+    router.navigate.calls.reset();
+    operationsService.getPackagesQueue.and.returnValue(
+      of({ results: [buildQueueItem({ reliefrqst_id: 99, tracking_no: 'RQ-99' })] }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      'button.ops-row',
+    ) as HTMLButtonElement | null;
+    expect(button).not.toBeNull();
+    button!.click();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/operations/package-fulfillment', 99]);
+  });
+
+  it('does not nest interactive controls inside the row button', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({
+            reliefrqst_id: 44,
+            tracking_no: 'RQ-44',
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('button.ops-row');
+    const nested = button?.querySelectorAll(
+      'button, a[href], input, select, textarea, [role="button"], [role="link"]',
+    );
+    expect(nested?.length ?? 0).toBe(0);
+  });
+
+  it('formatRowAction builds a descriptive label from tracking / agency / urgency / stage', () => {
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const label = component.formatRowAction(
+      buildQueueItem({
+        reliefrqst_id: 77,
+        tracking_no: 'RQ-77',
+        agency_name: 'Parish Shelter',
+        urgency_ind: 'H',
+        current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+      }),
+    );
+
+    expect(label).toContain('Open fulfillment for RQ-77');
+    expect(label).toContain('Parish Shelter');
+    expect(label.toLowerCase()).toContain('urgency');
+    expect(label.toLowerCase()).toContain('draft');
+  });
 });

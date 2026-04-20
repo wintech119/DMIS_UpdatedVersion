@@ -4,7 +4,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  Inject,
   Injector,
   afterNextRender,
   computed,
@@ -135,10 +134,11 @@ interface AddWarehouseSheetData {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AddWarehouseBottomSheetComponent {
-  constructor(
-    private readonly sheetRef: MatBottomSheetRef<AddWarehouseBottomSheetComponent, number>,
-    @Inject(MAT_BOTTOM_SHEET_DATA) public readonly data: AddWarehouseSheetData,
-  ) {}
+  private readonly sheetRef =
+    inject<MatBottomSheetRef<AddWarehouseBottomSheetComponent, number>>(
+      MatBottomSheetRef,
+    );
+  readonly data = inject<AddWarehouseSheetData>(MAT_BOTTOM_SHEET_DATA);
 
   onSelect(warehouseId: number): void {
     this.sheetRef.dismiss(warehouseId);
@@ -1290,11 +1290,11 @@ export class FulfillmentItemDetailComponent {
     }
     const loadedCount = this.store().loadedWarehousesByItem()[this.item().item_id]?.length ?? 0;
     const ref = this.bottomSheet.open(AddWarehouseBottomSheetComponent, {
-      data: <AddWarehouseSheetData>{
+      data: {
         alternates,
         issuanceOrder: this.item().issuance_order,
         loadedCount,
-      },
+      } as AddWarehouseSheetData,
     });
     ref
       .afterDismissed()

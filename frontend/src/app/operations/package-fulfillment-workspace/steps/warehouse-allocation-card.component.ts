@@ -155,11 +155,11 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
               #qtyInput
               type="number"
               class="wh-card__qty-input"
-              inputmode="numeric"
+              inputmode="decimal"
               min="0"
               [attr.max]="maxQty()"
-              step="1"
-              maxlength="12"
+              step="0.0001"
+              maxlength="16"
               [value]="allocatedQty()"
               [disabled]="readOnly()"
               [attr.aria-label]="'Allocation qty for ' + warehouse().warehouse_name"
@@ -1084,29 +1084,38 @@ export class WarehouseAllocationCardComponent {
   );
 
   /**
-   * Validate and emit on every input event. Rejects negative, non-integer, or
-   * > cap values without emitting; the DOM reflects the rejected value so the
-   * operator sees the error, but parent state stays clean.
+   * Validate and emit on every input event. Backend stores allocation
+   * quantities as decimals with up to 4 fractional places, so the UI mirrors
+   * that contract: accepts `12`, `1.5`, `0.25`, `2.0001`; rejects negatives,
+   * scientific notation, >4 decimal places, and values above the card cap.
+   * The DOM reflects the rejected value so the operator sees the error, but
+   * parent state stays clean.
    */
   onQtyInput(event: Event): void {
     const target = event.target as HTMLInputElement | null;
     if (!target) {
       return;
     }
-    const rawText = String(target.value ?? '');
-    if (rawText.trim() === '') {
+    const rawText = String(target.value ?? '').trim();
+    if (rawText === '') {
       this.lastError.set(null);
       this.qtyChange.emit(0);
       return;
     }
-    // Integer-only — reject decimals and scientific notation up front.
-    if (!/^-?\d+$/.test(rawText.trim())) {
-      this.lastError.set('Enter a whole number.');
+    // Decimal-aware — accepts integers and fractional values up to 4 decimal
+    // places; rejects scientific notation (1e2), multiple decimal points, and
+    // leading `+`/`-` (negatives are rejected regardless of sign position).
+    if (!/^\d+(\.\d{1,4})?$/.test(rawText)) {
+      this.lastError.set(
+        rawText.includes('.')
+          ? 'Up to 4 decimal places allowed.'
+          : 'Enter a valid quantity.',
+      );
       return;
     }
     const raw = Number(rawText);
-    if (!Number.isFinite(raw) || !Number.isInteger(raw)) {
-      this.lastError.set('Enter a whole number.');
+    if (!Number.isFinite(raw)) {
+      this.lastError.set('Enter a valid quantity.');
       return;
     }
     if (raw < 0) {
@@ -1115,20 +1124,23 @@ export class WarehouseAllocationCardComponent {
     }
     const cap = this.maxQty();
     if (raw > cap) {
-      this.lastError.set(`Maximum is ${cap}.`);
+      this.lastError.set(`Maximum is ${this.formatNumber(cap)}.`);
       return;
     }
     this.lastError.set(null);
-    this.qtyChange.emit(raw);
+    this.qtyChange.emit(this.roundToQuantity(raw));
   }
 
   /**
    * Step the qty up or down by a single unit, clamped to [0, maxQty]. The
    * parent rehydrates the input via its signal so the DOM stays in sync.
+   * Decimal fractions on the current value are preserved (e.g. 2.5 → 3.5 → 4.5).
    */
   onStep(delta: -1 | 1): void {
     const current = this.allocatedQty() ?? 0;
-    const next = Math.max(0, Math.min(this.maxQty(), current + delta));
+    const next = this.roundToQuantity(
+      Math.max(0, Math.min(this.maxQty(), current + delta)),
+    );
     if (next === current) {
       return;
     }
@@ -1136,12 +1148,20 @@ export class WarehouseAllocationCardComponent {
     this.qtyChange.emit(next);
   }
 
-  /** Emits min(maxQty, remainingQtyForItem). */
+  /**
+   * Emits `min(maxQty, remainingQtyForItem)` preserving fractional precision.
+   * Backend accepts up to 4 decimal places, so we round (not floor) to protect
+   * the full available qty — flooring a 2.5 cap to 2 would silently drop stock.
+   */
   onUseMax(): void {
-    const target = Math.min(this.maxQty(), this.remainingQtyForItem() || this.maxQty());
-    const floored = Math.max(0, Math.floor(target));
+    const remaining = this.remainingQtyForItem();
+    const target = Math.min(
+      this.maxQty(),
+      remaining > 0 ? remaining : this.maxQty(),
+    );
+    const next = Math.max(0, this.roundToQuantity(target));
     this.lastError.set(null);
-    this.qtyChange.emit(floored);
+    this.qtyChange.emit(next);
   }
 
   onClear(): void {
@@ -1177,6 +1197,18 @@ export class WarehouseAllocationCardComponent {
     }
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  /**
+   * Round a numeric quantity to the backend-contracted 4 decimal places so
+   * intermediate floating-point artifacts (e.g. 2.1 - 0.1 → 2.0000000000000004)
+   * never leak out to the parent's state or the commit payload.
+   */
+  private roundToQuantity(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.round(value * 10_000) / 10_000;
   }
 
   private formatDate(value: string | null | undefined): string {
