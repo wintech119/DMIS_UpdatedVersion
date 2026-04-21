@@ -16,7 +16,6 @@ import { AuthRbacService } from '../../replenishment/services/auth-rbac.service'
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import type { OpsMetricStripItem } from '../shared/ops-metric-strip.component';
-import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { PackageQueueItem } from '../models/operations.model';
 import {
@@ -73,7 +72,6 @@ interface ActionInboxPill {
     RouterLink,
     MatButtonModule,
     MatIconModule,
-    OpsStatusChipComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
   ],
