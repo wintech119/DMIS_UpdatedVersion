@@ -1,5 +1,23 @@
-// ── Local severity tokens ──
-:host { --_crit: #c82333; --_warn: #e8590c; --_watch: #e6a700; --_ok: #218838; }
+// ── Local severity aliases ──
+// Use project-level --color-* tokens where defined so display-severity
+// normalization (CRITICAL/WARNING/GOOD) stays consistent with the rest of
+// the app. The local --_* variables remain as fallbacks only.
+:host {
+  --_crit: var(--color-critical, #c82333);
+  --_warn: var(--color-warning, #e8590c);
+  --_watch: #e6a700;
+  --_ok: var(--color-success, #218838);
+}
+
+// Hero CTA surface in the context card.
+.hero-cta {
+  font-weight: var(--weight-semibold, 600);
+}
+
+// Three-bucket display severity indicators (CRITICAL / WARNING / GOOD).
+.display-severity-critical { color: var(--color-critical, #c82333); }
+.display-severity-warning  { color: var(--color-warning, #d97706); }
+.display-severity-good     { color: var(--color-success, #059669); }
 
 // ── Page shell ──
 .dmis-page { padding: 20px; background-color: var(--color-surface-muted); min-height: 100vh; color: var(--color-text-primary); }
@@ -59,8 +77,12 @@
     display: flex; flex-wrap: wrap; gap: 8px;
     mat-chip-option {
       cursor: pointer; font-size: var(--text-xs);
+      // Display-boundary chip buckets (3-bucket CRITICAL/WARNING/GOOD).
       &.chip-critical[aria-selected="true"] { background-color: #dc3545; color: white; }
       &.chip-warning[aria-selected="true"]  { background-color: #fd7e14; color: white; }
+      &.chip-good[aria-selected="true"]     { background-color: #28a745; color: white; }
+      // Legacy 4-bucket aliases kept for internal severity surfaces that have
+      // not yet been migrated; display boundary should no longer emit these.
       &.chip-watch[aria-selected="true"]    { background-color: #ffc107; color: var(--color-text-primary); }
       &.chip-ok[aria-selected="true"]       { background-color: #28a745; color: white; }
     }
@@ -102,8 +124,12 @@
 .badge {
   display: inline-block; padding: 4px 8px; font-size: var(--text-xs); font-weight: var(--weight-semibold);
   text-transform: uppercase; border-radius: 3px; background-color: var(--_badge-bg); color: var(--_badge-fg);
+  // Display-boundary badge buckets (3-bucket CRITICAL/WARNING/GOOD).
   &.badge-critical { --_badge-bg: var(--_crit); --_badge-fg: #fff; }
   &.badge-warning  { --_badge-bg: var(--_warn); --_badge-fg: #fff; }
+  &.badge-good     { --_badge-bg: var(--_ok); --_badge-fg: #fff; }
+  // Legacy 4-bucket aliases kept for any non-dashboard consumer that still
+  // emits raw WATCH/OK; the dashboard template must not render these.
   &.badge-watch    { --_badge-bg: var(--_watch); --_badge-fg: #000; }
   &.badge-ok       { --_badge-bg: var(--_ok); --_badge-fg: #fff; }
   &.badge-freshness-high    { --_badge-bg: #d4edda; --_badge-fg: #155724; }

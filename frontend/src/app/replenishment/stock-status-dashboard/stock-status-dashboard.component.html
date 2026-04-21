@@ -50,6 +50,21 @@
           </div>
         </div>
         <div class="context-actions">
+          @if (viewMode === 'multi' && warehouseGroups.length > 0) {
+            <button
+              matButton="filled"
+              color="primary"
+              class="hero-cta"
+              (click)="generateNeedsListWithGates('hero')"
+              [disabled]="ctaInFlight()"
+              matTooltip="Create a replenishment needs list. Select a warehouse if more than one is visible."
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+              >
+              <mat-icon>add_shopping_cart</mat-icon>
+              Generate Needs List
+            </button>
+          }
           @if (viewMode === 'multi') {
             <button
               matButton="outlined"
@@ -60,6 +75,18 @@
               >
               <mat-icon>event</mat-icon>
               Change Event/Phase
+            </button>
+          }
+          @if (canManagePhaseWindows()) {
+            <button
+              matButton="outlined"
+              (click)="openPhaseWindowsDialog()"
+              matTooltip="Edit demand and planning windows per phase"
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+              >
+              <mat-icon>tune</mat-icon>
+              Phase Windows
             </button>
           }
           @if (viewMode === 'multi') {
@@ -145,7 +172,7 @@
             [color]="sortBy === 'severity' ? 'primary' : undefined"
             (click)="changeSortBy('severity')"
             class="sort-btn"
-            matTooltip="Sort by stock health status. Critical items appear first, then Warning, Watch, OK."
+            matTooltip="Sort by stock health status. Critical items appear first, then Warning, then Good."
             matTooltipPosition="above"
             matTooltipShowDelay="300"
             >
@@ -175,21 +202,21 @@
         </div>
       </div>
 
-      <!-- Severity Filter -->
-      @if (severityOptions.length) {
+      <!-- Severity Filter (3-bucket display boundary: CRITICAL/WARNING/GOOD) -->
+      @if (displaySeverityOptions.length) {
         <div class="filter-section">
           <span class="filter-label">Filter by Severity:</span>
           <mat-chip-listbox class="chip-list" multiple>
-            @for (severity of severityOptions; track severity) {
+            @for (bucket of displaySeverityOptions; track bucket) {
               <mat-chip-option
-                [selected]="isSeveritySelected(severity)"
-                (selectionChange)="onSeveritySelectionChange(severity, $event)"
-                [ngClass]="'chip-' + severity.toLowerCase()"
-                [matTooltip]="getSeverityTooltip(severity)"
+                [selected]="isDisplaySeveritySelected(bucket)"
+                (selectionChange)="onDisplaySeveritySelectionChange(bucket, $event)"
+                [ngClass]="getDisplayChipClass(bucket)"
+                [matTooltip]="getDisplaySeverityTooltip(bucket)"
                 matTooltipPosition="above"
                 matTooltipShowDelay="300"
                 >
-                {{ severity }}
+                {{ bucket }}
               </mat-chip-option>
             }
           </mat-chip-listbox>
@@ -271,7 +298,7 @@
               @if (group.critical_count === 0 && group.warning_count === 0) {
                 <span class="stat-chip stat-chip-ok">
                   <mat-icon>check_circle</mat-icon>
-                  All OK
+                  All Good
                 </span>
               }
             </div>
@@ -279,8 +306,8 @@
               <button
                 mat-raised-button
                 [color]="group.critical_count > 0 ? 'warn' : 'primary'"
-                (click)="generateNeedsList(group.warehouse_id)"
-                [disabled]="group.items.length === 0"
+                (click)="generateNeedsListWithGates('warehouse-card', group.warehouse_id)"
+                [disabled]="group.items.length === 0 || ctaInFlight()"
                 matTooltip="Create a replenishment needs list for this warehouse. Lists items requiring restocking with recommended quantities and sources."
                 matTooltipPosition="above"
                 matTooltipShowDelay="300"
@@ -332,8 +359,8 @@
                     @for (item of group.items; track item.item_id) {
                       <tr [ngClass]="'row-' + getSeverityClass(item.severity)">
                         <td class="col-status">
-                          <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
-                            {{ item.severity || 'OK' }}
+                          <span class="badge" [ngClass]="getDisplayBadgeClass(item.severity)" [attr.aria-label]="'Status: ' + displaySeverity(item.severity)">
+                            {{ displaySeverity(item.severity) }}
                           </span>
                         </td>
                         <td class="col-item">
@@ -419,8 +446,8 @@
                   <div class="mobile-item-card"
                     [ngClass]="'card-' + getSeverityClass(item.severity)">
                     <div class="mobile-card-header">
-                      <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
-                        {{ item.severity || 'OK' }}
+                      <span class="badge" [ngClass]="getDisplayBadgeClass(item.severity)" [attr.aria-label]="'Status: ' + displaySeverity(item.severity)">
+                        {{ displaySeverity(item.severity) }}
                       </span>
                       <div class="mobile-card-title">
                         <span
@@ -522,7 +549,8 @@
   @if (activeEvent && warehouseGroups.length > 0) {
     <button
       class="mobile-fab mobile-only"
-      (click)="generateNeedsList()"
+      (click)="generateNeedsListWithGates('fab')"
+      [disabled]="ctaInFlight()"
       [attr.aria-label]="'Generate Needs List'"
       matTooltip="Generate a replenishment needs list"
       >

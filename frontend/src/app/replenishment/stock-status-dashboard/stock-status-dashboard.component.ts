@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, DestroyRef, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, DestroyRef, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -18,14 +18,26 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { forkJoin, Subject, Subscription } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
+import { HttpErrorResponse } from '@angular/common/http';
 import { AppAccessService } from '../../core/app-access.service';
 import { AuthRbacService } from '../services/auth-rbac.service';
-import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
+import { ReplenishmentService, ActiveEvent, Warehouse, NeedsListDuplicateSummary } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
 import { DmisNotificationService } from '../services/notification.service';
-import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup } from '../models/stock-status.model';
+import {
+  StockStatusItem,
+  formatTimeToStockout,
+  EventPhase,
+  SeverityLevel,
+  FreshnessLevel,
+  WarehouseStockGroup,
+  DisplaySeverity,
+  DisplayStatus,
+  PhaseWindowsResponse
+} from '../models/stock-status.model';
 import {
   ExternalUpdateSummary,
   NeedsListItem,
@@ -38,6 +50,11 @@ import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { toDisplaySeverity, toDisplayStatus, phaseToIntervalMs } from './utils/display-mappers';
+import { ScopePickerDialogComponent, ScopePickerDialogResult } from './dialogs/scope-picker-dialog.component';
+import { DuplicateGuardDialogComponent, DuplicateGuardDialogResult } from './dialogs/duplicate-guard-dialog.component';
+import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-dialog.component';
+import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
 
 
 interface FilterState {
@@ -75,7 +92,7 @@ interface FilterState {
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
 })
-export class StockStatusDashboardComponent implements OnInit {
+export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   private replenishmentService = inject(ReplenishmentService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -88,7 +105,27 @@ export class StockStatusDashboardComponent implements OnInit {
   private notificationService = inject(DmisNotificationService);
 
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
+  // Internal severity filter domain (4 buckets). Kept for the
+  // DashboardDataOptions/selector contract so business logic is unchanged.
   readonly severityOptions: SeverityLevel[] = ['CRITICAL', 'WARNING', 'WATCH', 'OK'];
+  // Display-boundary severity chip list (3 buckets). WATCH folds into WARNING,
+  // OK folds into GOOD. This is what renders in the UI filter row.
+  readonly displaySeverityOptions: DisplaySeverity[] = ['CRITICAL', 'WARNING', 'GOOD'];
+
+  // Phase-aware refresh + CTA gate signals (new UI slices only).
+  readonly phaseSignal = signal<EventPhase>('BASELINE');
+  readonly refreshIntervalMs = computed(() => phaseToIntervalMs(this.phaseSignal()));
+  readonly phaseWindows = signal<PhaseWindowsResponse | null>(null);
+  readonly canManagePhaseWindows = computed(() => !!this.phaseWindows()?.manageable_by_active_tenant);
+  readonly ctaInFlight = signal(false);
+
+  // Safe poll loop state.
+  private pollInFlight = false;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private visibilityListener: (() => void) | null = null;
+  private readonly manualRefresh$ = new Subject<void>();
+  private manualRefreshSub: Subscription | null = null;
+  private retryAfterMs: number | null = null;
 
   // Current context
   activeEvent: ActiveEvent | null = null;
@@ -187,9 +224,37 @@ export class StockStatusDashboardComponent implements OnInit {
     this.dataFreshnessService.onRefreshRequested$().pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(() => {
-      this.dashboardDataService.invalidateCache();
-      this.loadMultiWarehouseStatus();
+      this.triggerManualRefresh();
     });
+
+    // Debounced manual refresh (300ms) to avoid thundering-herd when users
+    // click refresh repeatedly.
+    this.manualRefreshSub = this.manualRefresh$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.dashboardDataService.invalidateCache();
+        this.loadMultiWarehouseStatus();
+      });
+
+    // Pause polling when the tab is hidden, resume when visible.
+    if (typeof document !== 'undefined') {
+      this.visibilityListener = () => {
+        if (document.hidden) {
+          this.stopPollTimer();
+        } else {
+          this.schedulePoll();
+        }
+      };
+      document.addEventListener('visibilitychange', this.visibilityListener);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.stopPollTimer();
+    if (this.visibilityListener && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityListener);
+    }
+    this.manualRefreshSub?.unsubscribe();
   }
 
   /**
@@ -206,6 +271,7 @@ export class StockStatusDashboardComponent implements OnInit {
       next: ({ event, warehouses }) => {
         if (event) {
           this.activeEvent = this.resolveRequestedEventContext(event);
+          this.phaseSignal.set((this.activeEvent.phase as EventPhase) || 'BASELINE');
         } else {
           this.activeEvent = null;
         }
@@ -214,11 +280,18 @@ export class StockStatusDashboardComponent implements OnInit {
         // If no active event, stop loading and show empty state
         if (!event) {
           this.loading = false;
+          this.phaseWindows.set(null);
           return;
         }
 
-        // Load stock status for all warehouses
+        // Phase windows are event-scoped in the backend contract; defer the
+        // call until we know the active event_id. Without an event, the
+        // endpoint does not exist.
+        this.loadPhaseWindows();
+
+        // Load stock status for all warehouses, then kick off the poll loop.
         this.loadMultiWarehouseStatus();
+        this.schedulePoll();
       },
       error: (error) => {
         this.loading = false;
@@ -280,6 +353,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.errors = [];
         this.loading = false;
         this.refreshing = false;
+        this.onRefreshComplete();
       },
       error: (error) => {
         if (!this.shouldApplyMultiWarehouseResult(requestToken, requestedEventId, requestedPhase, requestedWarehouseIds)) {
@@ -293,6 +367,7 @@ export class StockStatusDashboardComponent implements OnInit {
         const msg = error.message || 'Failed to load stock status.';
         this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
+        this.onRefreshComplete(error instanceof HttpErrorResponse ? error : undefined);
       }
     });
   }
@@ -468,8 +543,10 @@ export class StockStatusDashboardComponent implements OnInit {
         return;
       }
       this.activeEvent = { ...this.activeEvent, phase: newPhase };
+      this.phaseSignal.set(newPhase);
       this.dashboardDataService.invalidateCache();
       this.loadMultiWarehouseStatus();
+      this.schedulePoll();
     });
   }
 
@@ -562,18 +639,347 @@ export class StockStatusDashboardComponent implements OnInit {
     this.router.navigate(['/replenishment/needs-list-review']);
   }
 
+  /**
+   * Legacy entry point. Kept only so existing callers continue to work;
+   * all UI bindings should call `generateNeedsListWithGates()` directly.
+   */
   generateNeedsList(warehouseId?: number): void {
+    this.generateNeedsListWithGates('legacy', warehouseId);
+  }
+
+  /**
+   * Single CTA path for creating a needs list. Enforces (in order):
+   *   1. Scope: event + warehouse must be resolved (opens ScopePickerDialog if missing)
+   *   2. Duplicate check: `checkActiveNeedsLists` → DuplicateGuardDialog if any
+   *   3. Low-confidence ack: LowConfidenceAckDialog when scope has LOW confidence
+   *   4. Navigate to wizard with queryParams
+   *
+   * All three UI triggers (hero, mobile FAB, warehouse card) route through
+   * this method. Backend remains the authoritative enforcement layer; the
+   * dialogs on steps 2 and 3 are UX aids only.
+   */
+  generateNeedsListWithGates(
+    source: 'hero' | 'fab' | 'warehouse-card' | 'legacy',
+    warehouseId?: number | null
+  ): void {
+    if (!this.activeEvent) {
+      this.notificationService.showWarning('No active event. Cannot create a needs list.');
+      return;
+    }
+    if (this.ctaInFlight()) {
+      return;
+    }
+
+    const preselected = warehouseId ?? this.selectedWarehouseId ?? (
+      this.selectedWarehouseIds.length === 1 ? this.selectedWarehouseIds[0] : null
+    );
+
+    if (preselected == null) {
+      this.openScopePicker(source);
+      return;
+    }
+
+    this.runGateChain(preselected);
+  }
+
+  private openScopePicker(source: 'hero' | 'fab' | 'warehouse-card' | 'legacy'): void {
+    if (!this.allWarehouses.length) {
+      this.notificationService.showWarning('No warehouses are available to create a needs list.');
+      return;
+    }
+    const ref = this.dialog.open(ScopePickerDialogComponent, {
+      data: {
+        availableWarehouses: this.allWarehouses,
+        preselectedWarehouseId: this.selectedWarehouseId
+      },
+      ariaLabel: 'Select warehouse for needs list'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: ScopePickerDialogResult | undefined) => {
+      if (!result) return;
+      this.runGateChain(result.warehouseId, source);
+    });
+  }
+
+  private runGateChain(
+    warehouseId: number,
+    _source: 'hero' | 'fab' | 'warehouse-card' | 'legacy' = 'legacy'
+  ): void {
     if (!this.activeEvent) return;
 
-    // Navigate to needs list wizard with pre-filled form data
+    this.ctaInFlight.set(true);
+
+    const eventId = this.activeEvent.event_id;
+    const phase = String(this.activeEvent.phase);
+
+    this.replenishmentService
+      .checkActiveNeedsLists({ eventId, warehouseId, phase })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (duplicates) => {
+          if (duplicates && duplicates.length > 0) {
+            this.openDuplicateGuard(duplicates, warehouseId);
+            return;
+          }
+          this.runLowConfidenceGate(warehouseId);
+        },
+        error: () => {
+          // Backend still validates at submission — fall through to navigation.
+          this.runLowConfidenceGate(warehouseId);
+        }
+      });
+  }
+
+  private openDuplicateGuard(duplicates: NeedsListDuplicateSummary[], warehouseId: number): void {
+    const warehouseName = this.warehouseNameFor(warehouseId);
+    const ref = this.dialog.open(DuplicateGuardDialogComponent, {
+      data: {
+        duplicates,
+        warehouseName,
+        phase: String(this.activeEvent?.phase ?? '')
+      },
+      ariaLabel: 'Duplicate needs list warning'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: DuplicateGuardDialogResult) => {
+      if (!result) {
+        this.ctaInFlight.set(false);
+        return;
+      }
+      if (result.action === 'open') {
+        this.ctaInFlight.set(false);
+        this.router.navigate(['/replenishment/needs-list', result.needsListId, 'review']);
+        return;
+      }
+      this.runLowConfidenceGate(warehouseId);
+    });
+  }
+
+  private runLowConfidenceGate(warehouseId: number): void {
+    const group = this.warehouseGroups.find((g) => g.warehouse_id === warehouseId);
+    const lowConfItem = group?.items?.find((item) => item.confidence?.level === 'LOW');
+
+    if (!lowConfItem) {
+      this.navigateToWizard(warehouseId);
+      return;
+    }
+
+    const reasons = Array.from(
+      new Set(
+        (group?.items ?? [])
+          .filter((it) => it.confidence?.level === 'LOW')
+          .flatMap((it) => it.confidence?.reasons ?? [])
+      )
+    );
+
+    const ref = this.dialog.open(LowConfidenceAckDialogComponent, {
+      data: {
+        warehouseName: this.warehouseNameFor(warehouseId),
+        reasons
+      },
+      ariaLabel: 'Low-confidence acknowledgement'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((proceed?: boolean) => {
+      if (!proceed) {
+        this.ctaInFlight.set(false);
+        return;
+      }
+      this.navigateToWizard(warehouseId);
+    });
+  }
+
+  private navigateToWizard(warehouseId: number): void {
+    this.ctaInFlight.set(false);
+    if (!this.activeEvent) return;
     this.router.navigate(['/replenishment/needs-list-wizard'], {
       queryParams: {
         event_id: this.activeEvent.event_id,
         event_name: this.activeEvent.event_name,
-        warehouse_id: warehouseId || this.selectedWarehouseId,
+        warehouse_id: warehouseId,
         phase: this.activeEvent.phase
       }
     });
+  }
+
+  private warehouseNameFor(warehouseId: number): string {
+    const warehouse = this.allWarehouses.find((w) => w.warehouse_id === warehouseId);
+    if (warehouse?.warehouse_name) {
+      return warehouse.warehouse_name;
+    }
+    const group = this.warehouseGroups.find((g) => g.warehouse_id === warehouseId);
+    return group?.warehouse_name ?? `Warehouse ${warehouseId}`;
+  }
+
+  // -- Phase windows --------------------------------------------------
+
+  loadPhaseWindows(): void {
+    const eventId = this.activeEvent?.event_id;
+    if (!eventId) {
+      this.phaseWindows.set(null);
+      return;
+    }
+    this.replenishmentService
+      .getPhaseWindows(eventId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => this.phaseWindows.set(response),
+        error: () => this.phaseWindows.set(null)
+      });
+  }
+
+  openPhaseWindowsDialog(): void {
+    const current = this.phaseWindows();
+    const eventId = this.activeEvent?.event_id;
+    if (!current || !current.manageable_by_active_tenant || !eventId) {
+      return;
+    }
+    const ref = this.dialog.open(PhaseWindowsDialogComponent, {
+      data: { eventId, windows: current.windows },
+      ariaLabel: 'Edit phase windows'
+    });
+    // Always refetch — the dialog may have made partial saves before being
+    // closed, and the projected `windows` record must reflect server truth.
+    ref
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadPhaseWindows());
+  }
+
+  // -- Safe poll loop --------------------------------------------------
+
+  /**
+   * Schedule the next auto-refresh based on the current phase. Honors the
+   * in-flight guard (to avoid overlapping calls), pauses when the tab is
+   * hidden, and respects `Retry-After` when a prior call returned 429.
+   */
+  private schedulePoll(): void {
+    this.stopPollTimer();
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+    const baseInterval = this.refreshIntervalMs();
+    const delay = this.retryAfterMs ?? baseInterval;
+    this.retryAfterMs = null;
+    this.pollTimer = setTimeout(() => this.pollTick(), delay);
+  }
+
+  private stopPollTimer(): void {
+    if (this.pollTimer != null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private pollTick(): void {
+    if (this.pollInFlight) {
+      this.schedulePoll();
+      return;
+    }
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+    if (!this.activeEvent) {
+      this.schedulePoll();
+      return;
+    }
+    this.pollInFlight = true;
+    this.dashboardDataService.invalidateCache();
+    this.loadMultiWarehouseStatus();
+    // `loadMultiWarehouseStatus` clears pollInFlight via onRefreshComplete().
+  }
+
+  private onRefreshComplete(error?: HttpErrorResponse): void {
+    this.pollInFlight = false;
+    if (error && error.status === 429) {
+      const retryHeader = error.headers?.get?.('Retry-After');
+      const seconds = Number(retryHeader);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        this.retryAfterMs = Math.min(seconds * 1000, 60 * 60 * 1000);
+      }
+    }
+    this.schedulePoll();
+  }
+
+  triggerManualRefresh(): void {
+    this.manualRefresh$.next();
+  }
+
+  // -- Display mappers (exposed to template) ---------------------------
+
+  displaySeverity(severity: SeverityLevel | undefined): DisplaySeverity {
+    return toDisplaySeverity(severity ?? 'OK');
+  }
+
+  displayStatus(status: string | undefined | null): DisplayStatus {
+    return toDisplayStatus(status);
+  }
+
+  getDisplaySeverityClass(severity: SeverityLevel | undefined): string {
+    return `display-severity-${this.displaySeverity(severity).toLowerCase()}`;
+  }
+
+  /**
+   * Badge CSS class for stock-status pills at the display boundary.
+   * Always returns one of `badge-critical`, `badge-warning`, `badge-good`.
+   * Prevents raw WATCH/OK leakage into the rendered DOM.
+   */
+  getDisplayBadgeClass(severity: SeverityLevel | undefined): string {
+    return `badge-${this.displaySeverity(severity).toLowerCase()}`;
+  }
+
+  /** Filter chip CSS class at the display boundary (3-bucket). */
+  getDisplayChipClass(bucket: DisplaySeverity): string {
+    return `chip-${bucket.toLowerCase()}`;
+  }
+
+  /**
+   * Expand a display-severity bucket into the internal SeverityLevel values
+   * that the dashboard selector/filter operates on. WATCH is shown under
+   * WARNING in the UI; OK is shown under GOOD.
+   */
+  private expandDisplaySeverity(bucket: DisplaySeverity): SeverityLevel[] {
+    switch (bucket) {
+      case 'CRITICAL': return ['CRITICAL'];
+      case 'WARNING':  return ['WARNING', 'WATCH'];
+      case 'GOOD':     return ['OK'];
+    }
+  }
+
+  isDisplaySeveritySelected(bucket: DisplaySeverity): boolean {
+    // A bucket is "selected" when every internal severity it represents is
+    // currently in the filter. Partial membership is treated as unselected
+    // so the chip's UI state stays binary.
+    const members = this.expandDisplaySeverity(bucket);
+    return members.every((s) => this.selectedSeverities.includes(s));
+  }
+
+  onDisplaySeveritySelectionChange(bucket: DisplaySeverity, change: MatChipSelectionChange): void {
+    if (!change.isUserInput) {
+      return;
+    }
+    this.setDisplaySeveritySelection(bucket, change.selected);
+    this.onFiltersChanged();
+  }
+
+  private setDisplaySeveritySelection(bucket: DisplaySeverity, selected: boolean): void {
+    const members = this.expandDisplaySeverity(bucket);
+    for (const severity of members) {
+      const idx = this.selectedSeverities.indexOf(severity);
+      if (selected && idx < 0) {
+        this.selectedSeverities.push(severity);
+      } else if (!selected && idx >= 0) {
+        this.selectedSeverities.splice(idx, 1);
+      }
+    }
+  }
+
+  getDisplaySeverityTooltip(bucket: DisplaySeverity): string {
+    switch (bucket) {
+      case 'CRITICAL':
+        return 'CRITICAL: Less than 8 hours of stock remaining. Immediate replenishment action required using transfers (Horizon A).';
+      case 'WARNING':
+        return 'WARNING: Less than 72 hours of stock remaining. Includes items under 24h (act soon) and under 72h (plan ahead).';
+      case 'GOOD':
+        return 'GOOD: More than 72 hours of stock remaining. Stock levels are healthy.';
+    }
   }
 
   getTotalCriticalCount(): number {
@@ -916,6 +1322,12 @@ export class StockStatusDashboardComponent implements OnInit {
     });
   }
 
+  /**
+   * Cross-page-shared needs-list status label (kept for non-dashboard
+   * surfaces that pass status strings through this helper). Dashboard-owned
+   * status pills must use `displayStatus()` instead to stay on the FR02.93
+   * display vocabulary.
+   */
   statusLabel(status: string | undefined): string {
     return formatStatusLabel(status);
   }

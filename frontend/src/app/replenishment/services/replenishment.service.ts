@@ -2,7 +2,16 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of, throwError, timer } from 'rxjs';
 import { filter, map, switchMap, take, timeout } from 'rxjs/operators';
-import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
+import {
+  StockStatusResponse,
+  StockStatusItem,
+  calculateSeverity,
+  EventPhase,
+  PhaseWindowEntry,
+  PhaseWindows,
+  PhaseWindowsResponse,
+  PHASE_WINDOWS
+} from '../models/stock-status.model';
 import {
   AsyncJobResponse,
   DonationsResponse,
@@ -668,19 +677,29 @@ export class ReplenishmentService {
   }
 
   checkActiveNeedsLists(
-    eventId: number,
-    warehouseId: number,
-    phase: string
+    eventIdOrOptions: number | { eventId: number; warehouseId: number; phase?: string },
+    warehouseId?: number,
+    phase?: string
   ): Observable<NeedsListDuplicateSummary[]> {
+    const resolvedEventId = typeof eventIdOrOptions === 'number'
+      ? eventIdOrOptions
+      : eventIdOrOptions.eventId;
+    const resolvedWarehouseId = typeof eventIdOrOptions === 'number'
+      ? warehouseId!
+      : eventIdOrOptions.warehouseId;
+    const resolvedPhase = typeof eventIdOrOptions === 'number'
+      ? phase
+      : eventIdOrOptions.phase;
+
     // Only check statuses that represent active/in-flight needs lists.
     const activeStatuses = [
       'PENDING_APPROVAL', 'SUBMITTED', 'PENDING', 'UNDER_REVIEW',
       'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION', 'DISPATCHED', 'RECEIVED'
     ];
     return this.listNeedsLists(activeStatuses, {
-      eventId,
-      warehouseId,
-      phase,
+      eventId: resolvedEventId,
+      warehouseId: resolvedWarehouseId,
+      phase: resolvedPhase,
       includeClosed: false
     }).pipe(
       map(({ needs_lists }) =>
@@ -702,6 +721,86 @@ export class ReplenishmentService {
           })
       )
     );
+  }
+
+  /**
+   * Fetch phase windows for an active event. Backend contract:
+   *   GET /api/v1/replenishment/events/{eventId}/phase-windows
+   * Returns `{ event_id, scope, applies_globally, phase_windows: [...],
+   * manageable_by_active_tenant }`. The service projects `phase_windows` into
+   * a `windows` record keyed by EventPhase so the dialog and dashboard can
+   * look up per-phase values without re-walking the array.
+   */
+  getPhaseWindows(eventId: number): Observable<PhaseWindowsResponse> {
+    return this.http
+      .get<Omit<PhaseWindowsResponse, 'windows'>>(
+        `${this.apiUrl}/events/${encodeURIComponent(String(eventId))}/phase-windows`
+      )
+      .pipe(map((raw) => this.projectPhaseWindowsResponse(raw)));
+  }
+
+  /**
+   * Update a single phase window on the active event. Backend contract:
+   *   PUT /api/v1/replenishment/events/{eventId}/phase-windows/{phase}
+   * Body requires demand_hours, planning_hours, AND a trimmed justification
+   * string (FR02.04a audit). Returns the updated single phase payload; the
+   * caller is expected to refetch the list if it needs the full record.
+   */
+  updatePhaseWindow(
+    eventId: number,
+    phase: EventPhase,
+    demandHours: number,
+    planningHours: number,
+    justification: string
+  ): Observable<unknown> {
+    const trimmed = (justification ?? '').trim();
+    return this.http.put<unknown>(
+      `${this.apiUrl}/events/${encodeURIComponent(String(eventId))}/phase-windows/${encodeURIComponent(phase)}`,
+      {
+        demand_hours: demandHours,
+        planning_hours: planningHours,
+        justification: trimmed
+      }
+    );
+  }
+
+  /**
+   * Project the backend `phase_windows` list into a per-phase record so
+   * downstream code can keep the ergonomic `response.windows[phase]`
+   * lookup. Missing phases fall back to the frontend backlog defaults.
+   */
+  private projectPhaseWindowsResponse(
+    raw: Omit<PhaseWindowsResponse, 'windows'>
+  ): PhaseWindowsResponse {
+    const phaseWindows: PhaseWindowEntry[] = Array.isArray(raw?.phase_windows)
+      ? raw.phase_windows
+      : [];
+
+    const windows: Record<EventPhase, PhaseWindows> = {
+      SURGE: { ...PHASE_WINDOWS.SURGE },
+      STABILIZED: { ...PHASE_WINDOWS.STABILIZED },
+      BASELINE: { ...PHASE_WINDOWS.BASELINE }
+    };
+
+    for (const entry of phaseWindows) {
+      const phase = entry?.phase as EventPhase | undefined;
+      if (phase && (phase === 'SURGE' || phase === 'STABILIZED' || phase === 'BASELINE')) {
+        windows[phase] = {
+          demand_hours: Number(entry.demand_hours),
+          planning_hours: Number(entry.planning_hours),
+          safety_factor: windows[phase].safety_factor
+        };
+      }
+    }
+
+    return {
+      event_id: Number(raw?.event_id ?? 0),
+      scope: String(raw?.scope ?? 'global'),
+      applies_globally: !!raw?.applies_globally,
+      phase_windows: phaseWindows,
+      windows,
+      manageable_by_active_tenant: !!raw?.manageable_by_active_tenant
+    };
   }
 
   private enrichStockStatusResponse(response: StockStatusResponse): StockStatusResponse {
