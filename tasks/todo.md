@@ -48,3 +48,10 @@
 1. Completed: traced the live `RQ95011` eligibility-decision 404 through backend request scope enforcement and local-harness actor context, confirming the request exists and the masked 404 only reproduces for the system-admin write path.
 2. Completed: patched the backend request access helper so `SYSTEM_ADMINISTRATOR` write flows stay aligned with the existing eligibility read/admin behavior.
 3. Completed: added a targeted backend regression test for the helper-level cross-tenant system-admin request access path and ran the focused operations test slice.
+
+## Allocation Review Comment Verification Sweep
+
+1. Completed: verified each cited backend and frontend finding against the current code before changing behavior.
+2. Completed: patched only the findings that still reproduced, preserving current frontend layout and style.
+3. Completed: ran focused Django and Angular tests for the changed paths.
+4. Completed: completed backend, frontend, and architecture review closeout before final response.

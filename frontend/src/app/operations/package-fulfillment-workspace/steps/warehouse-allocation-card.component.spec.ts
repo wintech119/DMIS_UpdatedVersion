@@ -315,6 +315,25 @@ describe('WarehouseAllocationCardComponent', () => {
       expect(emitted).toEqual([120]);
     });
 
+    it('Use max preserves a zero remaining quantity instead of falling back to capacity', async () => {
+      const fixture = await render({
+        warehouse: buildCard({ total_available: '300' }),
+        remainingQtyForItem: 0,
+      });
+      const emitted: number[] = [];
+      fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
+
+      expect(fixture.componentInstance.maxQty()).toBe(0);
+
+      const useMaxBtn = Array.from(
+        fixture.nativeElement.querySelectorAll('.wh-card__qty-btn') as NodeListOf<HTMLButtonElement>,
+      ).find((b) => (b.textContent ?? '').trim().startsWith('Use max'));
+      expect(useMaxBtn).toBeTruthy();
+      useMaxBtn!.click();
+
+      expect(emitted).toEqual([0]);
+    });
+
     it('Clear emits 0 regardless of current allocation', async () => {
       const fixture = await render({
         warehouse: buildCard(),

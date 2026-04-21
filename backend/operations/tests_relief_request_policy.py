@@ -9,6 +9,8 @@ from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from api.rbac import (
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
     PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
     PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
@@ -324,6 +326,7 @@ class TrackingNumberHelperTests(SimpleTestCase):
         self.assertEqual(payload["items"][1]["issue_qty"], "0.0000")
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class ReliefRequestServiceTests(TestCase):
     @patch("operations.services.data_access.get_item_names", return_value=({101: {"name": "Water Tabs", "code": "WT-001"}}, []))
     @patch(
@@ -707,6 +710,7 @@ class ReliefRequestServiceTests(TestCase):
                 },
                 actor_id="manager-1",
                 actor_roles=["LOGISTICS_OFFICER"],
+                actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
                 allow_pending_override=True,
             )
 
@@ -1161,6 +1165,7 @@ class DispatchSubmissionStatusTests(TestCase):
         )
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class PackageAllocationGuardTests(TestCase):
     @patch("operations.services._save_package_allocation")
     @patch(
@@ -1457,6 +1462,7 @@ class PackageAllocationGuardTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=["LOGISTICS_OFFICER"],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             allow_pending_override=True,
         )
 
@@ -1525,6 +1531,7 @@ class PackageAllocationGuardTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=["TST_LOGISTICS_OFFICER"],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             allow_pending_override=True,
         )
 
@@ -1587,6 +1594,7 @@ class PackageAllocationGuardTests(TestCase):
             },
             actor_id="manager-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE],
             allow_pending_override=True,
         )
 

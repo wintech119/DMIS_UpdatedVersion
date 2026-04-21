@@ -6,11 +6,12 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from replenishment.management.commands.align_tenant_scope import Command
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class AlignTenantScopeCommandTests(SimpleTestCase):
     @patch("replenishment.management.commands.align_tenant_scope.lock_primary_tenant_membership")
     @patch("replenishment.management.commands.align_tenant_scope.connection")
@@ -54,7 +55,7 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
             from_tenant_id=27,
             to_tenant_id=1,
             reassign_owned_warehouses=True,
-            warehouse_ids="1,2",
+            warehouse_ids="[1, 2]",
             stdout=output,
         )
 
@@ -83,7 +84,7 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
             to_tenant_id=1,
             skip_membership_copy=True,
             reassign_owned_warehouses=True,
-            warehouse_ids="1,2",
+            warehouse_ids="[1, 2]",
             stdout=output,
         )
 
@@ -112,6 +113,7 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
         _localdate_mock,
     ) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(1,), (2,)]
         now = datetime(2026, 4, 18, 9, 30, 0)
 
         Command()._reassign_owned_warehouses(
@@ -139,3 +141,52 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
                 [1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now],
             ],
         )
+
+    @patch("replenishment.management.commands.align_tenant_scope.timezone.localdate", return_value=datetime(2026, 4, 18).date())
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_reassign_owned_warehouses_upserts_only_updated_warehouses(
+        self,
+        mock_connection,
+        _localdate_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(2,)]
+        now = datetime(2026, 4, 18, 9, 30, 0)
+
+        Command()._reassign_owned_warehouses(
+            from_tenant_id=27,
+            to_tenant_id=1,
+            warehouse_ids=[1, 2],
+            actor_ref="SYSTEM",
+            now=now,
+        )
+
+        upsert_rows = cursor.executemany.call_args.args[1]
+        self.assertEqual(
+            upsert_rows,
+            [[1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now]],
+        )
+
+    def test_parse_positive_int_list_requires_json_array(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids must be a JSON array of positive integers.",
+        ):
+            Command()._parse_positive_int_list("1,2")
+
+    def test_parse_positive_int_list_enforces_max_length(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids must not contain more than 100 items.",
+        ):
+            Command()._parse_positive_int_list(list(range(1, 102)))
+
+    def test_handle_rejects_actor_values_that_exceed_audit_column_width(self) -> None:
+        with self.assertRaisesMessage(CommandError, "actor value too long"):
+            call_command(
+                "align_tenant_scope",
+                from_tenant_id=27,
+                to_tenant_id=1,
+                actor="THIS-ACTOR-VALUE-IS-TOO-LONG",
+                stdout=StringIO(),
+            )

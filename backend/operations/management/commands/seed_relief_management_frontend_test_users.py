@@ -17,7 +17,7 @@ from operations.relief_test_data import (
     temporary_local_harness_default_user,
 )
 
-_ODPEM_NATIONAL_TENANT_TYPES = {"NEOC", "NATIONAL", "NATIONAL_LEVEL"}
+_ODPEM_NATIONAL_TENANT_TYPES = {"NEOC", "NATIONAL_LEVEL"}
 
 
 class Command(BaseCommand):
@@ -597,4 +597,8 @@ class Command(BaseCommand):
         normalized = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
         while "__" in normalized:
             normalized = normalized.replace("__", "_")
-        return bool(normalized) and (normalized.startswith("ODPEM") or normalized == "OFFICE_OF_DISASTER_P")
+        return bool(normalized) and (
+            normalized in {"NEOC", "ODPEM_NEOC"}
+            or normalized.startswith("ODPEM")
+            or normalized == "OFFICE_OF_DISASTER_P"
+        )

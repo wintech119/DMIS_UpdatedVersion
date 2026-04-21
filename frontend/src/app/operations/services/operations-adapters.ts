@@ -95,6 +95,12 @@ function asStringArray(value: unknown): string[] {
   return asArray(value).map((entry) => String(entry)).filter(Boolean);
 }
 
+function asNumberArray(value: unknown): number[] {
+  return asArray(value)
+    .map((entry) => asNullableNumber(entry))
+    .filter((entry): entry is number => entry !== null);
+}
+
 function normalizeEnumStatus<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -522,7 +528,7 @@ function normalizeRankingContext(raw: unknown): RankingContext | null {
     return null;
   }
   return {
-    basis: asString(source['basis'], '').toUpperCase(),
+    basis: asString(source['basis'], '').trim().toUpperCase(),
     top_batch_id: asNullableNumber(source['top_batch_id']),
     top_batch_no: asNullableString(source['top_batch_no']),
     top_batch_date: asNullableString(source['top_batch_date']),
@@ -580,6 +586,12 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     compliance_markers: complianceMarkers,
     override_required: asBoolean(source['override_required']),
     source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
+    selected_warehouse_ids:
+      source['selected_warehouse_ids'] != null ? asNumberArray(source['selected_warehouse_ids']) : undefined,
+    recommended_warehouse_id:
+      source['recommended_warehouse_id'] !== undefined
+        ? asNullableNumber(source['recommended_warehouse_id'])
+        : undefined,
     stock_integrity_issue: asNullableString(source['stock_integrity_issue']),
     remaining_shortfall_qty: asString(source['remaining_shortfall_qty'], '0'),
     continuation_recommended: asBoolean(source['continuation_recommended']),

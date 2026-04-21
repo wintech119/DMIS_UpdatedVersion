@@ -883,13 +883,13 @@ export class WarehouseAllocationCardComponent {
     // parent swaps the card out), any prior validation error is no longer
     // meaningful. Clear it so the operator does not see a stale message on a
     // fresh card.
-    let lastWarehouseId: number | null = null;
+    const lastWarehouseId = signal<number | null>(null);
     effect(() => {
       const currentId = this.warehouse().warehouse_id;
-      if (lastWarehouseId !== null && lastWarehouseId !== currentId) {
+      if (lastWarehouseId() !== null && lastWarehouseId() !== currentId) {
         this.lastError.set(null);
       }
-      lastWarehouseId = currentId;
+      lastWarehouseId.set(currentId);
     });
   }
 
@@ -913,7 +913,7 @@ export class WarehouseAllocationCardComponent {
       card.allocatable_available_qty ?? card.total_available,
     );
     const remaining = this.remainingQtyForItem();
-    const safeRemaining = Number.isFinite(remaining) && remaining > 0 ? remaining : cap;
+    const safeRemaining = Number.isFinite(remaining) ? remaining : cap;
     return Math.max(0, Math.min(cap, safeRemaining));
   });
 
@@ -1138,8 +1138,7 @@ export class WarehouseAllocationCardComponent {
 
   /** Emits min(maxQty, remainingQtyForItem). */
   onUseMax(): void {
-    const target = Math.min(this.maxQty(), this.remainingQtyForItem() || this.maxQty());
-    const floored = Math.max(0, Math.floor(target));
+    const floored = Math.max(0, Math.floor(this.maxQty()));
     this.lastError.set(null);
     this.qtyChange.emit(floored);
   }

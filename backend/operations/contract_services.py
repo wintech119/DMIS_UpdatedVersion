@@ -19,6 +19,8 @@ from django.utils import timezone
 from api.rbac import (
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
 )
 from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
 from masterdata.services.data_access import get_lookup
@@ -194,6 +196,7 @@ ENTITY_DISPATCH = "DISPATCH"
 ENTITY_CONSOLIDATION_LEG = "CONSOLIDATION_LEG"
 ENTITY_PICKUP_RELEASE = "PICKUP_RELEASE"
 _VALID_ALLOCATION_SOURCE_TYPES = {"ON_HAND", "TRANSFER", "DONATION", "PROCUREMENT"}
+MAX_ADDITIONAL_WAREHOUSE_IDS = 100
 _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
     {
         PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
@@ -1002,6 +1005,15 @@ def _optional_positive_int_list_payload_value(
         return []
     if not isinstance(raw_value, list):
         raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    if len(raw_value) > MAX_ADDITIONAL_WAREHOUSE_IDS:
+        raise OperationValidationError(
+            {
+                field_name: (
+                    f"{field_name} must not contain more than "
+                    f"{MAX_ADDITIONAL_WAREHOUSE_IDS} items."
+                )
+            }
+        )
     normalized: list[int] = []
     seen: set[int] = set()
     for index, raw_entry in enumerate(raw_value):
@@ -3607,6 +3619,58 @@ def _item_ranked_plan_candidates(
     )
 
 
+def _normalize_plan_rows_for_recommended_uom(
+    rows: Sequence[Mapping[str, Any]],
+    recommended_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    recommended_by_key: dict[tuple[int, int, int, str, int | None, Decimal], list[Any]] = {}
+    for recommended in _group_plan_rows(recommended_rows):
+        if recommended.get("uom_code") in (None, ""):
+            continue
+        try:
+            key = (
+                int(recommended["item_id"]),
+                int(recommended["inventory_id"]),
+                int(recommended["batch_id"]),
+                str(recommended.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                (
+                    int(recommended["source_record_id"])
+                    if recommended.get("source_record_id") not in (None, "")
+                    else None
+                ),
+                _quantize_qty(recommended["quantity"]),
+            )
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            continue
+        recommended_by_key.setdefault(key, []).append(recommended.get("uom_code"))
+
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        normalized = dict(row)
+        if normalized.get("uom_code") in (None, ""):
+            try:
+                key = (
+                    int(normalized["item_id"]),
+                    int(normalized["inventory_id"]),
+                    int(normalized["batch_id"]),
+                    str(normalized.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                    (
+                        int(normalized["source_record_id"])
+                        if normalized.get("source_record_id") not in (None, "")
+                        else None
+                    ),
+                    _quantize_qty(normalized["quantity"]),
+                )
+            except (KeyError, TypeError, ValueError, InvalidOperation):
+                key = None
+            if key is not None:
+                matches = recommended_by_key.get(key) or []
+                if matches:
+                    normalized["uom_code"] = matches.pop(0)
+        normalized_rows.append(normalized)
+    return normalized_rows
+
+
 def _allocation_override_markers_for_plan(
     *,
     reliefrqst_id: int,
@@ -3648,7 +3712,8 @@ def _allocation_override_markers_for_plan(
         )
         if remaining > 0:
             override_markers.append("insufficient_on_hand_stock")
-        if _group_plan_rows(recommended) != rows:
+        normalized_rows = _normalize_plan_rows_for_recommended_uom(rows, recommended)
+        if _group_plan_rows(recommended) != _group_plan_rows(normalized_rows):
             override_markers.append("allocation_order_override")
     return list(dict.fromkeys(override_markers))
 
@@ -3783,12 +3848,13 @@ def build_item_warehouse_cards(
         if suggested < 0:
             suggested = Decimal("0")
         remaining = max(Decimal("0"), remaining - suggested)
+        recommended = rank_index == 0 and suggested > 0
         cards.append(
             {
                 "warehouse_id": raw["warehouse_id"],
                 "warehouse_name": raw["warehouse_name"],
                 "rank": rank_index,
-                "recommended": rank_index == 0,
+                "recommended": recommended,
                 "issuance_order": issuance_order,
                 "total_available": str(_quantize_qty(raw["total_available"])),
                 "allocatable_available_qty": str(
@@ -4056,6 +4122,7 @@ def _save_package_allocation(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None = None,
+    actor_permissions: Iterable[str] | None = None,
     tenant_context: TenantContext | None = None,
     allow_pending_override: bool,
     supervisor_user_id: str | None = None,
@@ -4080,19 +4147,20 @@ def _save_package_allocation(
             tenant_context=tenant_context,
         )
         approval_markers = _approval_required_override_markers(override_markers)
-        normalized_actor_roles = set(normalize_role_codes(actor_roles))
+        actor_permission_set = _permission_set(actor_permissions)
         manager_direct_commit = (
             bool(approval_markers)
             and allow_pending_override
-            and ROLE_LOGISTICS_MANAGER in normalized_actor_roles
+            and PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE.lower() in actor_permission_set
         )
-        if approval_markers and allow_pending_override and ROLE_LOGISTICS_OFFICER not in normalized_actor_roles:
+        can_submit_override = PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST.lower() in actor_permission_set
+        if approval_markers and allow_pending_override and not can_submit_override:
             if not manager_direct_commit:
                 raise OperationValidationError(
                     {
                         "override": (
-                            "Only Logistics Officers may submit override requests. "
-                            "Logistics Managers may commit their own overrides directly."
+                            "Override request permission is required to submit override requests. "
+                            "Override approval permission can commit overrides directly."
                         )
                     }
                 )
@@ -4130,6 +4198,8 @@ def _save_package_allocation(
             allow_pending_override=allow_pending_override,
             override_markers=override_markers,
             manager_direct_commit=manager_direct_commit,
+            supervisor_user_id=actor_id if manager_direct_commit else None,
+            supervisor_role_codes=actor_roles if manager_direct_commit else None,
         )
 
     package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
@@ -4148,11 +4218,11 @@ def _save_package_allocation(
         tenant_context=tenant_context,
     )
     approval_markers = _approval_required_override_markers(override_markers)
-    normalized_actor_roles = set(normalize_role_codes(actor_roles))
+    actor_permission_set = _permission_set(actor_permissions)
     manager_direct_commit = (
         bool(approval_markers)
         and allow_pending_override
-        and ROLE_LOGISTICS_MANAGER in normalized_actor_roles
+        and PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE.lower() in actor_permission_set
     )
     override_required = bool(approval_markers) and allow_pending_override and not manager_direct_commit
     override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
@@ -4163,13 +4233,14 @@ def _save_package_allocation(
             code="override_details_missing",
         )
     if approval_markers:
-        if allow_pending_override and ROLE_LOGISTICS_OFFICER not in normalized_actor_roles:
+        can_submit_override = PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST.lower() in actor_permission_set
+        if allow_pending_override and not can_submit_override:
             if not manager_direct_commit:
                 raise OperationValidationError(
                     {
                         "override": (
-                            "Only Logistics Officers may submit override requests. "
-                            "Logistics Managers may commit their own overrides directly."
+                            "Override request permission is required to submit override requests. "
+                            "Override approval permission can commit overrides directly."
                         )
                     }
                 )
@@ -4530,7 +4601,7 @@ def _legacy_get_package_allocation_options(
             _build_item_allocation_response(
                 reliefrqst_id,
                 item_id,
-                source_warehouse_id=None,
+                source_warehouse_id=source_warehouse_id,
                 tenant_context=tenant_context,
                 draft_allocations=draft_allocations_by_item.get(item_id),
                 include_draft_metrics=True,
@@ -4589,6 +4660,7 @@ def _legacy_save_package(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None = None,
+    permissions: Iterable[str] | None = None,
     tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
     return _save_package_allocation(
@@ -4596,6 +4668,7 @@ def _legacy_save_package(
         payload=payload,
         actor_id=actor_id,
         actor_roles=actor_roles,
+        actor_permissions=permissions,
         tenant_context=tenant_context,
         allow_pending_override=True,
     )
@@ -5887,6 +5960,7 @@ def save_package(
         payload=legacy_payload,
         actor_id=actor_id,
         actor_roles=actor_roles,
+        permissions=permissions,
         tenant_context=tenant_context,
     )
     # Re-sync request after legacy save to keep the operations status at

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
+from json import JSONDecodeError
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -9,6 +11,11 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from api.tenant_membership_locks import lock_primary_tenant_membership
+from replenishment.views import _parse_positive_int
+
+
+ACTOR_REF_MAX_LENGTH = 20
+MAX_WAREHOUSE_IDS = 100
 
 
 @dataclass
@@ -55,7 +62,7 @@ class Command(BaseCommand):
             "--warehouse-ids",
             type=str,
             default=None,
-            help="Optional comma-separated warehouse IDs to scope --reassign-owned-warehouses.",
+            help="Optional JSON array of warehouse IDs to scope --reassign-owned-warehouses.",
         )
         parser.add_argument(
             "--apply",
@@ -67,6 +74,10 @@ class Command(BaseCommand):
         from_tenant_id = int(options["from_tenant_id"])
         to_tenant_id = int(options["to_tenant_id"])
         actor = str(options["actor"] or "SYSTEM").strip() or "SYSTEM"
+        if len(actor) > ACTOR_REF_MAX_LENGTH:
+            raise CommandError(
+                f"actor value too long ({len(actor)} > {ACTOR_REF_MAX_LENGTH}): {actor}"
+            )
         skip_membership_copy = bool(options["skip_membership_copy"])
         set_primary = bool(options["set_primary"])
         backfill_tenant_warehouse = bool(options["backfill_tenant_warehouse"])
@@ -134,7 +145,7 @@ class Command(BaseCommand):
             return
 
         now = timezone.now()
-        actor_ref = actor[:20]
+        actor_ref = actor
         assigned_by = self._safe_int(actor)
 
         with transaction.atomic():
@@ -346,7 +357,7 @@ class Command(BaseCommand):
             tenant_id=from_tenant_id,
             warehouse_ids=warehouse_ids,
         )
-        self._update_warehouse_tenants(
+        updated_warehouse_ids = self._update_warehouse_tenants(
             from_tenant_id=from_tenant_id,
             to_tenant_id=to_tenant_id,
             warehouse_ids=warehouse_ids,
@@ -355,7 +366,7 @@ class Command(BaseCommand):
         )
         self._upsert_tenant_warehouse_rows(
             tenant_id=to_tenant_id,
-            warehouse_ids=warehouse_ids,
+            warehouse_ids=updated_warehouse_ids,
             actor_ref=actor_ref,
             now=now,
         )
@@ -383,9 +394,9 @@ class Command(BaseCommand):
         warehouse_ids: list[int],
         actor_ref: str,
         now: datetime,
-    ) -> None:
+    ) -> list[int]:
         if not warehouse_ids:
-            return
+            return []
         placeholders = ", ".join(["%s"] * len(warehouse_ids))
         params = [to_tenant_id, actor_ref, now, from_tenant_id, *warehouse_ids]
         with connection.cursor() as cursor:
@@ -398,9 +409,12 @@ class Command(BaseCommand):
                     version_nbr = COALESCE(version_nbr, 0) + 1
                 WHERE tenant_id = %s
                   AND warehouse_id IN ({placeholders})
+                RETURNING warehouse_id
                 """,
                 params,
             )
+            rows = cursor.fetchall()
+        return [int(row[0]) for row in rows]
 
     def _upsert_tenant_warehouse_rows(
         self,
@@ -520,13 +534,33 @@ class Command(BaseCommand):
         return parsed if parsed > 0 else None
 
     def _parse_positive_int_list(self, value: object) -> list[int]:
-        text = str(value or "").strip()
-        if not text:
+        if value in (None, ""):
             return []
+        raw_value = value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            try:
+                raw_value = json.loads(text)
+            except JSONDecodeError as exc:
+                raise CommandError(
+                    "--warehouse-ids must be a JSON array of positive integers."
+                ) from exc
+        if not isinstance(raw_value, list):
+            raise CommandError("--warehouse-ids must be a JSON array of positive integers.")
+        if len(raw_value) > MAX_WAREHOUSE_IDS:
+            raise CommandError(
+                f"--warehouse-ids must not contain more than {MAX_WAREHOUSE_IDS} items."
+            )
         parsed_ids: list[int] = []
-        for token in text.split(","):
-            parsed = self._safe_int(token)
+        errors: dict[str, str] = {}
+        for index, token in enumerate(raw_value):
+            parsed = _parse_positive_int(token, f"--warehouse-ids[{index}]", errors)
             if parsed is None:
-                raise CommandError("--warehouse-ids must be a comma-separated list of positive integers.")
+                continue
             parsed_ids.append(parsed)
+        if errors:
+            error_text = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise CommandError(f"--warehouse-ids entries must be positive integers. {error_text}")
         return sorted(set(parsed_ids))

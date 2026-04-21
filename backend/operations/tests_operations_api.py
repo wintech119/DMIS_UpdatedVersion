@@ -723,7 +723,30 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"errors": {"additional_warehouse_ids[1]": "Must be a positive integer."}},
+            {"errors": {"additional_warehouse_ids[1]": "Must be an integer."}},
+        )
+        mock_item_options.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_item_allocation_options")
+    def test_item_allocation_options_rejects_too_many_additional_warehouse_ids(
+        self,
+        mock_item_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/operations/packages/70/allocation-options/101",
+            {"additional_warehouse_ids": [str(index) for index in range(1, 102)]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"additional_warehouse_ids": "additional_warehouse_ids must not contain more than 100 items."}},
         )
         mock_item_options.assert_not_called()
 
@@ -899,7 +922,31 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"errors": {"additional_warehouse_ids[1]": "Must be a positive integer."}},
+            {"errors": {"additional_warehouse_ids[1]": "Must be an integer."}},
+        )
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_item_allocation_preview_rejects_too_many_additional_warehouse_ids(
+        self,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            {
+                "additional_warehouse_ids": list(range(1, 102)),
+                "draft_allocations": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"additional_warehouse_ids": "additional_warehouse_ids must not contain more than 100 items."}},
         )
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))

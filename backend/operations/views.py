@@ -59,6 +59,7 @@ from replenishment.services.allocation_dispatch import (
     ReservationError,
 )
 from replenishment.services import data_access
+from replenishment.views import _parse_positive_int
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
@@ -70,6 +71,7 @@ _RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _RATE_LIMIT_LOCK_ATTEMPTS = 20
 _SURGE_PHASES = {"SURGE", "STABILIZED"}
+_MAX_ID_LIST_ITEMS = 100
 _MAX_ITEM_PREVIEW_DRAFT_ALLOCATIONS = 200
 _SURGE_ROLE_CODES = {
     ROLE_LOGISTICS_OFFICER,
@@ -306,20 +308,20 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
-def _positive_int_query_param_list(raw_values: list[str], field_name: str) -> list[int]:
+def _positive_int_query_param_list(raw_values: object, field_name: str) -> list[int]:
+    if not isinstance(raw_values, list):
+        raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    if len(raw_values) > _MAX_ID_LIST_ITEMS:
+        raise OperationValidationError(
+            {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
+        )
     normalized: list[int] = []
     seen: set[int] = set()
     for index, raw_value in enumerate(raw_values):
-        if raw_value in (None, ""):
-            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
-        try:
-            parsed = int(str(raw_value).strip())
-        except (TypeError, ValueError) as exc:
-            raise OperationValidationError(
-                {f"{field_name}[{index}]": "Must be a positive integer."}
-            ) from exc
-        if parsed <= 0:
-            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
+        errors: dict[str, str] = {}
+        parsed = _parse_positive_int(raw_value, f"{field_name}[{index}]", errors)
+        if errors or parsed is None:
+            raise OperationValidationError(errors)
         if parsed in seen:
             continue
         seen.add(parsed)
@@ -419,10 +421,17 @@ def _validated_positive_int_payload_list(raw_value: object, field_name: str) -> 
         return []
     if not isinstance(raw_value, list):
         raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    if len(raw_value) > _MAX_ID_LIST_ITEMS:
+        raise OperationValidationError(
+            {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
+        )
     normalized: list[int] = []
     seen: set[int] = set()
     for index, raw_entry in enumerate(raw_value):
-        parsed = _required_positive_int_payload_value(raw_entry, f"{field_name}[{index}]")
+        errors: dict[str, str] = {}
+        parsed = _parse_positive_int(raw_entry, f"{field_name}[{index}]", errors)
+        if errors or parsed is None:
+            raise OperationValidationError(errors)
         if parsed in seen:
             continue
         seen.add(parsed)

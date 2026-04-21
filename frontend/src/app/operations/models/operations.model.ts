@@ -425,6 +425,10 @@ export interface AllocationItemGroup {
   override_required: boolean;
   /** Source warehouse for this item (set when using per-item warehouse override). */
   source_warehouse_id?: number | null;
+  /** Ranked/selected warehouse IDs currently active for this item. */
+  selected_warehouse_ids?: number[];
+  /** Backend-recommended primary warehouse, when a ranked option exists. */
+  recommended_warehouse_id?: number | null;
   /** Data-integrity issue for the active source warehouse aggregate, if any. */
   stock_integrity_issue?: string | null;
   /** Quantity still needed after using this warehouse only. */
@@ -446,7 +450,8 @@ export interface AllocationItemGroup {
 }
 
 export interface ItemAllocationPreviewPayload {
-  source_warehouse_id: number;
+  source_warehouse_id?: number;
+  additional_warehouse_ids?: number[];
   draft_allocations: SuggestedAllocationLine[];
 }
 

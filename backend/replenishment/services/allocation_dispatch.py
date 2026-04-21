@@ -1673,6 +1673,13 @@ def commit_allocation(
     )
     approval_markers = _approval_required_override_markers(override_markers)
     manager_direct_commit = bool(approval_markers) and allow_pending_override and manager_direct_commit
+    if manager_direct_commit:
+        validate_override_approval(
+            approver_user_id=supervisor_user_id,
+            approver_role_codes=supervisor_role_codes,
+            submitter_user_id=ctx.submitted_by or actor_user_id,
+            needs_list_submitted_by=needs_list.submitted_by,
+        )
     override_required = bool(approval_markers) and allow_pending_override and not manager_direct_commit
 
     if override_markers:

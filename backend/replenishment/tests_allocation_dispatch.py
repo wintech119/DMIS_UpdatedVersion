@@ -828,6 +828,57 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         stock_delta_mock.assert_not_called()
         _header_updates_mock.assert_not_called()
 
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_rejects_manager_direct_commit_without_supervisor_authority(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(
+            needs_list_id=11,
+            warehouse_id=1,
+            needs_list_no="NL-11",
+            submitted_by="planner-1",
+        )
+        mock_load_needs_items.return_value = [
+            SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")
+        ]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+
+        with self.assertRaises(OverrideApprovalError) as raised:
+            commit_allocation(
+                LegacyWorkflowContext(
+                    needs_list_id=11,
+                    reliefrqst_id=70,
+                    reliefpkg_id=90,
+                    submitted_by="planner-1",
+                ),
+                [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+                actor_user_id="manager-1",
+                override_reason_code="FEFO_BYPASS",
+                override_note="Manager direct commit.",
+                allow_pending_override=True,
+                override_markers=["allocation_order_override"],
+                manager_direct_commit=True,
+            )
+
+        self.assertEqual(raised.exception.code, "override_supervisor_missing")
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        header_updates_mock.assert_not_called()
+
     def test_validate_override_approval_rejects_self_approval_and_bad_roles(self) -> None:
         with self.assertRaises(OverrideApprovalError):
             validate_override_approval(

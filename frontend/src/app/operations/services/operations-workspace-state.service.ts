@@ -1469,7 +1469,6 @@ export class OperationsWorkspaceStateService {
       (entry) => entry.warehouse_id === warehouseId,
     );
     const batches = card?.batches ?? [];
-    const existingRows = this.selectedRowsByItem()[itemId] ?? [];
     const cardCap = card?.allocatable_available_qty != null
       ? this.toNumber(card.allocatable_available_qty)
       : card?.total_available != null
@@ -1543,8 +1542,6 @@ export class OperationsWorkspaceStateService {
       };
       this.setCandidateQuantity(itemId, fallbackCandidate, 0);
     }
-    // existingRows is captured for potential future diagnostic use; do not remove.
-    void existingRows;
   }
 
   /**
@@ -1593,6 +1590,9 @@ export class OperationsWorkspaceStateService {
     }
     if (reserving <= 0) {
       return 'draft';
+    }
+    if (requested <= 0 && reserving > 0) {
+      return 'non_compliant';
     }
     if (reserving + 0.0001 >= requested) {
       return 'filled';

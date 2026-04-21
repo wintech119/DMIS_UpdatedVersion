@@ -5,17 +5,16 @@ import {
   Component,
   DestroyRef,
   Inject,
-  Injector,
-  afterNextRender,
+  afterEveryRender,
   computed,
+  effect,
   inject,
   input,
   output,
-  runInInjectionContext,
   viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { FormsModule } from '@angular/forms';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import {
   MAT_BOTTOM_SHEET_DATA,
   MatBottomSheet,
@@ -150,7 +149,6 @@ export class AddWarehouseBottomSheetComponent {
   standalone: true,
   imports: [
     DecimalPipe,
-    FormsModule,
     MatButtonModule,
     MatBottomSheetModule,
     MatFormFieldModule,
@@ -158,6 +156,7 @@ export class AddWarehouseBottomSheetComponent {
     MatMenuModule,
     MatSelectModule,
     MatTooltipModule,
+    ReactiveFormsModule,
     OpsStockAvailabilityStateComponent,
     WarehouseAllocationCardComponent,
   ],
@@ -208,9 +207,7 @@ export class AddWarehouseBottomSheetComponent {
           <mat-form-field appearance="outline" class="detail__warehouse-select">
             <mat-label>Preferred source</mat-label>
             <mat-select
-              [ngModel]="effectiveWarehouse()"
-              (ngModelChange)="onWarehouseOverride($event)"
-              [disabled]="readOnly()"
+              [formControl]="preferredWarehouseControl"
               panelClass="detail-warehouse-panel"
               [attr.aria-label]="'Preferred source warehouse for ' + (item().item_name || 'this item')">
               @for (wh of warehouseSelectOptions(); track wh.value) {
@@ -968,7 +965,6 @@ export class FulfillmentItemDetailComponent {
 
   private readonly breakpointObserver = inject(BreakpointObserver);
   private readonly bottomSheet = inject(MatBottomSheet);
-  private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cardComponents = viewChildren(WarehouseAllocationCardComponent);
   private previousCardCount = 0;
@@ -987,6 +983,7 @@ export class FulfillmentItemDetailComponent {
   readonly effectiveWarehouse = computed(() =>
     this.store().effectiveWarehouseForItem(this.item().item_id),
   );
+  readonly preferredWarehouseControl = new FormControl<string>('', { nonNullable: true });
 
   readonly isOverridden = computed(() => {
     const defaultId = this.item().source_warehouse_id != null
@@ -1222,25 +1219,41 @@ export class FulfillmentItemDetailComponent {
       default:
         // Use the backend flag to produce a consistent message; avoid referencing
         // item name to keep copy short.
-        return `Non-compliant allocation — reason required in the next step.${item.issuance_order ? '' : ''}`;
+        return `Non-compliant allocation — reason required in the next step.${item.issuance_order ? ' (reason required for issuance order)' : ''}`;
     }
   });
 
   constructor() {
+    this.preferredWarehouseControl.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => this.onWarehouseOverride(value));
+
+    effect(() => {
+      const effectiveWarehouse = this.effectiveWarehouse();
+      if (this.preferredWarehouseControl.value !== effectiveWarehouse) {
+        this.preferredWarehouseControl.setValue(effectiveWarehouse, { emitEvent: false });
+      }
+      if (this.readOnly()) {
+        if (this.preferredWarehouseControl.enabled) {
+          this.preferredWarehouseControl.disable({ emitEvent: false });
+        }
+      } else if (this.preferredWarehouseControl.disabled) {
+        this.preferredWarehouseControl.enable({ emitEvent: false });
+      }
+    });
+
     // After each render, if the card stack grew, focus the new card's qty input
     // so keyboard users land in the right place after adding a warehouse.
     // Uses viewChildren() for scoped, DOM-agnostic access rather than a global
     // querySelectorAll (which would escape this component's DOM boundary).
-    runInInjectionContext(this.injector, () => {
-      afterNextRender(() => {
-        const count = this.rankedStackCards().length;
-        if (count > this.previousCardCount && this.previousCardCount > 0) {
-          const cards = this.cardComponents();
-          const last = cards[cards.length - 1];
-          last?.focusQtyInput();
-        }
-        this.previousCardCount = count;
-      });
+    afterEveryRender(() => {
+      const count = this.rankedStackCards().length;
+      if (count > this.previousCardCount && this.previousCardCount > 0) {
+        const cards = this.cardComponents();
+        const last = cards[cards.length - 1];
+        last?.focusQtyInput();
+      }
+      this.previousCardCount = count;
     });
   }
 

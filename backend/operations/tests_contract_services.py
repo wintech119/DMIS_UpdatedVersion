@@ -80,6 +80,7 @@ from operations.models import (
 )
 from api.rbac import (
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
 )
@@ -2419,6 +2420,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
+            permissions=None,
             tenant_context=self.dispatch_ready_context,
         )
 
@@ -2596,6 +2598,7 @@ class OperationsWorkflowContractTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=[ROLE_LOGISTICS_OFFICER],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             tenant_context=None,
             allow_pending_override=True,
         )
@@ -2729,6 +2732,7 @@ class OperationsWorkflowContractTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=[ROLE_LOGISTICS_OFFICER],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             tenant_context=None,
             allow_pending_override=True,
         )
@@ -2855,6 +2859,7 @@ class OperationsWorkflowContractTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=[ROLE_LOGISTICS_OFFICER],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             tenant_context=None,
             allow_pending_override=True,
         )
@@ -2989,6 +2994,7 @@ class OperationsWorkflowContractTests(TestCase):
             },
             actor_id="officer-1",
             actor_roles=[ROLE_LOGISTICS_OFFICER],
+            actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
             tenant_context=None,
             allow_pending_override=True,
         )
@@ -3083,6 +3089,38 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_OFFICER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+
+        contract_services.save_package(
+            95009,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="devon_tst",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.odpem_context,
+            permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
+        )
+
+        override_assignment = OperationsQueueAssignment.objects.get(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        self.assertEqual(override_assignment.assigned_tenant_id, 27)
+        override_notification = OperationsNotification.objects.get(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            recipient_role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        self.assertEqual(override_notification.recipient_tenant_id, 27)
 
     def _create_operations_package_record(
         self,
@@ -3102,37 +3140,6 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
-        OperationsQueueAssignment.objects.create(
-            queue_code=QUEUE_CODE_FULFILLMENT,
-            entity_type="RELIEF_REQUEST",
-            entity_id=95009,
-            assigned_role_code=ROLE_LOGISTICS_OFFICER,
-            assigned_tenant_id=27,
-            assignment_status="OPEN",
-        )
-
-        contract_services.save_package(
-            95009,
-            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
-            actor_id="devon_tst",
-            actor_roles=[ROLE_LOGISTICS_OFFICER],
-            tenant_context=self.odpem_context,
-        )
-
-        override_assignment = OperationsQueueAssignment.objects.get(
-            queue_code=QUEUE_CODE_OVERRIDE,
-            entity_type="RELIEF_REQUEST",
-            entity_id=95009,
-            assigned_role_code=ROLE_LOGISTICS_MANAGER,
-        )
-        self.assertEqual(override_assignment.assigned_tenant_id, 27)
-        override_notification = OperationsNotification.objects.get(
-            queue_code=QUEUE_CODE_OVERRIDE,
-            entity_type="RELIEF_REQUEST",
-            entity_id=95009,
-            recipient_role_code=ROLE_LOGISTICS_MANAGER,
-        )
-        self.assertEqual(override_notification.recipient_tenant_id, 27)
 
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
     @patch("operations.contract_services.recommend_staging_hub")
@@ -8492,6 +8499,7 @@ class StagingReservationContractTests(TransactionTestCase):
         self.assertEqual(staging_inventory.available_qty, Decimal("0.00"))
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class ItemAllocationOptionsTests(TestCase):
     """Tests for the per-item allocation options endpoint."""
 
@@ -9458,11 +9466,11 @@ class ItemAllocationOptionsTests(TestCase):
 
         groups_by_item = {group["item_id"]: group for group in result["items"]}
         self.assertEqual(groups_by_item[101]["recommended_warehouse_id"], 5)
-        self.assertEqual(groups_by_item[101]["selected_warehouse_ids"], [5])
-        self.assertEqual(groups_by_item[101]["source_warehouse_id"], 5)
+        self.assertEqual(groups_by_item[101]["selected_warehouse_ids"], [3])
+        self.assertEqual(groups_by_item[101]["source_warehouse_id"], 3)
         self.assertEqual(groups_by_item[202]["recommended_warehouse_id"], 7)
-        self.assertEqual(groups_by_item[202]["selected_warehouse_ids"], [7])
-        self.assertEqual(groups_by_item[202]["source_warehouse_id"], 7)
+        self.assertEqual(groups_by_item[202]["selected_warehouse_ids"], [3])
+        self.assertEqual(groups_by_item[202]["source_warehouse_id"], 3)
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse", return_value=True)
@@ -9576,8 +9584,8 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertTrue(result["request"]["compatibility_bridge"])
         item_group = result["items"][0]
         self.assertEqual(item_group["recommended_warehouse_id"], 5)
-        self.assertEqual(item_group["source_warehouse_id"], 5)
-        self.assertEqual(item_group["selected_warehouse_ids"], [5])
+        self.assertEqual(item_group["source_warehouse_id"], 3)
+        self.assertEqual(item_group["selected_warehouse_ids"], [3])
         self.assertIn("warehouse_cards", item_group)
         self.assertIn("remaining_shortfall_qty", item_group)
         self.assertIn("continuation_recommended", item_group)

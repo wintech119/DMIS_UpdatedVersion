@@ -4,6 +4,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
 
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
+import { WarehouseAllocationCardComponent } from './warehouse-allocation-card.component';
 import {
   AllocationCandidate,
   AllocationItemGroup,
@@ -345,6 +346,60 @@ describe('FulfillmentItemDetailComponent', () => {
       expect(trigger).toBeTruthy();
       expect(trigger.getAttribute('aria-haspopup')).not.toBe('menu');
     });
+
+    it('focuses the newly added warehouse qty input after subsequent additions', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [
+          {
+            warehouse_id: 9002,
+            warehouse_name: 'ODPEM Montego Bay',
+            available_qty: '20',
+            suggested_qty: '10',
+            can_fully_cover: false,
+          },
+          {
+            warehouse_id: 9003,
+            warehouse_name: 'ODPEM Portland',
+            available_qty: '10',
+            suggested_qty: '5',
+            can_fully_cover: false,
+          },
+        ],
+      };
+      const focusSpy = spyOn(
+        WarehouseAllocationCardComponent.prototype,
+        'focusQtyInput',
+      ).and.stub();
+
+      const fixture = await render(item);
+      await fixture.whenStable();
+      expect(focusSpy).not.toHaveBeenCalled();
+
+      fixture.componentRef.setInput('item', {
+        ...item,
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
+        ],
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentRef.setInput('item', {
+        ...item,
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
+          makeWarehouseCard(9003, 'ODPEM Portland', 2),
+        ],
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(focusSpy).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('aggregate summary (4 states)', () => {
@@ -394,6 +449,7 @@ describe('FulfillmentItemDetailComponent', () => {
     it('non_compliant — local override-risk heuristic when higher-rank qty exists and a rank-0 empty', async () => {
       // Allocate to rank 1 only, leaving rank 0 empty — a classic override risk.
       qtyByItemWarehouse.set(makeKey(44, 9002), 10);
+      storeStub.isRuleBypassedForItem.and.callFake((itemId: number) => itemId === 44);
       const fixture = await render(withCards());
       const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
       expect(summary.getAttribute('data-state')).toBe('non_compliant');

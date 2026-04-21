@@ -2850,6 +2850,13 @@ describe('OperationsWorkspaceStateService.getItemFillStatus (FR05.06 redesign)',
     expect(service.getItemFillStatus(ITEM_ID)).toBe('filled');
   });
 
+  it('returns non_compliant when reserving exists against a zero remaining quantity', () => {
+    const item = buildItem({ remaining_qty: '0' });
+    const service = makeService(item);
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 1);
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('non_compliant');
+  });
+
   it('returns compliant_partial when reserving > 0 and < remaining with no override flags', () => {
     const item = buildItem();
     const service = makeService(item);

@@ -158,4 +158,26 @@ describe('normalizeWarehouseAllocationCard (FR05.06)', () => {
 
     expect(card.ranking_context?.basis).toBe('FEFO');
   });
+
+  it('trims the ranking_context basis before uppercasing it', () => {
+    const card = normalizeWarehouseAllocationCard({
+      warehouse_id: 9001,
+      warehouse_name: 'ODPEM Kingston',
+      rank: 0,
+      recommended: true,
+      issuance_order: 'fefo',
+      total_available: '100',
+      suggested_qty: '0',
+      ranking_context: {
+        basis: ' fefo ',
+        top_batch_id: 1,
+        top_batch_no: 'BT-LC',
+        top_batch_date: null,
+        top_expiry_date: '2026-12-31',
+      },
+      batches: [],
+    });
+
+    expect(card.ranking_context?.basis).toBe('FEFO');
+  });
 });
