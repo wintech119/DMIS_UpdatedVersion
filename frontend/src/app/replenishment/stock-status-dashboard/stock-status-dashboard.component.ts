@@ -224,6 +224,10 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   warnings: string[] = [];
   errors: string[] = [];
 
+  // Warehouse items pagination (Level-2 rows, 5 per page per warehouse).
+  readonly ITEMS_PAGE_SIZE = 5;
+  private itemsPageByWarehouse: Record<number, number> = {};
+
   // Filters
   filtersExpanded = false; // Collapsed by default
   availableCategories: string[] = [];
@@ -1607,6 +1611,63 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     const maxAge = this.maxAgeHoursFor(group);
     if (maxAge == null) { return null; }
     return this.formatAgeLabel(maxAge);
+  }
+
+  getItemsPageIndex(warehouseId: number): number {
+    return this.itemsPageByWarehouse[warehouseId] ?? 1;
+  }
+
+  totalItemsPages(group: WarehouseStockGroup): number {
+    return Math.max(1, Math.ceil(group.items.length / this.ITEMS_PAGE_SIZE));
+  }
+
+  paginatedItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
+    const totalPages = this.totalItemsPages(group);
+    const page = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    const start = (page - 1) * this.ITEMS_PAGE_SIZE;
+    return group.items.slice(start, start + this.ITEMS_PAGE_SIZE);
+  }
+
+  itemsRangeFor(group: WarehouseStockGroup): { start: number; end: number; total: number } {
+    const total = group.items.length;
+    if (total === 0) {
+      return { start: 0, end: 0, total: 0 };
+    }
+    const totalPages = this.totalItemsPages(group);
+    const page = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    const start = (page - 1) * this.ITEMS_PAGE_SIZE + 1;
+    const end = Math.min(start + this.ITEMS_PAGE_SIZE - 1, total);
+    return { start, end, total };
+  }
+
+  visibleItemsPages(group: WarehouseStockGroup): (number | '...')[] {
+    const totalPages = this.totalItemsPages(group);
+    const current = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages: (number | '...')[] = [1];
+    const startWindow = Math.max(2, current - 1);
+    const endWindow = Math.min(totalPages - 1, current + 1);
+    if (startWindow > 2) { pages.push('...'); }
+    for (let i = startWindow; i <= endWindow; i++) { pages.push(i); }
+    if (endWindow < totalPages - 1) { pages.push('...'); }
+    pages.push(totalPages);
+    return pages;
+  }
+
+  setItemsPage(warehouseId: number, page: number): void {
+    this.itemsPageByWarehouse = { ...this.itemsPageByWarehouse, [warehouseId]: page };
+  }
+
+  nextItemsPage(group: WarehouseStockGroup): void {
+    const next = Math.min(this.totalItemsPages(group), this.getItemsPageIndex(group.warehouse_id) + 1);
+    this.setItemsPage(group.warehouse_id, next);
+  }
+
+  prevItemsPage(group: WarehouseStockGroup): void {
+    const prev = Math.max(1, this.getItemsPageIndex(group.warehouse_id) - 1);
+    this.setItemsPage(group.warehouse_id, prev);
   }
 
   getPhaseLabel(): string {

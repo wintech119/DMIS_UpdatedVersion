@@ -571,7 +571,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      @for (item of group.items; track item.item_id) {
+                      @for (item of paginatedItemsFor(group); track item.item_id) {
                         <tr [ngClass]="'stock-dashboard__item-row stock-dashboard__item-row--' + displaySeverity(item.severity).toLowerCase()">
                           <td>
                             <app-ops-status-chip
@@ -659,7 +659,7 @@
 
                 <!-- Mobile card list -->
                 <div class="stock-dashboard__items-shell stock-dashboard__items-shell--mobile">
-                  @for (item of group.items; track item.item_id) {
+                  @for (item of paginatedItemsFor(group); track item.item_id) {
                     <article
                       class="stock-dashboard__item-card"
                       [ngClass]="'stock-dashboard__item-card--' + displaySeverity(item.severity).toLowerCase()"
@@ -721,6 +721,51 @@
                     </article>
                   }
                 </div>
+
+                @if (group.items.length > 0) {
+                  <footer class="stock-dashboard__warehouse-footer">
+                    <div class="stock-dashboard__items-pagination" role="navigation" aria-label="Warehouse items pagination">
+                      <span class="stock-dashboard__items-range">
+                        Showing {{ itemsRangeFor(group).start }}&ndash;{{ itemsRangeFor(group).end }} of {{ group.items.length }} items
+                      </span>
+                      <span class="stock-dashboard__items-page-sep" aria-hidden="true">·</span>
+                      <span class="stock-dashboard__items-page-label">
+                        Page {{ getItemsPageIndex(group.warehouse_id) }} of {{ totalItemsPages(group) }}
+                      </span>
+                      @if (totalItemsPages(group) > 1) {
+                        <div class="stock-dashboard__items-page-nav">
+                          <button
+                            type="button"
+                            class="stock-dashboard__items-page-btn"
+                            [disabled]="getItemsPageIndex(group.warehouse_id) === 1"
+                            (click)="prevItemsPage(group); $event.stopPropagation()"
+                            aria-label="Previous page"
+                          >&lsaquo;</button>
+                          @for (n of visibleItemsPages(group); track $index) {
+                            @if (n === '...') {
+                              <span class="stock-dashboard__items-page-ellipsis" aria-hidden="true">…</span>
+                            } @else {
+                              <button
+                                type="button"
+                                class="stock-dashboard__items-page-btn"
+                                [class.stock-dashboard__items-page-btn--active]="n === getItemsPageIndex(group.warehouse_id)"
+                                [attr.aria-current]="n === getItemsPageIndex(group.warehouse_id) ? 'page' : null"
+                                (click)="setItemsPage(group.warehouse_id, n); $event.stopPropagation()"
+                              >{{ n }}</button>
+                            }
+                          }
+                          <button
+                            type="button"
+                            class="stock-dashboard__items-page-btn"
+                            [disabled]="getItemsPageIndex(group.warehouse_id) === totalItemsPages(group)"
+                            (click)="nextItemsPage(group); $event.stopPropagation()"
+                            aria-label="Next page"
+                          >&rsaquo;</button>
+                        </div>
+                      }
+                    </div>
+                  </footer>
+                }
               } @else {
                 <dmis-empty-state
                   icon="search_off"
