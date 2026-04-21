@@ -1,5 +1,12 @@
 # Current Task Plan
 
+## Branch Cleanup
+
+1. Completed: refreshed remote-tracking refs with `git fetch --prune origin`.
+2. Completed: classified local branches by merge status, upstream state, worktree usage, and recency.
+3. Completed: deleted confirmed merged/stale local branches after approval.
+4. Completed: verified `prototype-supply-replenishment` had no open PRs and deleted the merged stale remote branch after approval.
+
 ## ODPEM HQ Harness Alignment
 
 1. Completed: traced `RQ95010` through eligibility approval, queue assignment, and notification fan-out to confirm the request was approved and routed into the HQ fulfillment lane.

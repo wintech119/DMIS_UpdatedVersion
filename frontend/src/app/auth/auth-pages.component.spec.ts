@@ -1,5 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
@@ -13,6 +15,11 @@ import {
 } from './auth-pages.component';
 
 describe('Auth pages', () => {
+  afterEach(() => {
+    localStorage.removeItem('dmis_local_harness_user');
+    delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
+  });
+
   function activatedRouteWith(queryParams: Record<string, string> = {}) {
     return {
       snapshot: {
@@ -53,6 +60,85 @@ describe('Auth pages', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('OIDC login is not configured for this deployment');
+  });
+
+  it('shows the local harness selector on the login page when local harness mode is available', async () => {
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    const authenticated = signal(false);
+    const authSession = {
+      loginAvailable: signal(false),
+      authenticated,
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'OIDC login is not configured for this deployment.',
+        configured: true,
+        oidcEnabled: false,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+      refreshPrincipal: jasmine.createSpy('refreshPrincipal').and.callFake(() => {
+        authenticated.set(true);
+        return of(void 0);
+      }),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const router = TestBed.inject(Router);
+    const navigateByUrl = spyOn(router, 'navigateByUrl').and.returnValue(Promise.resolve(true));
+    const httpMock = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/v1/auth/local-harness/').flush({
+      enabled: true,
+      default_user: 'local_system_admin_tst',
+      users: [
+        {
+          user_id: '42',
+          username: 'local_odpem_logistics_manager_tst',
+          email: 'kemar.campbell+national.logistics-manager@odpem.gov.jm',
+          roles: ['ODPEM_LOGISTICS_MANAGER'],
+          memberships: [
+            {
+              tenant_id: 2,
+              tenant_code: 'ODPEM-NEOC',
+              tenant_name: 'ODPEM NEOC',
+              tenant_type: 'NEOC',
+              is_primary: true,
+              access_level: 'FULL',
+            },
+          ],
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('Use the local harness session to continue.');
+    expect(element.textContent).toContain('Local harness mode is active');
+    const continueButton = element.querySelector('.auth-primary') as HTMLButtonElement | null;
+    expect(continueButton?.textContent).toContain('Continue in local mode');
+    expect(element.querySelector('.dev-user-label')?.textContent).toContain('Local test mode');
+    expect(element.querySelector('#dev-user-select')?.textContent).toContain('ODPEM_LOGISTICS_MANAGER');
+
+    continueButton?.click();
+    await fixture.whenStable();
+
+    expect(authSession.refreshPrincipal).toHaveBeenCalled();
+    expect(navigateByUrl).toHaveBeenCalledWith('/replenishment/dashboard', { replaceUrl: true });
+    httpMock.verify();
   });
 
   it('renders the sign-in button and forwards the sanitized returnUrl when login is available', async () => {

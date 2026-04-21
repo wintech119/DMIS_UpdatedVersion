@@ -39,7 +39,7 @@ export function toDisplaySeverity(internal: SeverityLevel | null | undefined): D
   const mapped = SEVERITY_MAP[internal];
   if (!mapped) {
     console.warn('[ep02:display-mapper]', { source: 'severity', value: internal });
-    return 'GOOD';
+    return 'CRITICAL';
   }
   return mapped;
 }
@@ -52,7 +52,7 @@ export function toDisplayStatus(backendStatus: string | null | undefined): Displ
   const mapped = STATUS_MAP[key];
   if (!mapped) {
     console.warn('[ep02:display-mapper]', { source: 'status', value: backendStatus });
-    return 'DRAFT';
+    return 'UNKNOWN';
   }
   return mapped;
 }

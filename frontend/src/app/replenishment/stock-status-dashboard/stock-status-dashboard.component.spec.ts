@@ -86,6 +86,21 @@ describe('StockStatusDashboardComponent', () => {
     };
   }
 
+  function createItem(id: number, name: string, overrides: Partial<StockStatusItem> = {}): StockStatusItem {
+    return {
+      item_id: id,
+      item_name: name,
+      item_code: `SKU-${id}`,
+      category: 'Supplies',
+      available_qty: 10,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 1,
+      gap_qty: 0,
+      severity: 'OK',
+      ...overrides
+    };
+  }
+
   // Backend-shaped phase-windows response. The service projects `phase_windows`
   // into the `windows` record at the boundary; specs seed both so callers that
   // read either surface see consistent data.
@@ -283,6 +298,7 @@ describe('StockStatusDashboardComponent', () => {
     secondRequest$.complete();
 
     expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
 
     firstRequest$.next(northData);
@@ -290,6 +306,58 @@ describe('StockStatusDashboardComponent', () => {
 
     expect(component.sortBy).toBe('severity');
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+  });
+
+  it('uses ascending severity order for the Worst first sort preset', () => {
+    dashboardDataService.getDashboardData.and.returnValue(
+      of(createDashboardData([createGroup(1, 'North Depot')]))
+    );
+
+    component.setSortPreset('severity_asc');
+
+    expect(component.sortPreset).toBe('severity_asc');
+    expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
+    expect(dashboardDataService.getDashboardData.calls.mostRecent().args[3]).toEqual(
+      jasmine.objectContaining({ sortBy: 'severity', sortDirection: 'asc' })
+    );
+  });
+
+  it('normalizes legacy descending severity state to Worst first ordering', () => {
+    localStorage.setItem('dmis_stock_filters', JSON.stringify({
+      categories: [],
+      severities: [],
+      sortBy: 'severity',
+      sortDirection: 'desc'
+    }));
+
+    component['loadFilterState']();
+
+    expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
+  });
+
+  it('filters warehouse cards by warehouse name without hiding the matched warehouse items', () => {
+    const north = {
+      ...createGroup(1, 'North Depot'),
+      items: [createItem(10, 'Water Purification Tablets', { item_code: 'WTR-10' })]
+    };
+    const south = {
+      ...createGroup(2, 'South Depot'),
+      items: [createItem(20, 'Emergency Rice', { item_code: 'RCE-20' })]
+    };
+    component.warehouseGroups = [north, south];
+
+    component.onSearchChange('south depot');
+
+    expect(component.visibleWarehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+    expect(component.filteredItemsFor(south).map(item => item.item_id)).toEqual([20]);
+    expect(component.filteredItemsFor(north)).toEqual([]);
+
+    component.onSearchChange('WTR-10');
+
+    expect(component.visibleWarehouseGroups.map(g => g.warehouse_id)).toEqual([1]);
+    expect(component.filteredItemsFor(north).map(item => item.item_id)).toEqual([10]);
   });
 
   it('does not allow review queue with action permission but no preview permission', () => {
@@ -534,6 +602,32 @@ describe('StockStatusDashboardComponent', () => {
       reviewQueueTarget: '/replenishment/needs-list-review'
     });
     expect(component.actionInboxTotal).toBe(7);
+  });
+
+  it('keeps unknown needs-list statuses out of actionable Action Inbox buckets', () => {
+    const warnSpy = spyOn(console, 'warn');
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'UNK',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'BACKEND_DRIFT' as never
+      }
+    ];
+
+    expect(component.actionInbox).toEqual({
+      awaitingApproval: 0,
+      draftsInProgress: 0,
+      returned: 0,
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    });
+    expect(component.actionInboxTotal).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ep02:display-mapper]',
+      jasmine.objectContaining({ source: 'status', value: 'BACKEND_DRIFT' })
+    );
   });
 
   it('produces a zero-aware category rollup without divide-by-zero artifacts', () => {
@@ -827,7 +921,7 @@ describe('display-mappers (EP-02 dashboard)', () => {
   it('warns via [ep02:display-mapper] when toDisplaySeverity gets an unknown value', () => {
     const warnSpy = spyOn(console, 'warn');
     const result = toDisplaySeverity('MYSTERY' as never);
-    expect(result).toBe('GOOD');
+    expect(result).toBe('CRITICAL');
     expect(warnSpy).toHaveBeenCalledWith(
       '[ep02:display-mapper]',
       jasmine.objectContaining({ source: 'severity', value: 'MYSTERY' })
@@ -837,11 +931,40 @@ describe('display-mappers (EP-02 dashboard)', () => {
   it('warns via [ep02:display-mapper] when toDisplayStatus gets an unknown value', () => {
     const warnSpy = spyOn(console, 'warn');
     const result = toDisplayStatus('MYSTERY_STATUS');
-    expect(result).toBe('DRAFT');
+    expect(result).toBe('UNKNOWN');
     expect(warnSpy).toHaveBeenCalledWith(
       '[ep02:display-mapper]',
       jasmine.objectContaining({ source: 'status', value: 'MYSTERY_STATUS' })
     );
+  });
+
+  it('keeps known display status mappings aligned with FR02.93 buckets', () => {
+    expect(toDisplayStatus('DRAFT')).toBe('DRAFT');
+    expect(toDisplayStatus('RETURNED')).toBe('MODIFIED');
+    expect(toDisplayStatus('MODIFIED')).toBe('MODIFIED');
+    expect(toDisplayStatus('SUBMITTED')).toBe('SUBMITTED');
+    expect(toDisplayStatus('PENDING')).toBe('SUBMITTED');
+    expect(toDisplayStatus('PENDING_APPROVAL')).toBe('SUBMITTED');
+    expect(toDisplayStatus('UNDER_REVIEW')).toBe('SUBMITTED');
+    expect(toDisplayStatus('APPROVED')).toBe('APPROVED');
+    expect(toDisplayStatus('REJECTED')).toBe('REJECTED');
+    expect(toDisplayStatus('IN_PROGRESS')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('IN_PREPARATION')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('DISPATCHED')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('RECEIVED')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('FULFILLED')).toBe('FULFILLED');
+    expect(toDisplayStatus('COMPLETED')).toBe('FULFILLED');
+    expect(toDisplayStatus('CANCELLED')).toBe('SUPERSEDED');
+    expect(toDisplayStatus('SUPERSEDED')).toBe('SUPERSEDED');
+  });
+
+  it('keeps known display severity mappings aligned with dashboard buckets', () => {
+    expect(toDisplaySeverity('CRITICAL')).toBe('CRITICAL');
+    expect(toDisplaySeverity('WARNING')).toBe('WARNING');
+    expect(toDisplaySeverity('WATCH')).toBe('WARNING');
+    expect(toDisplaySeverity('OK')).toBe('GOOD');
+    expect(toDisplaySeverity(null)).toBe('GOOD');
+    expect(toDisplaySeverity(undefined)).toBe('GOOD');
   });
 });
 
@@ -1072,6 +1195,8 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
         ok_count: 1
       }
     ];
+    component['reconcileWarehouseExpansion'](component.warehouseGroups);
+    renderChanges();
   }
 
   function makeItem(id: number, name: string, severity: 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK'): StockStatusItem {
@@ -1084,6 +1209,54 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
       gap_qty: 0,
       severity
     };
+  }
+
+  function makeGroup(
+    id: number,
+    name: string,
+    counts: Partial<Pick<WarehouseStockGroup, 'critical_count' | 'warning_count' | 'watch_count' | 'ok_count'>>
+  ): WarehouseStockGroup {
+    const severity = counts.critical_count ? 'CRITICAL' : counts.warning_count ? 'WARNING' : 'OK';
+    return {
+      warehouse_id: id,
+      warehouse_name: name,
+      items: [makeItem(id, `${name} Item`, severity)],
+      critical_count: counts.critical_count ?? 0,
+      warning_count: counts.warning_count ?? 0,
+      watch_count: counts.watch_count ?? 0,
+      ok_count: counts.ok_count ?? 0
+    };
+  }
+
+  function seedDashboardWithGroups(groups: WarehouseStockGroup[]): void {
+    component.activeEvent = event;
+    component.allWarehouses = groups.map((group) => ({
+      warehouse_id: group.warehouse_id,
+      warehouse_name: group.warehouse_name
+    }));
+    component.loading = false;
+    component.dataLoadedSuccessfully = true;
+    component.warehouseGroups = groups;
+    component['reconcileWarehouseExpansion'](groups);
+    renderChanges();
+  }
+
+  function renderChanges(): void {
+    component['markForDashboardUpdate']();
+    fixture.detectChanges();
+  }
+
+  function warehouseDetails(name: string): HTMLDetailsElement {
+    const host = fixture.nativeElement as HTMLElement;
+    const details = Array.from(host.querySelectorAll<HTMLDetailsElement>('details.srd-wh-card'))
+      .find((el) => (el.textContent ?? '').includes(name));
+    expect(details).withContext(`Expected details card for ${name}`).toBeDefined();
+    return details as HTMLDetailsElement;
+  }
+
+  function dispatchDetailsToggle(details: HTMLDetailsElement, open: boolean): void {
+    details.open = open;
+    details.dispatchEvent(new Event('toggle'));
   }
 
   it('never renders raw WATCH or OK tokens in severity status chips', () => {
@@ -1101,8 +1274,8 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     // excluded by the :first-of-type / :first-child selector.
     const severityChips = Array.from(
       host.querySelectorAll<HTMLElement>(
-        'tr.stock-dashboard__item-row > td:first-of-type app-ops-status-chip span.ops-chip,'
-          + ' .stock-dashboard__item-card-header > app-ops-status-chip:first-of-type span.ops-chip'
+        'tr.srd-items-row > td:first-of-type app-ops-status-chip span.ops-chip,'
+          + ' .srd-items-card__header > app-ops-status-chip:first-of-type span.ops-chip'
       )
     );
 
@@ -1121,14 +1294,76 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
 
     // The per-row bucket class must likewise be 3-bucket only.
     const itemRows = Array.from(
-      host.querySelectorAll<HTMLElement>('tr.stock-dashboard__item-row')
+      host.querySelectorAll<HTMLElement>('tr.srd-items-row')
     );
     expect(itemRows.length).toBeGreaterThan(0);
     for (const row of itemRows) {
-      expect(row.className).toMatch(/stock-dashboard__item-row--(critical|warning|good)/);
-      expect(row.className).not.toMatch(/stock-dashboard__item-row--watch\b/);
-      expect(row.className).not.toMatch(/stock-dashboard__item-row--ok\b/);
+      expect(row.className).toMatch(/srd-items-row--(critical|warning|good)/);
+      expect(row.className).not.toMatch(/srd-items-row--watch\b/);
+      expect(row.className).not.toMatch(/srd-items-row--ok\b/);
     }
+  });
+
+  it('initially expands critical warehouse detail cards', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { critical_count: 1 }),
+      makeGroup(2, 'South Depot', { warning_count: 1 })
+    ]);
+
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeFalse();
+  });
+
+  it('initially expands the warehouse card in single-warehouse view', () => {
+    fixture.detectChanges();
+    component.viewMode = 'single';
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { ok_count: 1 })
+    ]);
+
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+  });
+
+  it('keeps user-expanded warning and good warehouses open after change detection', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { ok_count: 1 }),
+      makeGroup(2, 'South Depot', { warning_count: 1 })
+    ]);
+
+    const goodDetails = warehouseDetails('North Depot');
+    const warningDetails = warehouseDetails('South Depot');
+    expect(goodDetails.open).toBeFalse();
+    expect(warningDetails.open).toBeFalse();
+
+    dispatchDetailsToggle(goodDetails, true);
+    dispatchDetailsToggle(warningDetails, true);
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeTrue();
+
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeTrue();
+  });
+
+  it('keeps a user-collapsed critical warehouse closed after change detection', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { critical_count: 1 }),
+      makeGroup(2, 'South Depot', { ok_count: 1 })
+    ]);
+
+    const criticalDetails = warehouseDetails('North Depot');
+    expect(criticalDetails.open).toBeTrue();
+
+    dispatchDetailsToggle(criticalDetails, false);
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeFalse();
+
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeFalse();
   });
 
   it('renders the severity filter chips with only CRITICAL / WARNING / GOOD labels', () => {
@@ -1140,7 +1375,7 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
 
     const host = fixture.nativeElement as HTMLElement;
     const chipLabels = Array.from(
-      host.querySelectorAll<HTMLElement>('mat-chip-option')
+      host.querySelectorAll<HTMLElement>('.srd-toolbar__chips .srd-filter-chip__label')
     )
       .map((el) => (el.textContent ?? '').trim().toUpperCase())
       // Drop category-filter chips by class — only severity-filter chips carry chip-critical/warning/good.
@@ -1189,7 +1424,7 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
         status: 'DRAFT'
       }
     ];
-    fixture.detectChanges();
+    renderChanges();
 
     const host = fixture.nativeElement as HTMLElement;
     const pillLabels = Array.from(
@@ -1209,12 +1444,12 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
 
     const host = fixture.nativeElement as HTMLElement;
     const categoryRows = Array.from(
-      host.querySelectorAll<HTMLElement>('.stock-dashboard__category-row')
+      host.querySelectorAll<HTMLElement>('.srd-categories__row')
     );
     expect(categoryRows.length).toBeGreaterThan(0);
 
     for (const row of categoryRows) {
-      const pctText = (row.querySelector('.stock-dashboard__category-row-pct')?.textContent ?? '').trim();
+      const pctText = (row.querySelector('.srd-categories__row-pct')?.textContent ?? '').trim();
       // Percent label must NEVER read as NaN% / Infinity% even for all-good buckets.
       expect(pctText).not.toContain('NaN');
       expect(pctText).not.toContain('Infinity');

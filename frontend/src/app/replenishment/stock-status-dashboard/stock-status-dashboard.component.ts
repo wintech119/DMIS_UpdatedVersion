@@ -1,5 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, OnDestroy, DestroyRef, inject, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  OnInit,
+  OnDestroy,
+  DestroyRef,
+  inject,
+  signal,
+  computed
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -144,7 +154,8 @@ interface FilterState {
     OpsStatusChipComponent,
   ],
   templateUrl: './stock-status-dashboard.component.html',
-  styleUrl: './stock-status-dashboard.component.scss'
+  styleUrl: './stock-status-dashboard.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   private replenishmentService = inject(ReplenishmentService);
@@ -157,6 +168,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   private dataFreshnessService = inject(DataFreshnessService);
   private dashboardDataService = inject(DashboardDataService);
   private notificationService = inject(DmisNotificationService);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   // Internal severity filter domain (4 buckets). Kept for the
@@ -228,6 +240,8 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   // Warehouse items pagination (Level-2 rows, 5 per page per warehouse).
   readonly ITEMS_PAGE_SIZE = 5;
   private itemsPageByWarehouse: Record<number, number> = {};
+  private readonly expandedWarehouseIds = new Set<number>();
+  private readonly userManagedWarehouseExpansionIds = new Set<number>();
 
   // Filters
   filtersExpanded = false; // Collapsed by default
@@ -236,6 +250,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   selectedSeverities: SeverityLevel[] = [];
   sortBy: 'time_to_stockout' | 'item_name' | 'severity' = 'time_to_stockout';
   sortDirection: 'asc' | 'desc' = 'asc';
+  lastRefreshAt: Date | null = null;
 
   // For single warehouse drill-down
   selectedWarehouseId: number | null = null;
@@ -342,6 +357,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         if (!event) {
           this.loading = false;
           this.phaseWindows.set(null);
+          this.markForDashboardUpdate();
           return;
         }
 
@@ -358,6 +374,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         this.loading = false;
         const msg = error.error?.errors?.event || error.message || 'Failed to load dashboard data.';
         this.notificationService.showNetworkError(msg, () => this.autoLoadDashboard());
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -381,6 +398,8 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     if (warehouseIds.length === 0) {
       this.loading = false;
       this.notificationService.showWarning('No warehouses available.');
+      this.reconcileWarehouseExpansion([]);
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -392,6 +411,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     } else {
       this.loading = true;
     }
+    this.markForDashboardUpdate();
 
     this.dashboardDataService.getDashboardData(
       requestedEventId,
@@ -407,6 +427,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         this.warehouseGroups = data.groups;
         this.warnings = data.warnings;
         this.availableCategories = data.availableCategories;
+        this.reconcileWarehouseExpansion(this.warehouseGroups);
 
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
@@ -414,7 +435,9 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         this.errors = [];
         this.loading = false;
         this.refreshing = false;
+        this.lastRefreshAt = new Date();
         this.onRefreshComplete();
+        this.markForDashboardUpdate();
       },
       error: (error) => {
         if (!this.shouldApplyMultiWarehouseResult(requestToken, requestedEventId, requestedPhase, requestedWarehouseIds)) {
@@ -429,6 +452,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
         this.onRefreshComplete(error instanceof HttpErrorResponse ? error : undefined);
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -439,7 +463,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
       categories: this.selectedCategories,
       severities: this.selectedSeverities,
       sortBy: this.sortBy,
-      sortDirection: this.sortDirection
+      sortDirection: this.sortBy === 'severity' ? 'asc' : this.sortDirection
     };
   }
 
@@ -475,6 +499,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     } else {
       this.loading = true;
     }
+    this.markForDashboardUpdate();
 
     this.dashboardDataService.getDashboardData(
       requestedEventId,
@@ -493,12 +518,15 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         );
         this.warnings = data.warnings;
         this.availableCategories = data.availableCategories;
+        this.reconcileWarehouseExpansion(this.warehouseGroups);
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
         this.dataLoadedSuccessfully = true;
         this.errors = [];
         this.loading = false;
         this.refreshing = false;
+        this.lastRefreshAt = new Date();
+        this.markForDashboardUpdate();
       },
       error: (error) => {
         if (!this.shouldApplySingleWarehouseResult(requestToken, requestedWarehouseId, requestedEventId)) {
@@ -512,6 +540,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         const msg = error.message || 'Failed to load stock status.';
         this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.retryCurrentView());
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -582,6 +611,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     this.invalidateSingleWarehouseRequest();
     this.viewMode = 'single';
     this.selectedWarehouseId = warehouseId;
+    this.userManagedWarehouseExpansionIds.delete(warehouseId);
     this.loadSingleWarehouseStatus();
   }
 
@@ -619,6 +649,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
       this.dashboardDataService.invalidateCache();
       this.loadMultiWarehouseStatus();
       this.schedulePoll();
+      this.markForDashboardUpdate();
     });
   }
 
@@ -679,13 +710,55 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   }
 
   changeSortBy(field: 'time_to_stockout' | 'item_name' | 'severity'): void {
-    if (this.sortBy === field) {
+    if (field === 'severity') {
+      this.sortBy = 'severity';
+      this.sortDirection = 'asc';
+    } else if (this.sortBy === field) {
       this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
     } else {
       this.sortBy = field;
       this.sortDirection = 'asc';
     }
     this.onFiltersChanged();
+  }
+
+  get sortPreset(): string {
+    if (this.sortBy === 'severity') {
+      return 'severity_asc';
+    }
+    if (this.sortBy === 'item_name') {
+      return 'item_name_asc';
+    }
+    return 'time_to_stockout_asc';
+  }
+
+  setSortPreset(value: string): void {
+    switch (value) {
+      case 'severity_asc':
+      case 'severity_desc':
+        this.sortBy = 'severity';
+        this.sortDirection = 'asc';
+        break;
+      case 'item_name_asc':
+        this.sortBy = 'item_name';
+        this.sortDirection = 'asc';
+        break;
+      case 'time_to_stockout_asc':
+      default:
+        this.sortBy = 'time_to_stockout';
+        this.sortDirection = 'asc';
+        break;
+    }
+    this.onFiltersChanged();
+  }
+
+  get lastRefreshLabel(): string {
+    if (!this.lastRefreshAt) {
+      return '—';
+    }
+    const hh = String(this.lastRefreshAt.getUTCHours()).padStart(2, '0');
+    const mm = String(this.lastRefreshAt.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm} UTC`;
   }
 
   resetFilters(): void {
@@ -886,14 +959,21 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     const eventId = this.activeEvent?.event_id;
     if (!eventId) {
       this.phaseWindows.set(null);
+      this.markForDashboardUpdate();
       return;
     }
     this.replenishmentService
       .getPhaseWindows(eventId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (response) => this.phaseWindows.set(response),
-        error: () => this.phaseWindows.set(null)
+        next: (response) => {
+          this.phaseWindows.set(response);
+          this.markForDashboardUpdate();
+        },
+        error: () => {
+          this.phaseWindows.set(null);
+          this.markForDashboardUpdate();
+        }
       });
   }
 
@@ -982,6 +1062,25 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
 
   displayStatus(status: string | undefined | null): DisplayStatus {
     return toDisplayStatus(status);
+  }
+
+  isWarehouseExpanded(group: WarehouseStockGroup): boolean {
+    return this.expandedWarehouseIds.has(group.warehouse_id);
+  }
+
+  onWarehouseDetailsToggle(group: WarehouseStockGroup, event: Event): void {
+    const details = event.currentTarget as HTMLDetailsElement | null;
+    if (!details) {
+      return;
+    }
+
+    this.userManagedWarehouseExpansionIds.add(group.warehouse_id);
+    if (details.open) {
+      this.expandedWarehouseIds.add(group.warehouse_id);
+    } else {
+      this.expandedWarehouseIds.delete(group.warehouse_id);
+    }
+    this.markForDashboardUpdate();
   }
 
   getDisplaySeverityClass(severity: SeverityLevel | undefined): string {
@@ -1093,6 +1192,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
       case 'IN_PROGRESS': return 'info';
       case 'FULFILLED': return 'success';
       case 'SUPERSEDED': return 'neutral';
+      case 'UNKNOWN': return 'neutral';
     }
   }
 
@@ -1107,8 +1207,9 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
    */
   get actionInbox(): ActionInboxCounts {
     const lists = this.myNeedsLists ?? [];
+    const displayStatuses = lists.map((l) => toDisplayStatus(l.status));
     const countBy = (predicate: (display: DisplayStatus) => boolean): number =>
-      lists.filter((l) => predicate(toDisplayStatus(l.status))).length;
+      displayStatuses.filter((status) => predicate(status)).length;
     return {
       awaitingApproval: countBy((s) => s === 'SUBMITTED'),
       draftsInProgress: countBy((s) => s === 'DRAFT'),
@@ -1236,6 +1337,17 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     this.searchQuery = '';
   }
 
+  get visibleWarehouseGroups(): WarehouseStockGroup[] {
+    const q = this.normalizedSearchQuery();
+    const groups = this.warehouseGroups ?? [];
+    if (!q) return groups;
+
+    return groups.filter((group) =>
+      this.warehouseMatchesSearch(group, q) ||
+      (group.items ?? []).some((item) => this.itemMatchesSearch(item, q))
+    );
+  }
+
   getWarehouseParish(warehouseId: number): { name: string; code: string } | null {
     const wh = this.allWarehouses.find((w) => w.warehouse_id === warehouseId);
     if (!wh) return null;
@@ -1245,17 +1357,33 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     return { name: name || code, code: code || name };
   }
 
-  /** Case-insensitive item name/code filter applied after server-side filtering. */
+  /** Case-insensitive warehouse/item filter applied after server-side filtering. */
   filteredItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
-    const q = this.searchQuery.toLowerCase();
+    const q = this.normalizedSearchQuery();
     const items = group.items ?? [];
     if (!q) return items;
-    return items.filter((i) => {
-      const name = String(i.item_name ?? '').toLowerCase();
-      const code = String(i.item_code ?? '').toLowerCase();
-      const cat = String(i.category ?? '').toLowerCase();
-      return name.includes(q) || code.includes(q) || cat.includes(q);
-    });
+    if (this.warehouseMatchesSearch(group, q)) return items;
+    return items.filter((item) => this.itemMatchesSearch(item, q));
+  }
+
+  private normalizedSearchQuery(): string {
+    return this.searchQuery.trim().toLowerCase();
+  }
+
+  private warehouseMatchesSearch(group: WarehouseStockGroup, q: string): boolean {
+    const warehouse = this.allWarehouses.find((w) => w.warehouse_id === group.warehouse_id);
+    const searchable = [
+      group.warehouse_name,
+      warehouse?.warehouse_name,
+      warehouse?.parish_name,
+      warehouse?.parish_code
+    ];
+    return searchable.some((value) => String(value ?? '').toLowerCase().includes(q));
+  }
+
+  private itemMatchesSearch(item: StockStatusItem, q: string): boolean {
+    const searchable = [item.item_name, item.item_code, item.category];
+    return searchable.some((value) => String(value ?? '').toLowerCase().includes(q));
   }
 
   /** Count of display-severity items across all groups (for toolbar chip counters). */
@@ -1278,6 +1406,40 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     if (group.critical_count > 0) return 'critical';
     if (group.warning_count > 0) return 'warning';
     return 'success';
+  }
+
+  private reconcileWarehouseExpansion(groups: WarehouseStockGroup[]): void {
+    const activeIds = new Set(groups.map((group) => group.warehouse_id));
+
+    for (const warehouseId of Array.from(this.expandedWarehouseIds)) {
+      if (!activeIds.has(warehouseId)) {
+        this.expandedWarehouseIds.delete(warehouseId);
+      }
+    }
+    for (const warehouseId of Array.from(this.userManagedWarehouseExpansionIds)) {
+      if (!activeIds.has(warehouseId)) {
+        this.userManagedWarehouseExpansionIds.delete(warehouseId);
+      }
+    }
+
+    for (const group of groups) {
+      if (this.userManagedWarehouseExpansionIds.has(group.warehouse_id)) {
+        continue;
+      }
+      if (this.shouldWarehouseStartExpanded(group)) {
+        this.expandedWarehouseIds.add(group.warehouse_id);
+      } else {
+        this.expandedWarehouseIds.delete(group.warehouse_id);
+      }
+    }
+  }
+
+  private shouldWarehouseStartExpanded(group: WarehouseStockGroup): boolean {
+    return this.viewMode === 'single' || (group.critical_count ?? 0) > 0;
+  }
+
+  private markForDashboardUpdate(): void {
+    this.cdr.markForCheck();
   }
 
   // -- Phase freshness thresholds (srd-freshness sub-header) -----------
@@ -1853,7 +2015,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         this.selectedCategories = state.categories || [];
         this.selectedSeverities = state.severities || [];
         this.sortBy = state.sortBy || 'time_to_stockout';
-        this.sortDirection = state.sortDirection || 'asc';
+        this.sortDirection = this.sortBy === 'severity' ? 'asc' : (state.sortDirection || 'asc');
       } catch (e) {
         console.error('Failed to load filter state:', e);
       }
@@ -2025,6 +2187,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     if (!this.currentUserRef) {
       this.setMyNeedsLists([]);
       this.expandedMyNeedsListKeys.clear();
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -2038,11 +2201,13 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
             .slice(0, 8);
           this.setMyNeedsLists(rows);
           this.syncExpandedNeedsListKeys(rows);
+          this.markForDashboardUpdate();
         },
         error: () => {
           // Keep dashboard functional when this optional feed is unavailable.
           this.setMyNeedsLists([]);
           this.expandedMyNeedsListKeys.clear();
+          this.markForDashboardUpdate();
         }
       });
   }
@@ -2055,6 +2220,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   private loadMySubmissionUpdates(): void {
     if (!this.currentUserRef) {
       this.mySubmissionUpdates = [];
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -2071,10 +2237,12 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
 
           this.mySubmissionUpdates = updates;
           this.notifySubmitterStatusUpdates(updates);
+          this.markForDashboardUpdate();
         },
         error: () => {
           // Keep dashboard functional when this optional feed is unavailable.
           this.mySubmissionUpdates = [];
+          this.markForDashboardUpdate();
         }
       });
   }

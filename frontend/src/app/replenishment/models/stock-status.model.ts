@@ -11,7 +11,8 @@ export type DisplayStatus =
   | 'REJECTED'
   | 'IN_PROGRESS'
   | 'FULFILLED'
-  | 'SUPERSEDED';
+  | 'SUPERSEDED'
+  | 'UNKNOWN';
 
 export interface PhaseWindowEntry {
   event_id: number | null;

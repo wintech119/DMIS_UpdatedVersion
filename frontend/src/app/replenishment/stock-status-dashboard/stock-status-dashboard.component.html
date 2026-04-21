@@ -264,152 +264,6 @@
     </div>
   }
 
-  <!-- Inline toolbar (Scope · Severity chips · Sort · Search · Refresh) -->
-  @if (activeEvent && (warehouseGroups.length > 0 || allWarehouses.length > 0)) {
-    <section class="srd-toolbar" aria-label="Dashboard filters">
-      <div class="srd-toolbar__group srd-toolbar__group--scope">
-        <label class="srd-toolbar__label" for="srd-scope">Scope</label>
-        @if (viewMode === 'multi') {
-          <div class="srd-toolbar__select-wrap">
-            <mat-icon aria-hidden="true" class="srd-toolbar__select-icon">warehouse</mat-icon>
-            <select
-              id="srd-scope"
-              class="srd-toolbar__select"
-              [value]="selectedWarehouseIds.length === 1 ? selectedWarehouseIds[0] : ''"
-              (change)="setWarehouseScope($any($event.target).value)"
-              aria-label="Filter by warehouse"
-            >
-              <option value="">All warehouses (national)</option>
-              @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
-                <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
-              }
-            </select>
-            <mat-icon class="srd-toolbar__select-chevron" aria-hidden="true">expand_more</mat-icon>
-          </div>
-        }
-      </div>
-
-      <div class="srd-toolbar__group srd-toolbar__group--severity">
-        <span class="srd-toolbar__label">Severity</span>
-        <div class="srd-toolbar__chips" role="group" aria-label="Severity filter">
-          @for (bucket of displaySeverityOptions; track bucket) {
-            <button
-              type="button"
-              class="srd-filter-chip"
-              [class.srd-filter-chip--critical]="bucket === 'CRITICAL'"
-              [class.srd-filter-chip--warning]="bucket === 'WARNING'"
-              [class.srd-filter-chip--good]="bucket === 'GOOD'"
-              [class.srd-filter-chip--active]="isDisplaySeveritySelected(bucket)"
-              [attr.aria-pressed]="isDisplaySeveritySelected(bucket)"
-              (click)="toggleDisplaySeverity(bucket)"
-              [matTooltip]="getDisplaySeverityTooltip(bucket)"
-              matTooltipPosition="above"
-            >
-              <span class="srd-filter-chip__dot" aria-hidden="true"></span>
-              <span class="srd-filter-chip__label">{{ bucket }}</span>
-              <span class="srd-filter-chip__count">{{ displaySeverityCount(bucket) }}</span>
-            </button>
-          }
-        </div>
-      </div>
-
-      <div class="srd-toolbar__group srd-toolbar__group--sort">
-        <label class="srd-toolbar__label" for="srd-sort">Sort</label>
-        <div class="srd-toolbar__sort" role="group" aria-label="Sort by">
-          <button
-            type="button"
-            class="srd-sort-btn"
-            [class.srd-sort-btn--active]="sortBy === 'severity'"
-            (click)="changeSortBy('severity')"
-            matTooltip="Worst first — Critical then Warning then Good"
-            matTooltipPosition="above"
-          >Severity
-            @if (sortBy === 'severity') {
-              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-            }
-          </button>
-          <button
-            type="button"
-            class="srd-sort-btn"
-            [class.srd-sort-btn--active]="sortBy === 'time_to_stockout'"
-            (click)="changeSortBy('time_to_stockout')"
-            matTooltip="Sort by time to stockout"
-            matTooltipPosition="above"
-          >Time to stockout
-            @if (sortBy === 'time_to_stockout') {
-              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-            }
-          </button>
-          <button
-            type="button"
-            class="srd-sort-btn"
-            [class.srd-sort-btn--active]="sortBy === 'item_name'"
-            (click)="changeSortBy('item_name')"
-            matTooltip="Sort alphabetically"
-            matTooltipPosition="above"
-          >Item name
-            @if (sortBy === 'item_name') {
-              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-            }
-          </button>
-        </div>
-      </div>
-
-      <div class="srd-toolbar__group srd-toolbar__group--search">
-        <label class="srd-toolbar__label sr-only" for="srd-search">Search items</label>
-        <div class="srd-toolbar__search">
-          <mat-icon aria-hidden="true" class="srd-toolbar__search-icon">search</mat-icon>
-          <input
-            id="srd-search"
-            type="search"
-            class="srd-toolbar__search-input"
-            placeholder="Search items, codes, categories"
-            [value]="searchQuery"
-            (input)="onSearchChange($any($event.target).value)"
-            maxlength="120"
-            autocomplete="off"
-          />
-          @if (searchQuery) {
-            <button
-              type="button"
-              class="srd-toolbar__search-clear"
-              aria-label="Clear search"
-              (click)="clearSearch()"
-            >
-              <mat-icon aria-hidden="true">close</mat-icon>
-            </button>
-          }
-        </div>
-      </div>
-
-      <div class="srd-toolbar__group srd-toolbar__group--actions">
-        <button
-          type="button"
-          class="srd-toolbar__refresh"
-          (click)="triggerManualRefresh()"
-          [disabled]="refreshing"
-          matTooltip="Refresh dashboard data"
-          matTooltipPosition="above"
-          aria-label="Refresh data"
-        >
-          <mat-icon aria-hidden="true" [class.srd-toolbar__refresh-icon--spinning]="refreshing">refresh</mat-icon>
-          <span class="srd-toolbar__refresh-label">Refresh</span>
-        </button>
-        @if (hasActiveFilters() || searchQuery) {
-          <button
-            type="button"
-            class="srd-toolbar__reset"
-            (click)="resetFilters(); clearSearch()"
-            matTooltip="Clear all filters and search"
-            matTooltipPosition="above"
-          >
-            <mat-icon aria-hidden="true">filter_list_off</mat-icon>
-            Reset
-          </button>
-        }
-      </div>
-    </section>
-  }
 
   <!-- Skeleton Loading (Initial Load) -->
   @if (loading && warehouseGroups.length === 0) {
@@ -420,10 +274,11 @@
   }
 
   <!-- Main split: warehouses at risk (2/3) + side panels (1/3) -->
-  @if (!loading && warehouseGroups.length > 0) {
+  @if (!loading && activeEvent && (warehouseGroups.length > 0 || allWarehouses.length > 0)) {
     <div class="srd-split">
       <!-- LEFT: warehouses at risk -->
       <section class="srd-warehouses" aria-label="Warehouses at risk">
+        @let visibleGroups = visibleWarehouseGroups;
         <header class="srd-warehouses__header">
           <div class="srd-warehouses__heading">
             <h2 class="srd-warehouses__title">Warehouses at risk</h2>
@@ -432,16 +287,174 @@
             </p>
           </div>
           <span class="srd-warehouses__meta">
-            {{ warehouseGroups.length }} warehouse{{ warehouseGroups.length === 1 ? '' : 's' }}
+            {{ visibleGroups.length }} warehouse{{ visibleGroups.length === 1 ? '' : 's' }}
           </span>
         </header>
 
+        <!-- Inline filter band (Scope · Severity chips · Sort · Search · Last refresh) -->
+        @if (activeEvent && (warehouseGroups.length > 0 || allWarehouses.length > 0)) {
+          <div class="srd-warehouses__toolbar" role="toolbar" aria-label="Dashboard filters">
+            <div class="srd-warehouses__toolbar-row srd-warehouses__toolbar-row--top">
+              <div class="srd-toolbar__group srd-toolbar__group--scope">
+                <label class="srd-toolbar__label" for="srd-scope">Scope</label>
+                @if (viewMode === 'multi') {
+                  <div class="srd-toolbar__select-wrap">
+                    <mat-icon aria-hidden="true" class="srd-toolbar__select-icon">warehouse</mat-icon>
+                    <select
+                      id="srd-scope"
+                      class="srd-toolbar__select"
+                      [value]="selectedWarehouseIds.length === 1 ? selectedWarehouseIds[0] : ''"
+                      (change)="setWarehouseScope($any($event.target).value)"
+                      aria-label="Filter by warehouse"
+                    >
+                      <option value="">All warehouses (national)</option>
+                      @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
+                        <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
+                      }
+                    </select>
+                    <mat-icon class="srd-toolbar__select-chevron" aria-hidden="true">expand_more</mat-icon>
+                  </div>
+                }
+              </div>
+
+              <div class="srd-toolbar__group srd-toolbar__group--severity">
+                <span class="srd-toolbar__label">Severity</span>
+                <div class="srd-toolbar__chips" role="group" aria-label="Severity filter">
+                  @for (bucket of displaySeverityOptions; track bucket) {
+                    <button
+                      type="button"
+                      class="srd-filter-chip srd-filter-chip--panel"
+                      [class.srd-filter-chip--critical]="bucket === 'CRITICAL'"
+                      [class.srd-filter-chip--warning]="bucket === 'WARNING'"
+                      [class.srd-filter-chip--good]="bucket === 'GOOD'"
+                      [class.srd-filter-chip--active]="isDisplaySeveritySelected(bucket)"
+                      [attr.aria-pressed]="isDisplaySeveritySelected(bucket)"
+                      (click)="toggleDisplaySeverity(bucket)"
+                      [matTooltip]="getDisplaySeverityTooltip(bucket)"
+                      matTooltipPosition="above"
+                    >
+                      <span class="srd-filter-chip__dot" aria-hidden="true"></span>
+                      <span class="srd-filter-chip__label">{{ bucket }}</span>
+                      <span class="srd-filter-chip__count">{{ displaySeverityCount(bucket) }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div class="srd-warehouses__toolbar-row srd-warehouses__toolbar-row--bottom">
+              <div class="srd-toolbar__group srd-toolbar__group--sort">
+                <label class="srd-toolbar__label" for="srd-sort">Sort</label>
+                <div class="srd-toolbar__select-wrap srd-toolbar__select-wrap--sort">
+                  <select
+                    id="srd-sort"
+                    class="srd-toolbar__select"
+                    [value]="sortPreset"
+                    (change)="setSortPreset($any($event.target).value)"
+                    aria-label="Sort warehouses and items"
+                  >
+                    <option value="severity_asc">Worst first</option>
+                    <option value="time_to_stockout_asc">Soonest stockout</option>
+                    <option value="item_name_asc">Alphabetical</option>
+                  </select>
+                  <mat-icon class="srd-toolbar__select-chevron" aria-hidden="true">expand_more</mat-icon>
+                </div>
+              </div>
+
+              <div class="srd-toolbar__group srd-toolbar__group--search">
+                <label class="srd-toolbar__label sr-only" for="srd-search">Search warehouse or SKU</label>
+                <div class="srd-toolbar__search">
+                  <mat-icon aria-hidden="true" class="srd-toolbar__search-icon">search</mat-icon>
+                  <input
+                    id="srd-search"
+                    type="search"
+                    class="srd-toolbar__search-input"
+                    placeholder="Search warehouse or SKU"
+                    [value]="searchQuery"
+                    (input)="onSearchChange($any($event.target).value)"
+                    maxlength="120"
+                    autocomplete="off"
+                  />
+                  @if (searchQuery) {
+                    <button
+                      type="button"
+                      class="srd-toolbar__search-clear"
+                      aria-label="Clear search"
+                      (click)="clearSearch()"
+                    >
+                      <mat-icon aria-hidden="true">close</mat-icon>
+                    </button>
+                  }
+                </div>
+              </div>
+
+              <div class="srd-toolbar__group srd-toolbar__group--last">
+                <span class="srd-toolbar__last-label">Last: {{ lastRefreshLabel }}</span>
+                <button
+                  type="button"
+                  class="srd-toolbar__refresh-icon-btn"
+                  (click)="triggerManualRefresh()"
+                  [disabled]="refreshing"
+                  matTooltip="Refresh dashboard data"
+                  matTooltipPosition="above"
+                  aria-label="Refresh data"
+                >
+                  <mat-icon aria-hidden="true" [class.srd-toolbar__refresh-icon--spinning]="refreshing">refresh</mat-icon>
+                </button>
+                @if (hasActiveFilters() || searchQuery) {
+                  <button
+                    type="button"
+                    class="srd-toolbar__reset"
+                    (click)="resetFilters(); clearSearch()"
+                    matTooltip="Clear all filters and search"
+                    matTooltipPosition="above"
+                    aria-label="Reset filters"
+                  >
+                    <mat-icon aria-hidden="true">filter_list_off</mat-icon>
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
         <div class="srd-warehouses__body">
-          @for (group of warehouseGroups; track group.warehouse_id) {
+          @if (warehouseGroups.length === 0 && dataLoadedSuccessfully && errors.length === 0) {
+            @if (selectedWarehouseIds.length > 0) {
+              <dmis-empty-state
+                icon="verified"
+                title="No items at risk"
+                message="The selected warehouse has healthy stock levels. Clear the filter to view other warehouses."
+                actionLabel="Show all warehouses"
+                actionIcon="select_all"
+                (action)="clearWarehouseFilter()"
+              />
+            } @else {
+              <dmis-empty-state
+                icon="verified"
+                title="All clear"
+                message="All items have healthy stock levels. No replenishment action needed."
+                actionLabel="Refresh data"
+                actionIcon="refresh"
+                (action)="loadMultiWarehouseStatus()"
+              />
+            }
+          } @else if (visibleGroups.length === 0 && searchQuery) {
+            <dmis-empty-state
+              icon="search_off"
+              title="No matching items"
+              message="No warehouses or items match your search."
+              actionLabel="Clear search"
+              actionIcon="close"
+              (action)="clearSearch()"
+            />
+          }
+          @for (group of visibleGroups; track group.warehouse_id) {
             <details
               class="srd-wh-card"
               [ngClass]="'srd-wh-card--' + warehouseSeverityTone(group)"
-              [attr.open]="group.critical_count > 0 || viewMode === 'single' ? '' : null"
+              [open]="isWarehouseExpanded(group)"
+              (toggle)="onWarehouseDetailsToggle(group, $event)"
             >
               <summary class="srd-wh-card__summary">
                 <span class="srd-wh-card__chevron" aria-hidden="true">
@@ -883,27 +896,17 @@
     />
   }
 
-  <!-- Empty state: all clear -->
-  @if (!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0) {
-    @if (selectedWarehouseIds.length > 0) {
-      <dmis-empty-state
-        icon="verified"
-        title="No items at risk"
-        message="The selected warehouse has healthy stock levels. Clear the filter to view other warehouses."
-        actionLabel="Show all warehouses"
-        actionIcon="select_all"
-        (action)="clearWarehouseFilter()"
-      />
-    } @else {
-      <dmis-empty-state
-        icon="verified"
-        title="All clear"
-        message="All items have healthy stock levels. No replenishment action needed."
-        actionLabel="Refresh data"
-        actionIcon="refresh"
-        (action)="loadMultiWarehouseStatus()"
-      />
-    }
+  <!-- Empty state: all clear — rendered inline inside the Warehouses at risk panel
+       when allWarehouses.length > 0. Fallback here covers the rare case of zero warehouses. -->
+  @if (!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0 && allWarehouses.length === 0) {
+    <dmis-empty-state
+      icon="verified"
+      title="All clear"
+      message="All items have healthy stock levels. No replenishment action needed."
+      actionLabel="Refresh data"
+      actionIcon="refresh"
+      (action)="loadMultiWarehouseStatus()"
+    />
   }
 
   <!-- Empty state: load error -->

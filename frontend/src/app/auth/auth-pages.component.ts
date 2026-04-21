@@ -1,14 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { firstValueFrom } from 'rxjs';
 
 import { normalizeRequestedUrlString } from '../core/app-access.guard';
 import { AuthSessionService, AuthSessionStatus } from '../core/auth-session.service';
+import { localAuthHarnessClientEnabled } from '../core/dev-user.interceptor';
+import { DmisLocalHarnessSwitcherComponent } from '../local-harness-switcher.component';
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
 
 @Component({
   selector: 'dmis-auth-login-page',
   standalone: true,
+  imports: [DmisLocalHarnessSwitcherComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="auth-page">
@@ -21,6 +25,23 @@ import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
           <button type="button" class="auth-primary" (click)="signIn()" [disabled]="working()">
             {{ working() ? 'Redirecting...' : 'Sign in with OIDC' }}
           </button>
+        } @else if (localHarnessClientEnabled) {
+          <div class="auth-local-harness">
+            <p class="auth-warning">
+              Local harness mode is active. Select an allowlisted local test user to continue.
+            </p>
+            <button
+              type="button"
+              class="auth-primary"
+              (click)="continueLocalHarness()"
+              [disabled]="localHarnessWorking()">
+              {{ localHarnessWorking() ? 'Checking local session...' : 'Continue in local mode' }}
+            </button>
+            <dmis-local-harness-switcher />
+            @if (localHarnessError()) {
+              <p class="auth-warning">{{ localHarnessError() }}</p>
+            }
+          </div>
         } @else {
           <p class="auth-warning">
             OIDC login is not configured for this deployment. Update
@@ -109,6 +130,17 @@ import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
       opacity: 0.75;
     }
 
+    .auth-local-harness {
+      margin-top: 1.25rem;
+      display: grid;
+      gap: 0.875rem;
+    }
+
+    .auth-local-harness dmis-local-harness-switcher {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
     code {
       font-size: 0.95em;
       color: #17302f;
@@ -122,16 +154,22 @@ export class DmisAuthLoginPageComponent {
   private readonly router = inject(Router);
   private readonly authSession = inject(AuthSessionService);
 
+  readonly localHarnessClientEnabled = localAuthHarnessClientEnabled();
   readonly working = signal(false);
+  readonly localHarnessWorking = signal(false);
+  readonly localHarnessError = signal<string | null>(null);
   readonly returnUrl = signal(this.defaultReturnUrl);
   readonly loginEnabled = computed(() => this.authSession.loginAvailable() && !this.authSession.authenticated());
-  readonly message = computed(() =>
-    messageForStatus(
+  readonly message = computed(() => {
+    if (this.localHarnessClientEnabled && !this.authSession.loginAvailable()) {
+      return 'Use the local harness session to continue.';
+    }
+    return messageForStatus(
       this.route.snapshot.queryParamMap.get('reason'),
       this.authSession.state().status,
       this.authSession.state().message,
-    ),
-  );
+    );
+  });
 
   constructor() {
     const initialReturnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
@@ -152,6 +190,25 @@ export class DmisAuthLoginPageComponent {
       await this.authSession.startLogin(this.resolveReturnUrl(this.returnUrl()));
     } finally {
       this.working.set(false);
+    }
+  }
+
+  async continueLocalHarness(): Promise<void> {
+    this.localHarnessWorking.set(true);
+    this.localHarnessError.set(null);
+    try {
+      await firstValueFrom(this.authSession.refreshPrincipal());
+      if (this.authSession.authenticated()) {
+        await this.router.navigateByUrl(this.resolveReturnUrl(this.returnUrl()), { replaceUrl: true });
+        return;
+      }
+
+      this.localHarnessError.set(
+        this.authSession.state().message
+          ?? 'DMIS could not validate the local harness session. Confirm the Django backend is running over HTTP.',
+      );
+    } finally {
+      this.localHarnessWorking.set(false);
     }
   }
 
