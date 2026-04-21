@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { Router } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
@@ -93,6 +93,11 @@ describe('PackageFulfillmentQueueComponent', () => {
     await TestBed.configureTestingModule({
       imports: [NoopAnimationsModule, PackageFulfillmentQueueComponent],
       providers: [
+        // `provideRouter([])` registers `ActivatedRoute` + friends so the
+        // template's `routerLink` into the Dispatch Queue can be rendered
+        // in the unit test harness. We still override `Router` with a spy
+        // below because individual specs assert on navigate() calls.
+        provideRouter([]),
         { provide: AuthRbacService, useValue: authStub },
         { provide: OperationsService, useValue: operationsService },
         { provide: Router, useValue: router },
