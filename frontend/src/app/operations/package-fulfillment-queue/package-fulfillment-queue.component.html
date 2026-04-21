@@ -58,226 +58,282 @@
 
   <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="onMetricClick($event)" />
 
-  <section class="ops-panel pfq-panel">
-    <div class="ops-panel__header pfq-panel__header">
-      <div>
-        <p class="ops-section__eyebrow">Queue</p>
-        <h2 class="ops-section__title">Fulfillment Work Queue</h2>
-      </div>
-      <span class="pfq-panel__meta">
-        {{ filteredItems().length }} {{ filteredItems().length === 1 ? 'request' : 'requests' }}
-      </span>
-    </div>
-
-    <div class="ops-panel__body pfq-panel__body">
-      <div class="ops-toolbar pfq-toolbar">
-        <label class="ops-toolbar__search" aria-label="Search fulfillment queue">
-          <mat-icon aria-hidden="true">search</mat-icon>
-          <input
-            #searchBox
-            type="search"
-            placeholder="Search by tracking number, agency, event, or notes"
-            [value]="searchTerm()"
-            (input)="onSearch(searchBox.value)"
-          />
-        </label>
-        <div class="ops-toolbar__filters pfq-chips" role="radiogroup" aria-label="Filter queue by fulfillment stage">
-          @for (filter of filterOptions; track filter.value) {
-            <button
-              class="ops-chip pfq-chip"
-              [class.ops-chip--active]="activeFilter() === filter.value"
-              [class.ops-chip--unread]="hasUnread(filter.value)"
-              type="button"
-              role="radio"
-              [attr.aria-checked]="activeFilter() === filter.value"
-              [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
-              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-              (click)="setFilter(filter.value)"
-              (keydown)="onFilterKeydown($event, $index)">
-              <span>{{ filter.label }}</span>
-              <span class="pfq-chip__count" aria-hidden="true">{{ filterChipCounts()[filter.value] }}</span>
-              @if (hasUnread(filter.value)) {
-                <span class="ops-chip__count pfq-chip__unread" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
-              }
-            </button>
-          }
+  <div class="ops-grid ops-grid--split pfq-split">
+    <section class="ops-panel pfq-panel">
+      <div class="ops-panel__header pfq-panel__header">
+        <div class="pfq-panel__heading">
+          <p class="ops-section__eyebrow">Queue</p>
+          <h2 class="ops-section__title">Fulfillment Work Queue</h2>
+          <p class="ops-section__copy">
+            Search and filter requests awaiting fulfillment, saved as drafts, preparing, or ready to commit. Dispatched and received packages move on to the Dispatch queue.
+          </p>
         </div>
+        <span class="pfq-panel__meta">
+          {{ filteredItems().length }} {{ filteredItems().length === 1 ? 'request' : 'requests' }}
+        </span>
       </div>
 
-      @if (loading()) {
-        <dmis-skeleton-loader variant="table-row" [count]="5" />
-      } @else if (errored()) {
-        <dmis-empty-state
-          icon="error_outline"
-          title="We could not load the queue"
-          [message]="loadError() || 'Please try again.'"
-          actionLabel="Retry"
-          actionIcon="refresh"
-          (action)="refreshQueue()"
-        />
-      } @else if (filteredItems().length === 0) {
-        <div class="pfq-empty">
-          <dmis-empty-state
-            icon="inbox"
-            title="No active fulfillment work"
-            message="Dispatched and received packages have moved on to the Dispatch queue. New approved requests will appear here."
-          />
-          <div class="pfq-guidance">
-            <p class="ops-section__eyebrow">What to do next</p>
-            <ol class="pfq-guidance__list">
-              <li>
-                <span class="pfq-guidance__dot pfq-guidance__dot--awaiting" aria-hidden="true"></span>
-                <div>
-                  <p class="pfq-guidance__title">Awaiting requests need stock reserved.</p>
-                  <p class="pfq-guidance__meta">Open a request to begin batch selection and quantity allocation.</p>
-                </div>
-              </li>
-              <li>
-                <span class="pfq-guidance__dot pfq-guidance__dot--drafts" aria-hidden="true"></span>
-                <div>
-                  <p class="pfq-guidance__title">Draft packages can be resumed from the queue.</p>
-                  <p class="pfq-guidance__meta">Open a draft row to continue reservation without starting over.</p>
-                </div>
-              </li>
-              <li>
-                <span class="pfq-guidance__dot pfq-guidance__dot--preparing" aria-hidden="true"></span>
-                <div>
-                  <p class="pfq-guidance__title">Preparing packages are being committed.</p>
-                  <p class="pfq-guidance__meta">Review selections, add override notes if needed, then lock the package.</p>
-                </div>
-              </li>
-              <li>
-                <span class="pfq-guidance__dot pfq-guidance__dot--ready" aria-hidden="true"></span>
-                <div>
-                  <p class="pfq-guidance__title">Ready packages hand off to Dispatch.</p>
-                  <p class="pfq-guidance__meta">Committed packages appear in the Dispatch Queue for handoff.</p>
-                </div>
-              </li>
-            </ol>
+      <div class="ops-panel__body pfq-panel__body">
+        <div class="ops-toolbar pfq-toolbar">
+          <label class="ops-toolbar__search" aria-label="Search fulfillment queue">
+            <mat-icon aria-hidden="true">search</mat-icon>
+            <input
+              #searchBox
+              type="search"
+              placeholder="Search by tracking number, agency, event, or notes"
+              [value]="searchTerm()"
+              (input)="onSearch(searchBox.value)"
+            />
+          </label>
+          <div class="ops-toolbar__filters pfq-chips" role="radiogroup" aria-label="Filter queue by fulfillment stage">
+            @for (filter of filterOptions; track filter.value) {
+              <button
+                class="ops-chip pfq-chip"
+                [class.ops-chip--active]="activeFilter() === filter.value"
+                [class.ops-chip--unread]="hasUnread(filter.value)"
+                type="button"
+                role="radio"
+                [attr.aria-checked]="activeFilter() === filter.value"
+                [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
+                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+                (click)="setFilter(filter.value)"
+                (keydown)="onFilterKeydown($event, $index)">
+                <span>{{ filter.label }}</span>
+                <span class="pfq-chip__count" aria-hidden="true">{{ filterChipCounts()[filter.value] }}</span>
+                @if (hasUnread(filter.value)) {
+                  <span class="ops-chip__count pfq-chip__unread" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+                }
+              </button>
+            }
           </div>
         </div>
-      } @else {
-        <div class="ops-row-list pfq-rows" role="list">
-          @for (row of pagedItems(); track trackByRequestId($index, row)) {
-            <article
-              class="ops-row ops-row--interactive ops-row--tiered pfq-row"
-              [class]="stageClass(row)"
-              tabindex="0"
-              role="listitem"
-              [attr.aria-label]="'Request ' + (row.tracking_no ?? ('REQ-' + row.reliefrqst_id)) + ', stage ' + stageLabel(row)"
-              (click)="fulfillRequest(row)"
-              (keydown.enter)="fulfillRequest(row)"
-              (keydown.space)="fulfillRequest(row); $event.preventDefault()">
-              <div class="ops-row__lead pfq-row__lead">
-                <div class="ops-row__identity pfq-row__identity">
-                  <p class="pfq-row__title">
-                    <span class="pfq-row__id">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>
-                    @if (row.current_package?.tracking_no; as pkgNo) {
-                      <span class="pfq-row__pkg">PKG {{ pkgNo }}</span>
+
+        @if (loading()) {
+          <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (errored()) {
+          <dmis-empty-state
+            icon="error_outline"
+            title="We could not load the queue"
+            [message]="loadError() || 'Please try again.'"
+            actionLabel="Retry"
+            actionIcon="refresh"
+            (action)="refreshQueue()"
+          />
+        } @else if (filteredItems().length === 0) {
+          <div class="pfq-empty">
+            <dmis-empty-state
+              icon="inbox"
+              title="No active fulfillment work"
+              message="Dispatched and received packages have moved on to the Dispatch queue. New approved requests will appear here."
+            />
+          </div>
+        } @else {
+          <div class="ops-row-list pfq-rows" role="list">
+            @for (row of pagedItems(); track trackByRequestId($index, row)) {
+              <article
+                class="ops-row ops-row--interactive ops-row--tiered pfq-row"
+                [class]="stageClass(row)"
+                tabindex="0"
+                role="listitem"
+                [attr.aria-label]="'Request ' + (row.tracking_no ?? ('REQ-' + row.reliefrqst_id)) + ', stage ' + stageLabel(row)"
+                (click)="fulfillRequest(row)"
+                (keydown.enter)="fulfillRequest(row)"
+                (keydown.space)="fulfillRequest(row); $event.preventDefault()">
+                <div class="ops-row__lead pfq-row__lead">
+                  <div class="ops-row__identity pfq-row__identity">
+                    <p class="pfq-row__title">
+                      <span class="pfq-row__id">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>
+                      @if (row.current_package?.tracking_no; as pkgNo) {
+                        <span class="pfq-row__pkg">PKG {{ pkgNo }}</span>
+                      }
+                    </p>
+                    <p class="pfq-row__party">{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</p>
+                    <p class="pfq-row__meta">
+                      <span>{{ row.event_name ?? 'No event linked' }}</span>
+                      <span class="pfq-row__meta-sep" aria-hidden="true">·</span>
+                      <span>{{ formatLineCount(row.item_count) }}</span>
+                    </p>
+                    <p class="pfq-row__created">
+                      Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}
+                    </p>
+                  </div>
+
+                  <div class="pfq-row__signals">
+                    <span class="pfq-signal">
+                      <span class="pfq-signal__key">Priority</span>
+                      <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
+                    </span>
+                    <span class="pfq-signal">
+                      <span class="pfq-signal__key">Authority</span>
+                      <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
+                    </span>
+                    <span class="pfq-signal">
+                      <span class="pfq-signal__key">Items</span>
+                      <span class="pfq-signal__value">{{ row.item_count }}</span>
+                    </span>
+                    @if (isLocked(row)) {
+                      <span class="ops-flag ops-flag--locked pfq-flag">
+                        <mat-icon aria-hidden="true">lock</mat-icon>
+                        <span>Locked</span>
+                      </span>
                     }
-                  </p>
-                  <p class="pfq-row__party">{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</p>
-                  <p class="pfq-row__meta">
-                    <span>{{ row.event_name ?? 'No event linked' }}</span>
-                    <span class="pfq-row__meta-sep" aria-hidden="true">·</span>
-                    <span>{{ formatLineCount(row.item_count) }}</span>
-                  </p>
-                  <p class="pfq-row__created">
-                    Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}
-                  </p>
+                    @if (isOverridePending(row)) {
+                      <span class="ops-flag ops-flag--override pfq-flag">
+                        <mat-icon aria-hidden="true">pending_actions</mat-icon>
+                        <span>Override pending</span>
+                      </span>
+                    }
+                  </div>
                 </div>
 
-                <div class="pfq-row__signals">
-                  <span class="pfq-signal">
-                    <span class="pfq-signal__key">Priority</span>
-                    <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
-                  </span>
-                  <span class="pfq-signal">
-                    <span class="pfq-signal__key">Authority</span>
-                    <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
-                  </span>
-                  <span class="pfq-signal">
-                    <span class="pfq-signal__key">Items</span>
-                    <span class="pfq-signal__value">{{ row.item_count }}</span>
-                  </span>
-                  @if (isLocked(row)) {
-                    <span class="ops-flag ops-flag--locked pfq-flag">
-                      <mat-icon aria-hidden="true">lock</mat-icon>
-                      <span>Locked</span>
+                <div class="pfq-row__next">
+                  <div class="pfq-stage">
+                    <span class="pfq-stage__dot" [class]="stageDotClass(row)" aria-hidden="true"></span>
+                    <span class="pfq-stage__label">{{ stageLabel(row) }}</span>
+                    <span class="pfq-stage__sep" aria-hidden="true">·</span>
+                    <span class="pfq-stage__time" [class]="'pfq-stage__time--' + timeInStageTone(row)">
+                      {{ formatAge(row.create_dtime ?? row.request_date) }} in stage
                     </span>
-                  }
-                  @if (isOverridePending(row)) {
-                    <span class="ops-flag ops-flag--override pfq-flag">
-                      <mat-icon aria-hidden="true">pending_actions</mat-icon>
-                      <span>Override pending</span>
-                    </span>
-                  }
+                  </div>
+                  <button
+                    mat-flat-button
+                    type="button"
+                    class="pfq-action"
+                    [class]="actionClass(row)"
+                    [attr.aria-label]="nextActionAriaLabel(row)"
+                    (click)="fulfillRequest(row); $event.stopPropagation()">
+                    <mat-icon aria-hidden="true">{{ nextAction(row).icon }}</mat-icon>
+                    <span>{{ nextAction(row).label }}</span>
+                  </button>
+                  <mat-icon class="pfq-row__chev" aria-hidden="true">chevron_right</mat-icon>
                 </div>
-              </div>
-
-              <div class="pfq-row__next">
-                <div class="pfq-stage">
-                  <span class="pfq-stage__dot" [class]="stageDotClass(row)" aria-hidden="true"></span>
-                  <span class="pfq-stage__label">{{ stageLabel(row) }}</span>
-                  <span class="pfq-stage__sep" aria-hidden="true">·</span>
-                  <span class="pfq-stage__time" [class]="'pfq-stage__time--' + timeInStageTone(row)">
-                    {{ formatAge(row.create_dtime ?? row.request_date) }} in stage
-                  </span>
-                </div>
-                <button
-                  mat-flat-button
-                  type="button"
-                  class="pfq-action"
-                  [class]="actionClass(row)"
-                  [attr.aria-label]="nextActionAriaLabel(row)"
-                  (click)="fulfillRequest(row); $event.stopPropagation()">
-                  <mat-icon aria-hidden="true">{{ nextAction(row).icon }}</mat-icon>
-                  <span>{{ nextAction(row).label }}</span>
-                </button>
-                <mat-icon class="pfq-row__chev" aria-hidden="true">chevron_right</mat-icon>
-              </div>
-            </article>
-          }
-        </div>
-
-        @if (filteredItems().length > 0) {
-          <footer class="pfq-pager" role="navigation" aria-label="Queue pagination">
-            <span class="pfq-pager__range">
-              Showing <strong>{{ pageRange().start }}&ndash;{{ pageRange().end }}</strong> of
-              <strong>{{ pageRange().total }}</strong> · Page
-              <strong>{{ currentPage() }}</strong> of <strong>{{ totalPages() }}</strong>
-            </span>
-            @if (totalPages() > 1) {
-              <div class="pfq-pager__nav">
-                <button
-                  type="button"
-                  class="pfq-pager__btn"
-                  [disabled]="currentPage() === 1"
-                  (click)="prevPage()"
-                  aria-label="Previous page">&lsaquo;</button>
-                @for (n of visiblePages(); track trackByPage($index, n)) {
-                  @if (n === 'ellipsis') {
-                    <span class="pfq-pager__ellipsis" aria-hidden="true">…</span>
-                  } @else {
-                    <button
-                      type="button"
-                      class="pfq-pager__btn"
-                      [class.pfq-pager__btn--active]="n === currentPage()"
-                      [attr.aria-current]="n === currentPage() ? 'page' : null"
-                      (click)="setPage(n)">{{ n }}</button>
-                  }
-                }
-                <button
-                  type="button"
-                  class="pfq-pager__btn"
-                  [disabled]="currentPage() === totalPages()"
-                  (click)="nextPage()"
-                  aria-label="Next page">&rsaquo;</button>
-              </div>
+              </article>
             }
-          </footer>
+          </div>
+
+          @if (filteredItems().length > 0) {
+            <footer class="pfq-pager" role="navigation" aria-label="Queue pagination">
+              <span class="pfq-pager__range">
+                Showing <strong>{{ pageRange().start }}&ndash;{{ pageRange().end }}</strong> of
+                <strong>{{ pageRange().total }}</strong> · Page
+                <strong>{{ currentPage() }}</strong> of <strong>{{ totalPages() }}</strong>
+              </span>
+              @if (totalPages() > 1) {
+                <div class="pfq-pager__nav">
+                  <button
+                    type="button"
+                    class="pfq-pager__btn"
+                    [disabled]="currentPage() === 1"
+                    (click)="prevPage()"
+                    aria-label="Previous page">&lsaquo;</button>
+                  @for (n of visiblePages(); track trackByPage($index, n)) {
+                    @if (n === 'ellipsis') {
+                      <span class="pfq-pager__ellipsis" aria-hidden="true">…</span>
+                    } @else {
+                      <button
+                        type="button"
+                        class="pfq-pager__btn"
+                        [class.pfq-pager__btn--active]="n === currentPage()"
+                        [attr.aria-current]="n === currentPage() ? 'page' : null"
+                        (click)="setPage(n)">{{ n }}</button>
+                    }
+                  }
+                  <button
+                    type="button"
+                    class="pfq-pager__btn"
+                    [disabled]="currentPage() === totalPages()"
+                    (click)="nextPage()"
+                    aria-label="Next page">&rsaquo;</button>
+                </div>
+              }
+            </footer>
+          }
         }
-      }
-    </div>
-  </section>
+      </div>
+    </section>
+
+    <aside class="ops-grid pfq-sidebar" aria-label="Queue workload and guidance">
+      <section class="ops-card pfq-side-card">
+        <div class="ops-card__header">
+          <div class="pfq-side-card__heading">
+            <p class="ops-section__eyebrow">Workload</p>
+            <h2 class="ops-section__title">Queue at a glance</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-summary-grid pfq-summary-grid">
+            <div class="ops-summary-card pfq-summary-card">
+              <span class="ops-summary-card__label">Total shown</span>
+              <p class="ops-summary-card__value">{{ filterChipCounts().all }}</p>
+            </div>
+            <div class="ops-summary-card pfq-summary-card pfq-summary-card--awaiting">
+              <span class="ops-summary-card__label">Awaiting</span>
+              <p class="ops-summary-card__value">{{ filterChipCounts().awaiting }}</p>
+            </div>
+            <div class="ops-summary-card pfq-summary-card pfq-summary-card--drafts">
+              <span class="ops-summary-card__label">Drafts</span>
+              <p class="ops-summary-card__value">{{ filterChipCounts().drafts }}</p>
+            </div>
+            <div class="ops-summary-card pfq-summary-card pfq-summary-card--preparing">
+              <span class="ops-summary-card__label">Preparing</span>
+              <p class="ops-summary-card__value">{{ filterChipCounts().preparing }}</p>
+            </div>
+            <div class="ops-summary-card pfq-summary-card pfq-summary-card--ready">
+              <span class="ops-summary-card__label">Ready</span>
+              <p class="ops-summary-card__value">{{ filterChipCounts().ready }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-card pfq-side-card">
+        <div class="ops-card__header">
+          <div class="pfq-side-card__heading">
+            <p class="ops-section__eyebrow">Guidance</p>
+            <h2 class="ops-section__title">What to do next</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-timeline pfq-timeline">
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot pfq-timeline__dot--awaiting" aria-hidden="true"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Awaiting requests need stock reserved.</p>
+                <div class="ops-timeline__meta">
+                  <span>Open a request to begin batch selection and quantity allocation.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot pfq-timeline__dot--drafts" aria-hidden="true"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Draft packages can be resumed from the queue.</p>
+                <div class="ops-timeline__meta">
+                  <span>Open a draft row to continue reservation without starting over.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot pfq-timeline__dot--preparing" aria-hidden="true"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Preparing packages are being committed.</p>
+                <div class="ops-timeline__meta">
+                  <span>Review selections, add override notes if needed, then lock the package.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot pfq-timeline__dot--ready" aria-hidden="true"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Ready packages hand off to Dispatch.</p>
+                <div class="ops-timeline__meta">
+                  <span>Committed packages appear in the Dispatch Queue for handoff.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
 </div>

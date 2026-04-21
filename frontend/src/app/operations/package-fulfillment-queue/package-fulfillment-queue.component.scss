@@ -1,8 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Package Fulfillment Queue — Claude Design warm ops palette.
 // Tokens + primitives inherited from `operations-shell.scss`; local rules
-// cover layout shifts that the redesigned queue introduces (single-column
-// stack, action inbox, stage-ordered rows, pager).
+// cover layout shifts that the redesigned queue introduces (split layout
+// with work-queue panel + workload/guidance sidebar, action inbox,
+// stage-ordered rows, pager).
 // ─────────────────────────────────────────────────────────────────────────
 
 .pfq-shell {
@@ -113,14 +114,27 @@
   color: #225d33;
 }
 
+// ── Split layout (panel + sidebar) ──────────────────────────────────────
+.pfq-split {
+  // `ops-grid--split` already provides the 1.6fr / 0.9fr track pattern; we
+  // just fine-tune the gap so the sidebar sits comfortably beside the queue.
+  gap: 1.25rem;
+}
+
 // ── Panel + toolbar ─────────────────────────────────────────────────────
 .pfq-panel {
-  // Single-column desktop layout — panel stretches the full content width.
-  width: 100%;
+  // Sit inside the split grid; track sizing is handled by `ops-grid--split`.
+  min-width: 0;
 }
 
 .pfq-panel__header {
-  align-items: center;
+  align-items: flex-start;
+}
+
+.pfq-panel__heading {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
 }
 
 .pfq-panel__meta {
@@ -207,18 +221,22 @@
 }
 
 .pfq-row__id {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  // Inherit the system sans stack from `.ops-row__title` for consistency
+  // with other ops surfaces. Use tabular numerals so IDs still align.
   font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
 .pfq-row__pkg {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  // Inherit the system sans stack; uppercase + tracking still gives the
+  // package pill a technical feel without breaking font consistency.
   font-size: 0.72rem;
   font-weight: var(--weight-semibold, 600);
   color: var(--pfq-ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
 }
 
 .pfq-row__party {
@@ -511,65 +529,93 @@
   color: rgba(55, 53, 47, 0.45);
 }
 
-// ── Empty state with inline guidance ────────────────────────────────────
+// ── Empty state ─────────────────────────────────────────────────────────
+// Inline guidance previously lived here — it now lives in the sidebar
+// "What to do next" card so the empty state stays focused on the message.
 .pfq-empty {
   display: grid;
-  gap: 1.25rem;
+  gap: 1rem;
   justify-items: center;
   padding: 1rem 0 0.5rem;
 }
 
-.pfq-guidance {
-  width: 100%;
-  max-width: 36rem;
-  padding: 1rem 1.1rem;
-  background: var(--pfq-surface-warm);
-  border-radius: 0.85rem;
+// ── Sidebar (workload + guidance) ───────────────────────────────────────
+.pfq-sidebar {
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.pfq-side-card {
+  min-width: 0;
   border: 1px solid var(--pfq-border-soft);
 }
 
-.pfq-guidance__list {
-  list-style: none;
-  margin: 0.6rem 0 0;
-  padding: 0;
+.pfq-side-card__heading {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.2rem;
+  min-width: 0;
 }
 
-.pfq-guidance__list li {
-  display: grid;
-  grid-template-columns: 10px 1fr;
-  gap: 0.65rem;
-  align-items: start;
+.pfq-summary-grid {
+  // Override the shared 4-column default — the sidebar column is narrow,
+  // so a 2-up stack is cleaner and matches mobile without cramping.
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
-.pfq-guidance__dot {
-  margin-top: 0.55rem;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(55, 53, 47, 0.3);
+.pfq-summary-card {
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--pfq-border-soft);
+  background: var(--color-surface-container-lowest);
 }
 
-.pfq-guidance__dot--awaiting { background: var(--pfq-awaiting); }
-.pfq-guidance__dot--drafts { background: var(--pfq-drafts); }
-.pfq-guidance__dot--preparing { background: var(--pfq-preparing); }
-.pfq-guidance__dot--ready { background: var(--pfq-ready); }
-
-.pfq-guidance__title {
-  margin: 0;
-  font-size: 0.86rem;
-  font-weight: var(--weight-semibold, 600);
-  color: var(--pfq-ink);
+.pfq-summary-card__value,
+.pfq-summary-card .ops-summary-card__value {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.pfq-guidance__meta {
-  margin: 0.15rem 0 0;
-  font-size: 0.78rem;
-  color: var(--pfq-ink-muted);
+.pfq-summary-card--awaiting {
+  border-left: 3px solid var(--pfq-awaiting);
 }
+
+.pfq-summary-card--drafts {
+  border-left: 3px solid var(--pfq-drafts);
+}
+
+.pfq-summary-card--preparing {
+  border-left: 3px solid var(--pfq-preparing);
+}
+
+.pfq-summary-card--ready {
+  border-left: 3px solid var(--pfq-ready);
+}
+
+.pfq-timeline {
+  gap: 0.55rem;
+}
+
+.pfq-timeline__dot--awaiting { background: var(--pfq-awaiting); }
+.pfq-timeline__dot--drafts { background: var(--pfq-drafts); }
+.pfq-timeline__dot--preparing { background: var(--pfq-preparing); }
+.pfq-timeline__dot--ready { background: var(--pfq-ready); }
 
 // ── Responsive ──────────────────────────────────────────────────────────
+@media (max-width: 1180px) {
+  // `ops-grid--split` already collapses to a single column at 1180px; keep
+  // the sidebar tight and let the summary grid re-expand to 4 across since
+  // we now have the full width.
+  .pfq-sidebar {
+    gap: 0.85rem;
+  }
+
+  .pfq-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   .pfq-row {
     grid-template-columns: 1fr;
@@ -587,6 +633,12 @@
   }
 }
 
+@media (max-width: 768px) {
+  .pfq-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 640px) {
   .pfq-inbox__pill {
     flex: 1 1 100%;
@@ -600,5 +652,9 @@
 
   .pfq-pager__range {
     width: 100%;
+  }
+
+  .pfq-summary-grid {
+    grid-template-columns: 1fr;
   }
 }
