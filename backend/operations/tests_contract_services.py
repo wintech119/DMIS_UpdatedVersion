@@ -5731,6 +5731,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={"source_warehouse_id": 3},
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
+            permissions=None,
             tenant_context=self.dispatch_ready_context,
         )
         package_record = OperationsPackage.objects.get(package_id=90)
