@@ -36,7 +36,8 @@ import {
   WarehouseStockGroup,
   DisplaySeverity,
   DisplayStatus,
-  PhaseWindowsResponse
+  PhaseWindowsResponse,
+  PHASE_WINDOWS
 } from '../models/stock-status.model';
 import {
   ExternalUpdateSummary,
@@ -563,6 +564,17 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     this.onFiltersChanged();
   }
 
+  setWarehouseScope(value: string | number | null): void {
+    const raw = value === null || value === undefined ? '' : String(value).trim();
+    if (!raw) {
+      this.selectedWarehouseIds = [];
+    } else {
+      const id = Number(raw);
+      this.selectedWarehouseIds = Number.isFinite(id) && id > 0 ? [id] : [];
+    }
+    this.onFiltersChanged();
+  }
+
   /**
    * Drill down to single warehouse detail view
    */
@@ -1019,6 +1031,13 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     this.onFiltersChanged();
   }
 
+  /** Toolbar click handler: toggle a severity filter chip in the inline srd-toolbar. */
+  toggleDisplaySeverity(bucket: DisplaySeverity): void {
+    const next = !this.isDisplaySeveritySelected(bucket);
+    this.setDisplaySeveritySelection(bucket, next);
+    this.onFiltersChanged();
+  }
+
   private setDisplaySeveritySelection(bucket: DisplaySeverity, selected: boolean): void {
     const members = this.expandDisplaySeverity(bucket);
     for (const severity of members) {
@@ -1203,6 +1222,84 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
         };
       })
       .sort((a, b) => (b.atRisk - a.atRisk) || a.name.localeCompare(b.name));
+  }
+
+  // -- Toolbar search (srd-toolbar) ------------------------------------
+
+  searchQuery = '';
+
+  onSearchChange(value: string): void {
+    this.searchQuery = (value ?? '').trim();
+  }
+
+  clearSearch(): void {
+    this.searchQuery = '';
+  }
+
+  getWarehouseParish(warehouseId: number): { name: string; code: string } | null {
+    const wh = this.allWarehouses.find((w) => w.warehouse_id === warehouseId);
+    if (!wh) return null;
+    const name = (wh.parish_name ?? '').trim();
+    const code = (wh.parish_code ?? '').trim();
+    if (!name && !code) return null;
+    return { name: name || code, code: code || name };
+  }
+
+  /** Case-insensitive item name/code filter applied after server-side filtering. */
+  filteredItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
+    const q = this.searchQuery.toLowerCase();
+    const items = group.items ?? [];
+    if (!q) return items;
+    return items.filter((i) => {
+      const name = String(i.item_name ?? '').toLowerCase();
+      const code = String(i.item_code ?? '').toLowerCase();
+      const cat = String(i.category ?? '').toLowerCase();
+      return name.includes(q) || code.includes(q) || cat.includes(q);
+    });
+  }
+
+  /** Count of display-severity items across all groups (for toolbar chip counters). */
+  displaySeverityCount(bucket: DisplaySeverity): number {
+    let n = 0;
+    for (const g of this.warehouseGroups ?? []) {
+      for (const it of g.items ?? []) {
+        if (toDisplaySeverity(it.severity) === bucket) n += 1;
+      }
+    }
+    return n;
+  }
+
+  goodCount(group: WarehouseStockGroup): number {
+    return Math.max(0, (group.items?.length ?? 0) - (group.critical_count ?? 0) - (group.warning_count ?? 0));
+  }
+
+  /** Severity tone for a warehouse card's left accent. */
+  warehouseSeverityTone(group: WarehouseStockGroup): 'critical' | 'warning' | 'success' {
+    if (group.critical_count > 0) return 'critical';
+    if (group.warning_count > 0) return 'warning';
+    return 'success';
+  }
+
+  // -- Phase freshness thresholds (srd-freshness sub-header) -----------
+
+  private get phaseFreshnessThresholds(): { fresh: number; warn: number } {
+    const phase = this.phaseSignal();
+    if (phase === 'SURGE') return { fresh: 2, warn: 6 };
+    if (phase === 'STABILIZED') return { fresh: 6, warn: 24 };
+    return { fresh: 24, warn: 72 };
+  }
+
+  get freshThresholdLabel(): string {
+    return `Fresh ≤${this.phaseFreshnessThresholds.fresh}h`;
+  }
+
+  get warnThresholdLabel(): string {
+    const t = this.phaseFreshnessThresholds;
+    return `Warning ${t.fresh}–${t.warn}h`;
+  }
+
+  get staleThresholdLabel(): string {
+    return `Stale >${this.phaseFreshnessThresholds.warn}h`;
   }
 
   // -- KPI strip (4 cards for app-ops-metric-strip) --------------------
@@ -1618,18 +1715,19 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   }
 
   totalItemsPages(group: WarehouseStockGroup): number {
-    return Math.max(1, Math.ceil(group.items.length / this.ITEMS_PAGE_SIZE));
+    return Math.max(1, Math.ceil(this.filteredItemsFor(group).length / this.ITEMS_PAGE_SIZE));
   }
 
   paginatedItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
-    const totalPages = this.totalItemsPages(group);
+    const filtered = this.filteredItemsFor(group);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / this.ITEMS_PAGE_SIZE));
     const page = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
     const start = (page - 1) * this.ITEMS_PAGE_SIZE;
-    return group.items.slice(start, start + this.ITEMS_PAGE_SIZE);
+    return filtered.slice(start, start + this.ITEMS_PAGE_SIZE);
   }
 
   itemsRangeFor(group: WarehouseStockGroup): { start: number; end: number; total: number } {
-    const total = group.items.length;
+    const total = this.filteredItemsFor(group).length;
     if (total === 0) {
       return { start: 0, end: 0, total: 0 };
     }
@@ -1676,6 +1774,39 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
 
   getEventName(): string {
     return this.activeEvent?.event_name ?? 'No Active Event';
+  }
+
+  getDemandWindowLabel(): string {
+    return this.formatWindowHours(this.resolveDemandHours());
+  }
+
+  getPlanningWindowLabel(): string {
+    return this.formatWindowHours(this.resolvePlanningHours());
+  }
+
+  private resolveDemandHours(): number {
+    const phase = this.activeEvent?.phase as EventPhase | undefined;
+    if (!phase) return 0;
+    const fromBackend = this.phaseWindows()?.windows?.[phase];
+    if (fromBackend?.demand_hours != null) return fromBackend.demand_hours;
+    return PHASE_WINDOWS[phase]?.demand_hours ?? 0;
+  }
+
+  private resolvePlanningHours(): number {
+    const phase = this.activeEvent?.phase as EventPhase | undefined;
+    if (!phase) return 0;
+    const fromBackend = this.phaseWindows()?.windows?.[phase];
+    if (fromBackend?.planning_hours != null) return fromBackend.planning_hours;
+    return PHASE_WINDOWS[phase]?.planning_hours ?? 0;
+  }
+
+  private formatWindowHours(hours: number): string {
+    if (!hours || hours <= 0) return '—';
+    if (hours % 24 === 0 && hours >= 24) {
+      const days = hours / 24;
+      return `${days}d`;
+    }
+    return `${hours}h`;
   }
 
   private saveFilterState(): void {

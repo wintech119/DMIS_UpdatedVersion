@@ -1193,7 +1193,7 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
 
     const host = fixture.nativeElement as HTMLElement;
     const pillLabels = Array.from(
-      host.querySelectorAll<HTMLElement>('.ops-action-inbox__chips .stock-dashboard__inbox-pill')
+      host.querySelectorAll<HTMLElement>('.srd-inbox__chips .srd-inbox__chip')
     ).map((el) => (el.textContent ?? '').trim().toLowerCase());
 
     expect(pillLabels.length).toBe(3);

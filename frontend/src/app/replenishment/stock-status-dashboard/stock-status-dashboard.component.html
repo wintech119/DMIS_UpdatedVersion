@@ -1,36 +1,85 @@
-<div class="ops-page-shell stock-dashboard">
+<div class="srd-shell stock-dashboard">
   <!-- Hero band -->
-  <header class="ops-hero ops-hero--with-context" aria-label="Supply replenishment dashboard header">
-    <div class="ops-hero__lead">
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">insights</mat-icon>
+  <header class="srd-hero" aria-label="Supply replenishment dashboard header">
+    <div class="srd-hero__lead">
+      <p class="srd-hero__eyebrow">
         <span>EP-02</span>
-        <span class="ops-hero__eyebrow-sep" aria-hidden="true">/</span>
-        <span class="ops-hero__eyebrow-current">Supply Replenishment</span>
+        <span class="srd-hero__eyebrow-dot" aria-hidden="true">·</span>
+        <span>SUPPLY REPLENISHMENT</span>
       </p>
-      <h1 class="ops-hero__title">Supply Replenishment Dashboard</h1>
-      <p class="ops-hero__copy">
-        Monitor burn rates, stock-outs, and freshness across every warehouse in the active event. Generate needs lists when an item trends critical — transfers first, then donations, then procurement.
-      </p>
+      <h1 class="srd-hero__title">Supply Replenishment Dashboard</h1>
+
+      @if (activeEvent) {
+        <div class="srd-hero__chips" role="list">
+          <span
+            class="srd-chip srd-chip--phase"
+            role="listitem"
+            [attr.data-phase]="getPhaseLabel()"
+            [attr.aria-label]="'Active phase: ' + getPhaseLabel()"
+          >
+            <span class="srd-chip__dot" aria-hidden="true"></span>
+            {{ getPhaseLabel() }}
+          </span>
+
+          <span class="srd-chip srd-chip--window" role="listitem" aria-label="Demand and planning windows">
+            <mat-icon aria-hidden="true">schedule</mat-icon>
+            <span>Demand {{ getDemandWindowLabel() }} · Planning {{ getPlanningWindowLabel() }}</span>
+          </span>
+
+          <span
+            class="srd-chip srd-chip--freshness"
+            role="listitem"
+            [attr.data-tone]="freshnessSummary.tone.toLowerCase()"
+            aria-label="Overall data freshness"
+          >
+            <mat-icon aria-hidden="true">show_chart</mat-icon>
+            <strong>{{ freshnessSummary.fresh }}/{{ freshnessSummary.total }} fresh</strong>
+            <span class="srd-chip__badge" [attr.data-tone]="freshnessSummary.tone.toLowerCase()">
+              <mat-icon aria-hidden="true">warning_amber</mat-icon>
+              {{ freshnessSummary.tone }}
+            </span>
+          </span>
+
+          @if (canManagePhaseWindows()) {
+            <button
+              type="button"
+              class="srd-chip srd-chip--link"
+              role="listitem"
+              (click)="openPhaseWindowsDialog()"
+              matTooltip="Edit demand and planning windows per phase"
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+            >
+              <mat-icon aria-hidden="true">settings</mat-icon>
+              <span>Configure windows</span>
+            </button>
+          }
+
+          @if (refreshing) {
+            <span class="srd-chip srd-chip--spinner" role="status" aria-live="polite">
+              <mat-progress-spinner diameter="14" mode="indeterminate" aria-hidden="true" />
+              <span>Refreshing…</span>
+            </span>
+          }
+        </div>
+      }
     </div>
 
-    <div class="ops-hero__actions">
+    <div class="srd-hero__actions">
       <button
-        mat-stroked-button
         type="button"
+        class="srd-btn srd-btn--ghost"
         (click)="triggerManualRefresh()"
         [disabled]="refreshing"
         aria-label="Refresh dashboard data"
       >
         <mat-icon aria-hidden="true">refresh</mat-icon>
-        Refresh
+        <span>Refresh</span>
       </button>
       @if (viewMode === 'multi' && warehouseGroups.length > 0) {
         <button
-          mat-flat-button
-          color="primary"
           type="button"
-          class="stock-dashboard__generate-btn"
+          class="srd-btn srd-btn--primary"
           (click)="generateNeedsListWithGates('hero')"
           [disabled]="ctaInFlight()"
           matTooltip="Create a replenishment needs list. Select a warehouse if more than one is visible."
@@ -38,98 +87,45 @@
           matTooltipShowDelay="300"
         >
           <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
-          Generate Needs List
+          <span>Generate Needs List</span>
         </button>
       }
       @if (viewMode === 'multi') {
         <button
-          mat-stroked-button
           type="button"
+          class="srd-btn srd-btn--ghost"
           (click)="changeEventOrPhase()"
           matTooltip="Switch event or response phase (Surge / Stabilized / Baseline)"
           matTooltipPosition="above"
           matTooltipShowDelay="300"
         >
           <mat-icon aria-hidden="true">event</mat-icon>
-          Change event / phase
+          <span>Change event / phase</span>
         </button>
       }
       @if (viewMode === 'single') {
         <button
-          mat-stroked-button
           type="button"
+          class="srd-btn srd-btn--ghost"
           (click)="returnToMultiView()"
           matTooltip="Return to multi-warehouse overview"
           matTooltipPosition="above"
           matTooltipShowDelay="300"
         >
           <mat-icon aria-hidden="true">arrow_back</mat-icon>
-          Back to all warehouses
-        </button>
-      }
-      @if (canManagePhaseWindows()) {
-        <button
-          mat-stroked-button
-          type="button"
-          (click)="openPhaseWindowsDialog()"
-          matTooltip="Edit demand and planning windows per phase"
-          matTooltipPosition="above"
-          matTooltipShowDelay="300"
-        >
-          <mat-icon aria-hidden="true">tune</mat-icon>
-          Configure windows
+          <span>Back to all warehouses</span>
         </button>
       }
     </div>
-
-    @if (activeEvent) {
-      <div class="ops-hero__context stock-dashboard__context">
-        <span
-          class="ops-chip stock-dashboard__phase-pill"
-          [attr.data-phase]="getPhaseLabel()"
-          [attr.aria-label]="'Active phase: ' + getPhaseLabel()"
-        >
-          <span class="ops-chip__dot" aria-hidden="true"></span>
-          {{ getPhaseLabel() }}
-        </span>
-        <span class="stock-dashboard__event-pill" aria-label="Active event">
-          <mat-icon aria-hidden="true">bolt</mat-icon>
-          <span class="stock-dashboard__event-pill-label">Event</span>
-          <strong>{{ getEventName() }}</strong>
-        </span>
-        <span
-          class="stock-dashboard__freshness-pill"
-          [attr.data-tone]="freshnessSummary.tone.toLowerCase()"
-          aria-label="Overall data freshness"
-        >
-          <mat-icon aria-hidden="true">history</mat-icon>
-          <strong>{{ freshnessSummary.fresh }} / {{ freshnessSummary.total }} fresh</strong>
-          <app-ops-status-chip
-            [label]="freshnessSummary.tone"
-            [tone]="freshnessSummary.chipTone"
-            [showDot]="false"
-          />
-        </span>
-        @if (refreshing) {
-          <span class="stock-dashboard__refreshing" role="status" aria-live="polite">
-            <mat-progress-spinner diameter="16" mode="indeterminate" aria-hidden="true" />
-            <span>Refreshing…</span>
-          </span>
-        }
-      </div>
-    }
   </header>
 
   <!-- Action inbox bar -->
   @if (activeEvent) {
-    <section class="ops-action-inbox" aria-label="Your action inbox">
-      <div class="ops-action-inbox__lead">
-        <p class="ops-action-inbox__eyebrow">Your action inbox</p>
-        <p class="ops-action-inbox__copy">Outstanding needs lists you own or can advance.</p>
-      </div>
-      <div class="ops-action-inbox__chips" role="list">
+    <section class="srd-inbox" aria-label="Your action inbox">
+      <p class="srd-inbox__label">YOUR ACTION INBOX</p>
+      <div class="srd-inbox__chips" role="list">
         @if (actionInboxTotal === 0) {
-          <span class="stock-dashboard__inbox-empty" role="listitem">
+          <span class="srd-inbox__empty" role="listitem">
             <mat-icon aria-hidden="true">check_circle</mat-icon>
             Nothing pending
           </span>
@@ -137,53 +133,50 @@
           <button
             type="button"
             role="listitem"
-            class="stock-dashboard__inbox-pill"
-            [ngClass]="{ 'stock-dashboard__inbox-pill--urgent': actionInbox.awaitingApproval > 0 }"
+            class="srd-inbox__chip"
             (click)="openReviewQueue()"
             [disabled]="!canAccessReviewQueue"
             [attr.aria-label]="actionInbox.awaitingApproval + ' awaiting approval'"
           >
-            <span class="stock-dashboard__inbox-count">{{ actionInbox.awaitingApproval }}</span>
-            <span>Awaiting approval</span>
+            <span class="srd-inbox__count" data-tone="urgent">{{ actionInbox.awaitingApproval }}</span>
+            <span class="srd-inbox__text">awaiting approval</span>
             <mat-icon aria-hidden="true">chevron_right</mat-icon>
           </button>
           <button
             type="button"
             role="listitem"
-            class="stock-dashboard__inbox-pill"
+            class="srd-inbox__chip"
             (click)="openReviewQueue()"
             [disabled]="!canAccessReviewQueue"
             [attr.aria-label]="actionInbox.draftsInProgress + ' drafts in progress'"
           >
-            <span class="stock-dashboard__inbox-count">{{ actionInbox.draftsInProgress }}</span>
-            <span>Drafts in progress</span>
+            <span class="srd-inbox__count" data-tone="urgent">{{ actionInbox.draftsInProgress }}</span>
+            <span class="srd-inbox__text">drafts in progress</span>
             <mat-icon aria-hidden="true">chevron_right</mat-icon>
           </button>
           <button
             type="button"
             role="listitem"
-            class="stock-dashboard__inbox-pill"
-            [ngClass]="{ 'stock-dashboard__inbox-pill--returned': actionInbox.returned > 0 }"
+            class="srd-inbox__chip"
             (click)="openReviewQueue()"
             [disabled]="!canAccessReviewQueue"
-            [attr.aria-label]="actionInbox.returned + ' returned'"
+            [attr.aria-label]="actionInbox.returned + ' returned — needs resubmission'"
           >
-            <span class="stock-dashboard__inbox-count">{{ actionInbox.returned }}</span>
-            <span>Returned</span>
+            <span class="srd-inbox__count" data-tone="urgent">{{ actionInbox.returned }}</span>
+            <span class="srd-inbox__text">returned — needs resubmission</span>
             <mat-icon aria-hidden="true">chevron_right</mat-icon>
           </button>
         }
       </div>
       @if (canAccessReviewQueue) {
         <button
-          mat-stroked-button
           type="button"
-          class="ops-action-inbox__cta"
+          class="srd-inbox__review"
           (click)="openReviewQueue()"
           aria-label="Open needs list review queue"
         >
-          Review queue
-          <mat-icon aria-hidden="true">chevron_right</mat-icon>
+          <span>Review Queue</span>
+          <mat-icon aria-hidden="true">open_in_new</mat-icon>
         </button>
       }
     </section>
@@ -191,36 +184,36 @@
 
   <!-- LOW confidence banner -->
   @if (hasLowConfidence && !lowConfidenceBannerDismissed) {
-    <aside class="ops-banner ops-banner--critical stock-dashboard__low-confidence" role="alert">
-      <mat-icon aria-hidden="true">report_problem</mat-icon>
-      <div class="ops-banner__body">
-        <p class="ops-banner__title">Low confidence on {{ lowConfidenceItemCount }} item{{ lowConfidenceItemCount === 1 ? '' : 's' }}</p>
-        <p class="ops-banner__copy">
-          Burn-rate calculations for at least one item rely on stale or sparse data. Review freshness before submitting a needs list.
+    <aside class="srd-banner" role="alert">
+      <mat-icon class="srd-banner__icon" aria-hidden="true">warning_amber</mat-icon>
+      <div class="srd-banner__body">
+        <p class="srd-banner__title">LOW confidence · {{ lowConfidenceItemCount }} {{ lowConfidenceItemCount === 1 ? 'item' : 'items' }}</p>
+        <p class="srd-banner__copy">
+          Inventory has not synced within the {{ getPhaseLabel() }} freshness threshold. Burn rates use safe baseline rates per FR02.82 and may be provisional. Actions launched against flagged items will require acknowledgement.
         </p>
-        <div class="stock-dashboard__banner-actions">
+        <div class="srd-banner__actions">
           <button
-            mat-stroked-button
             type="button"
+            class="srd-btn srd-btn--ghost srd-btn--sm"
             (click)="triggerManualRefresh()"
             [disabled]="refreshing"
           >
             <mat-icon aria-hidden="true">refresh</mat-icon>
-            Refresh all
+            <span>Refresh all</span>
           </button>
           <button
-            mat-stroked-button
             type="button"
+            class="srd-btn srd-btn--ghost srd-btn--sm"
             (click)="scrollToFreshness()"
           >
-            <mat-icon aria-hidden="true">schedule</mat-icon>
-            Review freshness
+            <mat-icon aria-hidden="true">visibility</mat-icon>
+            <span>Review freshness</span>
           </button>
         </div>
       </div>
       <button
         type="button"
-        class="stock-dashboard__banner-dismiss"
+        class="srd-banner__dismiss"
         (click)="dismissLowConfidenceBanner()"
         aria-label="Dismiss low-confidence banner"
       >
@@ -231,40 +224,39 @@
 
   <!-- KPI cards -->
   @if (activeEvent && warehouseGroups.length > 0) {
-    <div class="stock-dashboard__kpi-grid" role="list" aria-label="Dashboard KPIs">
+    <div class="srd-kpi-row" role="list" aria-label="Dashboard KPIs">
       @for (card of kpiCards; track card.key) {
         <button
           type="button"
           role="listitem"
-          class="stock-dashboard__kpi-card"
+          class="srd-kpi"
           [attr.data-interactive]="card.interactive"
           [disabled]="!card.interactive"
           [attr.aria-label]="card.ariaLabel || (card.label + ': ' + card.value + (card.unit ? ' ' + card.unit : '') + '. ' + card.hint)"
           (click)="onKpiCardClick(card)"
         >
-          <div class="stock-dashboard__kpi-head">
-            <span class="stock-dashboard__kpi-label">
+          <div class="srd-kpi__head">
+            <span class="srd-kpi__label">
               <mat-icon aria-hidden="true">{{ card.icon }}</mat-icon>
               {{ card.label }}
             </span>
             @if (card.chipLabel && card.chipTone) {
-              <app-ops-status-chip
-                [label]="card.chipLabel"
-                [tone]="card.chipTone"
-                [showDot]="false"
-              />
+              <span class="srd-kpi__chip" [attr.data-tone]="card.chipTone">
+                <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                {{ card.chipLabel }}
+              </span>
             }
           </div>
-          <div class="stock-dashboard__kpi-number">
-            <span class="stock-dashboard__kpi-value">{{ card.value }}</span>
+          <div class="srd-kpi__number">
+            <span class="srd-kpi__value">{{ card.value }}</span>
             @if (card.unit) {
-              <span class="stock-dashboard__kpi-unit">{{ card.unit }}</span>
+              <span class="srd-kpi__unit">{{ card.unit }}</span>
             }
           </div>
-          <div class="stock-dashboard__kpi-foot">
-            <span class="stock-dashboard__kpi-hint">{{ card.hint }}</span>
+          <div class="srd-kpi__foot">
+            <span class="srd-kpi__hint">{{ card.hint }}</span>
             @if (card.delta) {
-              <span class="stock-dashboard__kpi-delta" aria-hidden="true">{{ card.delta }}</span>
+              <span class="srd-kpi__delta" aria-hidden="true">{{ card.delta }}</span>
             }
           </div>
         </button>
@@ -272,161 +264,151 @@
     </div>
   }
 
-  <!-- Filters & Sort (preserved; collapsible) -->
-  @if (activeEvent && warehouseGroups.length > 0) {
-    <mat-expansion-panel class="stock-dashboard__filters ops-panel" [(expanded)]="filtersExpanded">
-      <mat-expansion-panel-header>
-        <mat-panel-title>
-          <mat-icon aria-hidden="true">filter_list</mat-icon>
-          Filters &amp; sort
-          @if (hasActiveFilters()) {
-            <span class="stock-dashboard__filter-badge">{{ selectedCategories.length + selectedSeverities.length }} active</span>
-          }
-        </mat-panel-title>
-      </mat-expansion-panel-header>
-
-      <div class="stock-dashboard__filters-body">
-        <div class="stock-dashboard__filter-row">
-          <span class="stock-dashboard__filter-label">Sort by</span>
-          <div class="stock-dashboard__sort-buttons">
-            <button
-              mat-stroked-button
-              type="button"
-              [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
-              (click)="changeSortBy('time_to_stockout')"
-              matTooltip="Sort by days until stock runs out. Items running out soonest appear first."
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
+  <!-- Inline toolbar (Scope · Severity chips · Sort · Search · Refresh) -->
+  @if (activeEvent && (warehouseGroups.length > 0 || allWarehouses.length > 0)) {
+    <section class="srd-toolbar" aria-label="Dashboard filters">
+      <div class="srd-toolbar__group srd-toolbar__group--scope">
+        <label class="srd-toolbar__label" for="srd-scope">Scope</label>
+        @if (viewMode === 'multi') {
+          <div class="srd-toolbar__select-wrap">
+            <mat-icon aria-hidden="true" class="srd-toolbar__select-icon">warehouse</mat-icon>
+            <select
+              id="srd-scope"
+              class="srd-toolbar__select"
+              [value]="selectedWarehouseIds.length === 1 ? selectedWarehouseIds[0] : ''"
+              (change)="setWarehouseScope($any($event.target).value)"
+              aria-label="Filter by warehouse"
             >
-              Time to stockout
-              @if (sortBy === 'time_to_stockout') {
-                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-              }
-            </button>
-            <button
-              mat-stroked-button
-              type="button"
-              [color]="sortBy === 'severity' ? 'primary' : undefined"
-              (click)="changeSortBy('severity')"
-              matTooltip="Sort by stock health status. Critical first, then Warning, then Good."
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-            >
-              Severity
-              @if (sortBy === 'severity') {
-                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-              }
-            </button>
-            <button
-              mat-stroked-button
-              type="button"
-              [color]="sortBy === 'item_name' ? 'primary' : undefined"
-              (click)="changeSortBy('item_name')"
-              matTooltip="Sort alphabetically by item name."
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-            >
-              Item name
-              @if (sortBy === 'item_name') {
-                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
-              }
-            </button>
-          </div>
-        </div>
-
-        @if (displaySeverityOptions.length) {
-          <div class="stock-dashboard__filter-row">
-            <span class="stock-dashboard__filter-label">Severity</span>
-            <mat-chip-listbox class="stock-dashboard__chip-list" multiple>
-              @for (bucket of displaySeverityOptions; track bucket) {
-                <mat-chip-option
-                  [selected]="isDisplaySeveritySelected(bucket)"
-                  (selectionChange)="onDisplaySeveritySelectionChange(bucket, $event)"
-                  [ngClass]="getDisplayChipClass(bucket)"
-                  [matTooltip]="getDisplaySeverityTooltip(bucket)"
-                  matTooltipPosition="above"
-                  matTooltipShowDelay="300"
-                >
-                  {{ bucket }}
-                </mat-chip-option>
-              }
-            </mat-chip-listbox>
-          </div>
-        }
-
-        @if (availableCategories.length) {
-          <div class="stock-dashboard__filter-row">
-            <span class="stock-dashboard__filter-label">Category</span>
-            <mat-chip-listbox class="stock-dashboard__chip-list" multiple>
-              @for (category of availableCategories; track category) {
-                <mat-chip-option
-                  [selected]="isCategorySelected(category)"
-                  (selectionChange)="onCategorySelectionChange(category, $event)"
-                >
-                  {{ category }}
-                </mat-chip-option>
-              }
-            </mat-chip-listbox>
-          </div>
-        }
-
-        <div class="stock-dashboard__filter-row">
-          <span class="stock-dashboard__filter-label">Warehouses</span>
-          <div class="stock-dashboard__warehouse-menu-wrap">
-            @if (viewMode === 'multi') {
-              <button
-                mat-stroked-button
-                type="button"
-                [matMenuTriggerFor]="warehouseMenu"
-                matTooltip="Show stock status for specific warehouses only"
-                matTooltipPosition="above"
-                matTooltipShowDelay="300"
-              >
-                <mat-icon aria-hidden="true">warehouse</mat-icon>
-                Filter by warehouse
-                @if (selectedWarehouseIds.length > 0) {
-                  <span class="stock-dashboard__filter-badge">{{ selectedWarehouseIds.length }}</span>
-                }
-              </button>
-            }
-            <mat-menu #warehouseMenu="matMenu">
-              <button mat-menu-item type="button" (click)="clearWarehouseFilter()">
-                <mat-icon aria-hidden="true">select_all</mat-icon>
-                Show all warehouses
-              </button>
-              <mat-divider />
+              <option value="">All warehouses (national)</option>
               @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
-                <button
-                  mat-menu-item
-                  type="button"
-                  (click)="toggleWarehouseFilter(warehouse.warehouse_id); $event.stopPropagation()"
-                >
-                  <mat-icon aria-hidden="true">{{ isWarehouseSelected(warehouse.warehouse_id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
-                  {{ warehouse.warehouse_name }}
-                </button>
+                <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
               }
-            </mat-menu>
-          </div>
-        </div>
-
-        @if (hasActiveFilters()) {
-          <div class="stock-dashboard__filter-actions">
-            <button
-              mat-button
-              type="button"
-              color="warn"
-              (click)="resetFilters()"
-              matTooltip="Clear all active filters and return to default sorting"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-            >
-              <mat-icon aria-hidden="true">clear</mat-icon>
-              Reset filters
-            </button>
+            </select>
+            <mat-icon class="srd-toolbar__select-chevron" aria-hidden="true">expand_more</mat-icon>
           </div>
         }
       </div>
-    </mat-expansion-panel>
+
+      <div class="srd-toolbar__group srd-toolbar__group--severity">
+        <span class="srd-toolbar__label">Severity</span>
+        <div class="srd-toolbar__chips" role="group" aria-label="Severity filter">
+          @for (bucket of displaySeverityOptions; track bucket) {
+            <button
+              type="button"
+              class="srd-filter-chip"
+              [class.srd-filter-chip--critical]="bucket === 'CRITICAL'"
+              [class.srd-filter-chip--warning]="bucket === 'WARNING'"
+              [class.srd-filter-chip--good]="bucket === 'GOOD'"
+              [class.srd-filter-chip--active]="isDisplaySeveritySelected(bucket)"
+              [attr.aria-pressed]="isDisplaySeveritySelected(bucket)"
+              (click)="toggleDisplaySeverity(bucket)"
+              [matTooltip]="getDisplaySeverityTooltip(bucket)"
+              matTooltipPosition="above"
+            >
+              <span class="srd-filter-chip__dot" aria-hidden="true"></span>
+              <span class="srd-filter-chip__label">{{ bucket }}</span>
+              <span class="srd-filter-chip__count">{{ displaySeverityCount(bucket) }}</span>
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="srd-toolbar__group srd-toolbar__group--sort">
+        <label class="srd-toolbar__label" for="srd-sort">Sort</label>
+        <div class="srd-toolbar__sort" role="group" aria-label="Sort by">
+          <button
+            type="button"
+            class="srd-sort-btn"
+            [class.srd-sort-btn--active]="sortBy === 'severity'"
+            (click)="changeSortBy('severity')"
+            matTooltip="Worst first — Critical then Warning then Good"
+            matTooltipPosition="above"
+          >Severity
+            @if (sortBy === 'severity') {
+              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+            }
+          </button>
+          <button
+            type="button"
+            class="srd-sort-btn"
+            [class.srd-sort-btn--active]="sortBy === 'time_to_stockout'"
+            (click)="changeSortBy('time_to_stockout')"
+            matTooltip="Sort by time to stockout"
+            matTooltipPosition="above"
+          >Time to stockout
+            @if (sortBy === 'time_to_stockout') {
+              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+            }
+          </button>
+          <button
+            type="button"
+            class="srd-sort-btn"
+            [class.srd-sort-btn--active]="sortBy === 'item_name'"
+            (click)="changeSortBy('item_name')"
+            matTooltip="Sort alphabetically"
+            matTooltipPosition="above"
+          >Item name
+            @if (sortBy === 'item_name') {
+              <span class="srd-sort-btn__arrow" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+            }
+          </button>
+        </div>
+      </div>
+
+      <div class="srd-toolbar__group srd-toolbar__group--search">
+        <label class="srd-toolbar__label sr-only" for="srd-search">Search items</label>
+        <div class="srd-toolbar__search">
+          <mat-icon aria-hidden="true" class="srd-toolbar__search-icon">search</mat-icon>
+          <input
+            id="srd-search"
+            type="search"
+            class="srd-toolbar__search-input"
+            placeholder="Search items, codes, categories"
+            [value]="searchQuery"
+            (input)="onSearchChange($any($event.target).value)"
+            maxlength="120"
+            autocomplete="off"
+          />
+          @if (searchQuery) {
+            <button
+              type="button"
+              class="srd-toolbar__search-clear"
+              aria-label="Clear search"
+              (click)="clearSearch()"
+            >
+              <mat-icon aria-hidden="true">close</mat-icon>
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="srd-toolbar__group srd-toolbar__group--actions">
+        <button
+          type="button"
+          class="srd-toolbar__refresh"
+          (click)="triggerManualRefresh()"
+          [disabled]="refreshing"
+          matTooltip="Refresh dashboard data"
+          matTooltipPosition="above"
+          aria-label="Refresh data"
+        >
+          <mat-icon aria-hidden="true" [class.srd-toolbar__refresh-icon--spinning]="refreshing">refresh</mat-icon>
+          <span class="srd-toolbar__refresh-label">Refresh</span>
+        </button>
+        @if (hasActiveFilters() || searchQuery) {
+          <button
+            type="button"
+            class="srd-toolbar__reset"
+            (click)="resetFilters(); clearSearch()"
+            matTooltip="Clear all filters and search"
+            matTooltipPosition="above"
+          >
+            <mat-icon aria-hidden="true">filter_list_off</mat-icon>
+            Reset
+          </button>
+        }
+      </div>
+    </section>
   }
 
   <!-- Skeleton Loading (Initial Load) -->
@@ -439,114 +421,98 @@
 
   <!-- Main split: warehouses at risk (2/3) + side panels (1/3) -->
   @if (!loading && warehouseGroups.length > 0) {
-    <div class="ops-grid ops-grid--split">
+    <div class="srd-split">
       <!-- LEFT: warehouses at risk -->
-      <section class="ops-panel stock-dashboard__warehouses-panel" aria-label="Warehouses at risk">
-        <div class="ops-panel__header">
-          <div>
-            <p class="ops-section__eyebrow">Warehouses</p>
-            <h2 class="ops-section__title">Warehouses at risk</h2>
-            <p class="ops-section__copy">
-              Every warehouse with items trending critical or warning under the current phase window. Expand a card to inspect line items and generate a scoped needs list.
+      <section class="srd-warehouses" aria-label="Warehouses at risk">
+        <header class="srd-warehouses__header">
+          <div class="srd-warehouses__heading">
+            <h2 class="srd-warehouses__title">Warehouses at risk</h2>
+            <p class="srd-warehouses__subtitle">
+              Sorted by severity · expand a row to see items
             </p>
           </div>
-          <span class="ops-table-shell__meta">
+          <span class="srd-warehouses__meta">
             {{ warehouseGroups.length }} warehouse{{ warehouseGroups.length === 1 ? '' : 's' }}
           </span>
-        </div>
+        </header>
 
-        <div class="ops-panel__body">
+        <div class="srd-warehouses__body">
           @for (group of warehouseGroups; track group.warehouse_id) {
             <details
-              class="ops-row ops-row--interactive stock-dashboard__warehouse-row"
-              [ngClass]="{
-                'stock-dashboard__warehouse-row--critical': group.critical_count > 0,
-                'stock-dashboard__warehouse-row--warning': group.critical_count === 0 && group.warning_count > 0,
-                'stock-dashboard__warehouse-row--good': group.critical_count === 0 && group.warning_count === 0
-              }"
+              class="srd-wh-card"
+              [ngClass]="'srd-wh-card--' + warehouseSeverityTone(group)"
               [attr.open]="group.critical_count > 0 || viewMode === 'single' ? '' : null"
             >
-              <summary class="stock-dashboard__warehouse-summary">
-                <div class="stock-dashboard__warehouse-identity">
-                  <mat-icon aria-hidden="true" class="stock-dashboard__warehouse-icon">warehouse</mat-icon>
-                  <div>
-                    <h3 class="stock-dashboard__warehouse-name">{{ group.warehouse_name }}</h3>
-                    <p class="stock-dashboard__warehouse-meta">
-                      @if (group.critical_count > 0) {
-                        <span class="stock-dashboard__warehouse-counts-critical">
-                          <strong>{{ group.critical_count }}</strong> critical
-                        </span>
-                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
-                      }
-                      @if (group.warning_count > 0) {
-                        <span class="stock-dashboard__warehouse-counts-warning">
-                          <strong>{{ group.warning_count }}</strong> warning
-                        </span>
-                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
-                      }
-                      <span class="stock-dashboard__warehouse-counts-good">
-                        <strong>{{ group.items.length - group.critical_count - group.warning_count }}</strong> good
+              <summary class="srd-wh-card__summary">
+                <span class="srd-wh-card__chevron" aria-hidden="true">
+                  <mat-icon>chevron_right</mat-icon>
+                </span>
+                <div class="srd-wh-card__identity">
+                  <h3 class="srd-wh-card__name">
+                    {{ group.warehouse_name }}
+                    @if (getWarehouseParish(group.warehouse_id); as parish) {
+                      <span class="srd-wh-card__parish">
+                        <span aria-hidden="true" class="srd-wh-card__parish-sep">·</span>
+                        <span class="srd-wh-card__parish-name">{{ parish.name }}</span>
+                        @if (parish.code && parish.code !== parish.name) {
+                          <span class="srd-wh-card__parish-code">({{ parish.code }})</span>
+                        }
                       </span>
-                      @if (getDataFreshnessAgeLabel(group); as ageLabel) {
-                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
-                        <span>Synced {{ ageLabel }}</span>
-                      }
-                    </p>
-                  </div>
+                    }
+                  </h3>
+                  <p class="srd-wh-card__meta">
+                    @if (group.critical_count > 0) {
+                      <span class="srd-count srd-count--critical">
+                        <strong>{{ group.critical_count }}</strong> critical
+                      </span>
+                      <span aria-hidden="true" class="srd-count__sep">·</span>
+                    }
+                    @if (group.warning_count > 0) {
+                      <span class="srd-count srd-count--warning">
+                        <strong>{{ group.warning_count }}</strong> warning
+                      </span>
+                      <span aria-hidden="true" class="srd-count__sep">·</span>
+                    }
+                    <span class="srd-count srd-count--good">
+                      <strong>{{ goodCount(group) }}</strong> good
+                    </span>
+                    @if (getDataFreshnessAgeLabel(group); as ageLabel) {
+                      <span aria-hidden="true" class="srd-count__sep">·</span>
+                      <span class="srd-wh-card__sync">
+                        <mat-icon aria-hidden="true" class="srd-wh-card__sync-icon">schedule</mat-icon>
+                        Synced {{ ageLabel }}
+                      </span>
+                    }
+                  </p>
                 </div>
 
-                <div class="stock-dashboard__warehouse-chips">
+                <div class="srd-wh-card__chips">
                   @if (group.critical_count > 0) {
                     <app-ops-status-chip
-                      [label]="group.critical_count + ' critical'"
+                      [label]="group.critical_count + ' CRITICAL'"
                       tone="critical"
                     />
                   } @else if (group.warning_count > 0) {
                     <app-ops-status-chip
-                      [label]="group.warning_count + ' warning'"
+                      [label]="group.warning_count + ' WARNING'"
                       tone="warning"
                     />
                   } @else {
-                    <app-ops-status-chip label="All good" tone="success" />
+                    <app-ops-status-chip label="ALL GOOD" tone="success" />
                   }
-                </div>
-
-                <div class="stock-dashboard__warehouse-actions">
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="button"
-                    (click)="generateNeedsListWithGates('warehouse-card', group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
-                    [disabled]="group.items.length === 0 || ctaInFlight()"
-                    matTooltip="Create a replenishment needs list for this warehouse."
-                    matTooltipPosition="above"
-                    matTooltipShowDelay="300"
-                  >
-                    <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
-                    Generate needs list
-                  </button>
-                  @if (viewMode === 'multi') {
-                    <button
-                      mat-stroked-button
-                      type="button"
-                      (click)="drillDownToWarehouse(group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
-                      matTooltip="View detailed stock information and history for this warehouse"
-                      matTooltipPosition="above"
-                      matTooltipShowDelay="300"
-                    >
-                      <mat-icon aria-hidden="true">visibility</mat-icon>
-                      Details
-                    </button>
+                  @if (group.overall_freshness; as fr) {
+                    <app-ops-status-chip
+                      [label]="fr"
+                      [tone]="freshnessChipTone(fr)"
+                      [showDot]="false"
+                    />
                   }
-                  <span class="stock-dashboard__warehouse-chevron" aria-hidden="true">
-                    <mat-icon>expand_more</mat-icon>
-                  </span>
                 </div>
               </summary>
 
               <!-- Warehouse-scoped freshness warning -->
               @if (getDataFreshnessWarning(group); as warning) {
-                <p class="stock-dashboard__stale-note" role="status">
+                <p class="srd-wh-card__stale-note" role="status">
                   <mat-icon aria-hidden="true">schedule</mat-icon>
                   {{ warning }}
                 </p>
@@ -554,12 +520,12 @@
 
               @if (group.items.length > 0) {
                 <!-- Desktop item table -->
-                <div class="stock-dashboard__items-shell stock-dashboard__items-shell--desktop">
-                  <table class="ops-row-list stock-dashboard__items-table">
+                <div class="srd-items srd-items--desktop">
+                  <table class="srd-items-table">
                     <caption class="sr-only">Stock status items for {{ group.warehouse_name }}</caption>
                     <thead>
                       <tr>
-                        <th scope="col">Status</th>
+                        <th scope="col">Severity</th>
                         <th scope="col">Item</th>
                         <th scope="col" class="num">Available</th>
                         <th scope="col" class="num">Inbound</th>
@@ -567,12 +533,12 @@
                         <th scope="col">Time to stockout</th>
                         <th scope="col" class="num">Required</th>
                         <th scope="col" class="num">Gap</th>
-                        <th scope="col">Data</th>
+                        <th scope="col">Conf.</th>
                       </tr>
                     </thead>
                     <tbody>
                       @for (item of paginatedItemsFor(group); track item.item_id) {
-                        <tr [ngClass]="'stock-dashboard__item-row stock-dashboard__item-row--' + displaySeverity(item.severity).toLowerCase()">
+                        <tr [ngClass]="'srd-items-row srd-items-row--' + displaySeverity(item.severity).toLowerCase()">
                           <td>
                             <app-ops-status-chip
                               [label]="displaySeverity(item.severity)"
@@ -581,7 +547,7 @@
                           </td>
                           <td>
                             <p
-                              class="stock-dashboard__item-name"
+                              class="srd-items-row__name"
                               tabindex="0"
                               [attr.aria-label]="getStockItemTooltip(item)"
                               [matTooltip]="getStockItemTooltip(item)"
@@ -590,33 +556,34 @@
                             >
                               {{ item.item_name || 'Item ' + item.item_id }}
                             </p>
-                            @if (item.item_code) {
-                              <p class="stock-dashboard__item-meta">{{ item.item_code }}</p>
-                            }
-                            @if (item.category) {
-                              <p class="stock-dashboard__item-meta">{{ item.category }}</p>
+                            @if (item.item_code || item.category) {
+                              <p class="srd-items-row__meta">
+                                @if (item.item_code) { <span>{{ item.item_code }}</span> }
+                                @if (item.item_code && item.category) { <span aria-hidden="true" class="srd-items-row__meta-sep">·</span> }
+                                @if (item.category) { <span>{{ item.category }}</span> }
+                              </p>
                             }
                           </td>
                           <td class="num">{{ item.available_qty | number: '1.0-0' }}</td>
                           <td class="num">{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
                           <td>
                             <div
-                              class="stock-dashboard__burn-cell"
+                              class="srd-burn"
                               [matTooltip]="getBurnRateTooltip(item)"
                               matTooltipPosition="above"
                             >
                               <span
-                                class="stock-dashboard__burn-value"
+                                class="srd-burn__value"
                                 [ngClass]="{
-                                  'stock-dashboard__burn-value--zero-stale': shouldShowZeroWarning(item),
-                                  'stock-dashboard__burn-value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                                  'srd-burn__value--zero-stale': shouldShowZeroWarning(item),
+                                  'srd-burn__value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
                                 }"
                               >
                                 {{ getBurnRateDisplay(item) }}
                               </span>
                               @if (item.burn_rate_trend && getTrendIcon(item.burn_rate_trend)) {
                                 <mat-icon
-                                  class="stock-dashboard__trend-icon"
+                                  class="srd-burn__trend"
                                   [ngClass]="getTrendClass(item.burn_rate_trend)"
                                   inline="true"
                                 >
@@ -624,7 +591,7 @@
                                 </mat-icon>
                               }
                               @if (isStaleDataBurnRate(item)) {
-                                <span class="stock-dashboard__stale-chip" aria-label="Stale data">⚠ Stale</span>
+                                <span class="srd-stale-chip" aria-label="Stale data">STALE</span>
                               }
                             </div>
                           </td>
@@ -638,10 +605,10 @@
                             matTooltipPosition="above"
                           >
                             <span
-                              [ngClass]="item.gap_qty > 0 ? 'stock-dashboard__gap--positive' : 'stock-dashboard__gap--zero'"
+                              [ngClass]="item.gap_qty > 0 ? 'srd-gap srd-gap--negative' : 'srd-gap srd-gap--zero'"
                               [attr.aria-label]="item.gap_qty > 0 ? ('Gap remaining ' + (item.gap_qty | number: '1.0-0')) : ('No gap ' + (item.gap_qty | number: '1.0-0'))"
                             >
-                              {{ item.gap_qty | number: '1.0-0' }}
+                              {{ item.gap_qty > 0 ? '-' : '' }}{{ item.gap_qty | number: '1.0-0' }}
                             </span>
                           </td>
                           <td>
@@ -658,20 +625,20 @@
                 </div>
 
                 <!-- Mobile card list -->
-                <div class="stock-dashboard__items-shell stock-dashboard__items-shell--mobile">
+                <div class="srd-items srd-items--mobile">
                   @for (item of paginatedItemsFor(group); track item.item_id) {
                     <article
-                      class="stock-dashboard__item-card"
-                      [ngClass]="'stock-dashboard__item-card--' + displaySeverity(item.severity).toLowerCase()"
+                      class="srd-items-card"
+                      [ngClass]="'srd-items-card--' + displaySeverity(item.severity).toLowerCase()"
                     >
-                      <header class="stock-dashboard__item-card-header">
+                      <header class="srd-items-card__header">
                         <app-ops-status-chip
                           [label]="displaySeverity(item.severity)"
                           [tone]="displaySeverityTone(item.severity)"
                         />
-                        <div class="stock-dashboard__item-card-identity">
+                        <div class="srd-items-card__identity">
                           <p
-                            class="stock-dashboard__item-name"
+                            class="srd-items-row__name"
                             tabindex="0"
                             [matTooltip]="getStockItemTooltip(item)"
                             matTooltipPosition="above"
@@ -680,7 +647,7 @@
                             {{ item.item_name || 'Item ' + item.item_id }}
                           </p>
                           @if (item.category) {
-                            <p class="stock-dashboard__item-meta">{{ item.category }}</p>
+                            <p class="srd-items-row__meta">{{ item.category }}</p>
                           }
                         </div>
                         <app-ops-status-chip
@@ -689,7 +656,7 @@
                           [showDot]="false"
                         />
                       </header>
-                      <dl class="stock-dashboard__item-card-metrics">
+                      <dl class="srd-items-card__metrics">
                         <div>
                           <dt>Available</dt>
                           <dd>{{ item.available_qty | number: '1.0-0' }}</dd>
@@ -698,14 +665,14 @@
                           <dt>Burn rate</dt>
                           <dd
                             [ngClass]="{
-                              'stock-dashboard__burn-value--zero-stale': shouldShowZeroWarning(item),
-                              'stock-dashboard__burn-value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                              'srd-burn__value--zero-stale': shouldShowZeroWarning(item),
+                              'srd-burn__value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
                             }"
                           >
                             {{ getBurnRateDisplay(item) }}
                           </dd>
                         </div>
-                        <div class="stock-dashboard__item-card-metric--highlight">
+                        <div class="srd-items-card__metric--highlight">
                           <dt>Time to stockout</dt>
                           <dd>
                             <app-time-to-stockout [data]="getTimeToStockoutData(item)" />
@@ -713,8 +680,8 @@
                         </div>
                         <div>
                           <dt>Gap</dt>
-                          <dd [ngClass]="item.gap_qty > 0 ? 'stock-dashboard__gap--positive' : 'stock-dashboard__gap--zero'">
-                            {{ item.gap_qty | number: '1.0-0' }}
+                          <dd [ngClass]="item.gap_qty > 0 ? 'srd-gap srd-gap--negative' : 'srd-gap srd-gap--zero'">
+                            {{ item.gap_qty > 0 ? '-' : '' }}{{ item.gap_qty | number: '1.0-0' }}
                           </dd>
                         </div>
                       </dl>
@@ -723,32 +690,28 @@
                 </div>
 
                 @if (group.items.length > 0) {
-                  <footer class="stock-dashboard__warehouse-footer">
-                    <div class="stock-dashboard__items-pagination" role="navigation" aria-label="Warehouse items pagination">
-                      <span class="stock-dashboard__items-range">
-                        Showing {{ itemsRangeFor(group).start }}&ndash;{{ itemsRangeFor(group).end }} of {{ group.items.length }} items
-                      </span>
-                      <span class="stock-dashboard__items-page-sep" aria-hidden="true">·</span>
-                      <span class="stock-dashboard__items-page-label">
-                        Page {{ getItemsPageIndex(group.warehouse_id) }} of {{ totalItemsPages(group) }}
+                  <footer class="srd-wh-card__footer">
+                    <div class="srd-pager" role="navigation" aria-label="Warehouse items pagination">
+                      <span class="srd-pager__range">
+                        Showing {{ itemsRangeFor(group).start }}&ndash;{{ itemsRangeFor(group).end }} of {{ filteredItemsFor(group).length }} items
                       </span>
                       @if (totalItemsPages(group) > 1) {
-                        <div class="stock-dashboard__items-page-nav">
+                        <div class="srd-pager__nav">
                           <button
                             type="button"
-                            class="stock-dashboard__items-page-btn"
+                            class="srd-pager__btn"
                             [disabled]="getItemsPageIndex(group.warehouse_id) === 1"
                             (click)="prevItemsPage(group); $event.stopPropagation()"
                             aria-label="Previous page"
                           >&lsaquo;</button>
                           @for (n of visibleItemsPages(group); track $index) {
                             @if (n === '...') {
-                              <span class="stock-dashboard__items-page-ellipsis" aria-hidden="true">…</span>
+                              <span class="srd-pager__ellipsis" aria-hidden="true">…</span>
                             } @else {
                               <button
                                 type="button"
-                                class="stock-dashboard__items-page-btn"
-                                [class.stock-dashboard__items-page-btn--active]="n === getItemsPageIndex(group.warehouse_id)"
+                                class="srd-pager__btn"
+                                [class.srd-pager__btn--active]="n === getItemsPageIndex(group.warehouse_id)"
                                 [attr.aria-current]="n === getItemsPageIndex(group.warehouse_id) ? 'page' : null"
                                 (click)="setItemsPage(group.warehouse_id, n); $event.stopPropagation()"
                               >{{ n }}</button>
@@ -756,13 +719,38 @@
                           }
                           <button
                             type="button"
-                            class="stock-dashboard__items-page-btn"
+                            class="srd-pager__btn"
                             [disabled]="getItemsPageIndex(group.warehouse_id) === totalItemsPages(group)"
                             (click)="nextItemsPage(group); $event.stopPropagation()"
                             aria-label="Next page"
                           >&rsaquo;</button>
                         </div>
                       }
+                    </div>
+                    <div class="srd-wh-card__actions">
+                      @if (viewMode === 'multi') {
+                        <button
+                          type="button"
+                          class="srd-btn srd-btn--ghost"
+                          (click)="drillDownToWarehouse(group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
+                          matTooltip="View detailed stock information for this warehouse"
+                          matTooltipPosition="above"
+                        >
+                          <mat-icon aria-hidden="true">visibility</mat-icon>
+                          View warehouse
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="srd-btn srd-btn--primary"
+                        (click)="generateNeedsListWithGates('warehouse-card', group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
+                        [disabled]="group.items.length === 0 || ctaInFlight()"
+                        matTooltip="Create a replenishment needs list for this warehouse."
+                        matTooltipPosition="above"
+                      >
+                        <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
+                        Generate Needs List
+                      </button>
                     </div>
                   </footer>
                 }
@@ -782,34 +770,28 @@
       </section>
 
       <!-- RIGHT column: side panels -->
-      <aside class="ops-grid stock-dashboard__side">
+      <aside class="srd-side">
         <!-- Data freshness panel -->
-        <section class="ops-panel stock-dashboard__freshness-panel" aria-label="Data freshness by warehouse">
-          <div class="ops-panel__header">
-            <div>
-              <p class="ops-section__eyebrow">Signals</p>
-              <h2 class="ops-section__title">Data freshness</h2>
-              <p class="ops-section__copy">
-                Thresholds for the current phase: HIGH under a few hours, MEDIUM up to a working day, LOW beyond that.
-              </p>
-            </div>
-          </div>
-          <div class="ops-panel__body">
+        <section class="srd-freshness" aria-label="Data freshness by warehouse">
+          <header class="srd-freshness__header">
+            <h2 class="srd-freshness__title">Data freshness</h2>
+            <p class="srd-freshness__thresholds">
+              {{ getPhaseLabel() }} thresholds · {{ freshThresholdLabel }} · {{ warnThresholdLabel }} · {{ staleThresholdLabel }}
+            </p>
+          </header>
+          <div class="srd-freshness__body">
             @if (freshnessRows.length === 0) {
-              <p class="stock-dashboard__empty-hint">No warehouse data loaded yet.</p>
+              <p class="srd-empty">No warehouse data loaded yet.</p>
             } @else {
-              <ul class="stock-dashboard__freshness-list" role="list">
+              <ul class="srd-freshness__list" role="list">
                 @for (row of freshnessRows; track row.warehouseId) {
-                  <li class="stock-dashboard__freshness-row" role="listitem">
-                    <div class="stock-dashboard__freshness-row-main">
-                      <mat-icon aria-hidden="true" class="stock-dashboard__freshness-row-icon">warehouse</mat-icon>
-                      <div>
-                        <p class="stock-dashboard__freshness-row-name">{{ row.warehouseName }}</p>
-                        <p
-                          class="stock-dashboard__freshness-row-age"
-                          [ngClass]="{ 'stock-dashboard__freshness-row-age--low': row.tone === 'LOW' }"
-                        >{{ row.ageLabel }}</p>
-                      </div>
+                  <li class="srd-freshness__row" role="listitem">
+                    <div class="srd-freshness__row-main">
+                      <p class="srd-freshness__row-name">{{ row.warehouseName }}</p>
+                      <p
+                        class="srd-freshness__row-age"
+                        [ngClass]="{ 'srd-freshness__row-age--low': row.tone === 'LOW' }"
+                      >{{ row.ageLabel }}</p>
                     </div>
                     <app-ops-status-chip [label]="row.tone" [tone]="row.chipTone" [showDot]="false" />
                   </li>
@@ -820,50 +802,27 @@
         </section>
 
         <!-- Risk-by-category panel -->
-        <section class="ops-panel stock-dashboard__category-panel" aria-label="Risk by category">
-          <div class="ops-panel__header">
-            <div>
-              <p class="ops-section__eyebrow">Rollup</p>
-              <h2 class="ops-section__title">Risk by category</h2>
-              <p class="ops-section__copy">Share of items in each category that are currently critical or warning.</p>
-            </div>
-          </div>
-          <div class="ops-panel__body">
+        <section class="srd-categories" aria-label="Risk by category">
+          <header class="srd-categories__header">
+            <h2 class="srd-categories__title">Risk by category</h2>
+            <p class="srd-categories__subtitle">Share of items critical or warning in each category</p>
+          </header>
+          <div class="srd-categories__body">
             @if (categoryRollup.length === 0) {
-              <p class="stock-dashboard__empty-hint">No items loaded yet.</p>
+              <p class="srd-empty">No items loaded yet.</p>
             } @else {
-              <ul class="stock-dashboard__category-list" role="list">
+              <ul class="srd-categories__list" role="list">
                 @for (entry of categoryRollup; track entry.name) {
-                  <li class="stock-dashboard__category-row" role="listitem">
-                    <div class="stock-dashboard__category-row-head">
-                      <span class="stock-dashboard__category-row-name">{{ entry.name }}</span>
-                      <span class="stock-dashboard__category-row-value">
-                        {{ entry.atRisk }} / {{ entry.total }}
-                        <span class="stock-dashboard__category-row-pct" aria-hidden="true">· {{ entry.atRiskPct }}%</span>
+                  <li class="srd-categories__row" role="listitem">
+                    <div class="srd-categories__row-head">
+                      <span class="srd-categories__row-name">{{ entry.name }}</span>
+                      <span class="srd-categories__row-value">
+                        <strong>{{ entry.atRisk }}</strong> / {{ entry.total }}
+                        <span class="srd-categories__row-pct" aria-hidden="true">· {{ entry.atRiskPct }}%</span>
                       </span>
                     </div>
-                    <div class="stock-dashboard__category-legend" aria-hidden="true">
-                      @if (entry.critical > 0) {
-                        <span class="crit">
-                          <span class="stock-dashboard__category-legend-dot"></span>
-                          {{ entry.critical }} critical
-                        </span>
-                      }
-                      @if (entry.warning > 0) {
-                        <span class="warn">
-                          <span class="stock-dashboard__category-legend-dot"></span>
-                          {{ entry.warning }} warning
-                        </span>
-                      }
-                      @if (entry.good > 0) {
-                        <span class="good">
-                          <span class="stock-dashboard__category-legend-dot"></span>
-                          {{ entry.good }} good
-                        </span>
-                      }
-                    </div>
                     <div
-                      class="stock-dashboard__category-bar"
+                      class="srd-categories__bar"
                       role="progressbar"
                       [attr.aria-valuemin]="0"
                       [attr.aria-valuemax]="entry.total"
@@ -872,17 +831,37 @@
                     >
                       @if (entry.total > 0) {
                         <span
-                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--critical"
+                          class="srd-categories__seg srd-categories__seg--critical"
                           [style.width.%]="(entry.critical / entry.total) * 100"
                         ></span>
                         <span
-                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--warning"
+                          class="srd-categories__seg srd-categories__seg--warning"
                           [style.width.%]="(entry.warning / entry.total) * 100"
                         ></span>
                         <span
-                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--good"
+                          class="srd-categories__seg srd-categories__seg--good"
                           [style.width.%]="(entry.good / entry.total) * 100"
                         ></span>
+                      }
+                    </div>
+                    <div class="srd-categories__legend" aria-hidden="true">
+                      @if (entry.critical > 0) {
+                        <span class="srd-categories__legend-item srd-categories__legend-item--critical">
+                          <span class="srd-categories__legend-dot"></span>
+                          {{ entry.critical }} critical
+                        </span>
+                      }
+                      @if (entry.warning > 0) {
+                        <span class="srd-categories__legend-item srd-categories__legend-item--warning">
+                          <span class="srd-categories__legend-dot"></span>
+                          {{ entry.warning }} warning
+                        </span>
+                      }
+                      @if (entry.good > 0) {
+                        <span class="srd-categories__legend-item srd-categories__legend-item--good">
+                          <span class="srd-categories__legend-dot"></span>
+                          {{ entry.good }} good
+                        </span>
                       }
                     </div>
                   </li>
@@ -906,14 +885,25 @@
 
   <!-- Empty state: all clear -->
   @if (!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0) {
-    <dmis-empty-state
-      icon="verified"
-      title="All clear"
-      message="All items have healthy stock levels. No replenishment action needed."
-      actionLabel="Refresh data"
-      actionIcon="refresh"
-      (action)="loadMultiWarehouseStatus()"
-    />
+    @if (selectedWarehouseIds.length > 0) {
+      <dmis-empty-state
+        icon="verified"
+        title="No items at risk"
+        message="The selected warehouse has healthy stock levels. Clear the filter to view other warehouses."
+        actionLabel="Show all warehouses"
+        actionIcon="select_all"
+        (action)="clearWarehouseFilter()"
+      />
+    } @else {
+      <dmis-empty-state
+        icon="verified"
+        title="All clear"
+        message="All items have healthy stock levels. No replenishment action needed."
+        actionLabel="Refresh data"
+        actionIcon="refresh"
+        (action)="loadMultiWarehouseStatus()"
+      />
+    }
   }
 
   <!-- Empty state: load error -->

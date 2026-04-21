@@ -50,6 +50,8 @@ export interface ActiveEvent {
 export interface Warehouse {
   warehouse_id: number;
   warehouse_name: string;
+  parish_code?: string | null;
+  parish_name?: string | null;
 }
 
 export interface WarehousesResponse {

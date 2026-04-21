@@ -1383,9 +1383,12 @@ def get_all_warehouses() -> List[Dict[str, object]]:
     if _is_sqlite():
         # Return mock data for SQLite development - Default warehouses for Event ID 1
         return [
-            {"warehouse_id": 1, "warehouse_name": "Kingston Central Depot"},
-            {"warehouse_id": 2, "warehouse_name": "Montego Bay Hub"},
-            {"warehouse_id": 3, "warehouse_name": "Mandeville Storage"},
+            {"warehouse_id": 1, "warehouse_name": "Kingston Central Depot",
+             "parish_code": "KGN", "parish_name": "Kingston"},
+            {"warehouse_id": 2, "warehouse_name": "Montego Bay Hub",
+             "parish_code": "STJ", "parish_name": "St. James"},
+            {"warehouse_id": 3, "warehouse_name": "Mandeville Storage",
+             "parish_code": "MAN", "parish_name": "Manchester"},
         ]
 
     schema = _schema_name()
@@ -1394,10 +1397,11 @@ def get_all_warehouses() -> List[Dict[str, object]]:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT warehouse_id, warehouse_name
-                FROM {schema}.warehouse
-                WHERE status_code = %s
-                ORDER BY warehouse_name
+                SELECT w.warehouse_id, w.warehouse_name, w.parish_code, p.parish_name
+                FROM {schema}.warehouse w
+                LEFT JOIN {schema}.parish p ON p.parish_code = w.parish_code
+                WHERE w.status_code = %s
+                ORDER BY w.warehouse_name
                 """,
                 ["A"],
             )
@@ -1405,6 +1409,8 @@ def get_all_warehouses() -> List[Dict[str, object]]:
                 warehouses.append({
                     "warehouse_id": int(row[0]),
                     "warehouse_name": str(row[1]) if row[1] else f"Warehouse {row[0]}",
+                    "parish_code": str(row[2]) if row[2] else None,
+                    "parish_name": str(row[3]) if row[3] else None,
                 })
     except DatabaseError as exc:
         logger.warning("Warehouses query failed: %s", exc)
