@@ -8,14 +8,14 @@ import {
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import type { OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { PackageQueueItem } from '../models/operations.model';
@@ -70,9 +70,9 @@ interface ActionInboxPill {
   standalone: true,
   imports: [
     FormsModule,
+    RouterLink,
     MatButtonModule,
     MatIconModule,
-    OpsMetricStripComponent,
     OpsStatusChipComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
@@ -95,6 +95,13 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly activeFilter = signal<FulfillmentFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
   readonly page = signal(1);
+
+  // Secondary scoped filters rendered as toolbar selects — currently
+  // presentational pass-through; backend integration is tracked as a
+  // follow-up so the visual toolbar matches the approved design today.
+  readonly priorityFilter = signal<'all' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+  readonly warehouseFilter = signal<string>('all');
+  readonly sortOrder = signal<'oldest' | 'newest'>('oldest');
 
   readonly errored = computed(() => !this.loading() && this.loadError() !== null);
 
@@ -456,6 +463,40 @@ export class PackageFulfillmentQueueComponent implements OnInit {
       default:
         return '—';
     }
+  }
+
+  stageBadgeLabel(id: 'awaiting' | 'drafts' | 'preparing' | 'ready'): string {
+    switch (id) {
+      case 'awaiting':
+        return 'AWAITING';
+      case 'drafts':
+        return 'DRAFT';
+      case 'preparing':
+        return 'PREPARING';
+      case 'ready':
+        return 'READY';
+    }
+  }
+
+  inboxBody(pill: ActionInboxPill): string {
+    // Strip the leading numeric count because the badge already shows it —
+    // keeps the row visually balanced without duplicating the number.
+    return pill.label.replace(/^\d+\s+/, '');
+  }
+
+  onPriorityChange(value: string): void {
+    const next = (value === 'HIGH' || value === 'MEDIUM' || value === 'LOW')
+      ? value
+      : 'all';
+    this.priorityFilter.set(next);
+  }
+
+  onWarehouseChange(value: string): void {
+    this.warehouseFilter.set(value || 'all');
+  }
+
+  onSortChange(value: string): void {
+    this.sortOrder.set(value === 'newest' ? 'newest' : 'oldest');
   }
 
   stageDotClass(row: PackageQueueItem): string {
