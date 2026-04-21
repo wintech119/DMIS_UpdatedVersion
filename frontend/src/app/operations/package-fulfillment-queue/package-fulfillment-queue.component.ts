@@ -42,10 +42,28 @@ import {
 
 export type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready';
 type FulfillmentStage = FulfillmentFilter | 'excluded';
+export type TimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 
 const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
 const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
+
+const PAGE_SIZE = 5;
+
+// SLA thresholds (hours) — placeholder per design spec §14 Q2.
+const TIME_IN_STAGE_THRESHOLDS = {
+  fresh: 4,
+  normal: 24,
+  stale: 48,
+} as const;
+
+interface ActionInboxPill {
+  readonly token: Exclude<FulfillmentFilter, 'all'>;
+  readonly label: string;
+  readonly count: number;
+  readonly severity: 'info' | 'warning' | 'success';
+  readonly icon: string;
+}
 
 @Component({
   selector: 'app-package-fulfillment-queue',
@@ -76,16 +94,19 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<FulfillmentFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly page = signal(1);
 
   readonly errored = computed(() => !this.loading() && this.loadError() !== null);
 
   readonly filterOptions: readonly { label: string; value: FulfillmentFilter }[] = [
+    { label: 'All', value: 'all' },
     { label: 'Awaiting', value: 'awaiting' },
     { label: 'Drafts', value: 'drafts' },
     { label: 'Preparing', value: 'preparing' },
     { label: 'Ready', value: 'ready' },
-    { label: 'All', value: 'all' },
   ];
+
+  readonly pageSize = PAGE_SIZE;
 
   readonly filteredItems = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
@@ -117,19 +138,81 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     });
   });
 
+  readonly totalPages = computed(() =>
+    Math.max(1, Math.ceil(this.filteredItems().length / PAGE_SIZE)),
+  );
+
+  readonly currentPage = computed(() => Math.min(this.page(), this.totalPages()));
+
+  readonly pagedItems = computed(() => {
+    const rows = this.filteredItems();
+    const page = this.currentPage();
+    const start = (page - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  });
+
+  readonly pageRange = computed(() => {
+    const total = this.filteredItems().length;
+    if (total === 0) {
+      return { start: 0, end: 0, total: 0 };
+    }
+    const page = this.currentPage();
+    const start = (page - 1) * PAGE_SIZE + 1;
+    const end = Math.min(start + PAGE_SIZE - 1, total);
+    return { start, end, total };
+  });
+
+  readonly visiblePages = computed<(number | 'ellipsis')[]>(() => {
+    const total = this.totalPages();
+    const current = this.currentPage();
+    if (total <= 5) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const pages: (number | 'ellipsis')[] = [1];
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    if (start > 2) pages.push('ellipsis');
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push('ellipsis');
+    pages.push(total);
+    return pages;
+  });
+
   readonly queueStats = computed(() => {
     const items = this.items();
-    const total = items.filter((item) => this.getFulfillmentStage(item) !== 'excluded').length;
     const awaiting = items.filter((item) => this.getFulfillmentStage(item) === 'awaiting').length;
     const drafts = items.filter((item) => this.getFulfillmentStage(item) === 'drafts').length;
     const preparing = items.filter((item) => this.getFulfillmentStage(item) === 'preparing').length;
     const ready = items.filter((item) => this.getFulfillmentStage(item) === 'ready').length;
     return [
-      { id: 'awaiting' as FulfillmentFilter, label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue', icon: 'pending_actions' },
-      { id: 'drafts' as FulfillmentFilter, label: 'Drafts To Resume', value: drafts, note: 'Saved package work', icon: 'drafts' },
-      { id: 'preparing' as FulfillmentFilter, label: 'Preparing', value: preparing, note: 'Reservation in progress', icon: 'inventory_2' },
-      { id: 'ready' as FulfillmentFilter, label: 'Ready to Dispatch', value: ready, note: 'Packages committed', icon: 'local_shipping' },
-      { id: 'all' as FulfillmentFilter, label: 'All Requests', value: total, note: 'Visible in the queue', icon: 'list_alt' },
+      {
+        id: 'awaiting' as const,
+        label: 'Awaiting Fulfillment',
+        value: awaiting,
+        note: 'New work in queue',
+        icon: 'pending_actions',
+      },
+      {
+        id: 'drafts' as const,
+        label: 'Drafts to Resume',
+        value: drafts,
+        note: 'Saved package work',
+        icon: 'drafts',
+      },
+      {
+        id: 'preparing' as const,
+        label: 'Preparing',
+        value: preparing,
+        note: 'Reservation in progress',
+        icon: 'inventory_2',
+      },
+      {
+        id: 'ready' as const,
+        label: 'Ready to Dispatch',
+        value: ready,
+        note: 'Packages committed',
+        icon: 'local_shipping',
+      },
     ];
   });
 
@@ -143,7 +226,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
       token: stat.id,
       active: active === stat.id,
       icon: stat.icon,
-      ariaLabel: `${stat.label}, ${stat.value}${active === stat.id ? ', active filter' : ''}`,
+      ariaLabel: `Filter queue to ${stat.label.toLowerCase()}, ${stat.value} ${stat.value === 1 ? 'package' : 'packages'}${active === stat.id ? ', active filter' : ''}`,
     }));
   });
 
@@ -153,15 +236,44 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   readonly defaultWarehouseLabel = signal('All warehouses');
 
-  readonly sidebarSummary = computed(() => {
-    const rows = this.filteredItems();
-    return {
-      total: rows.length,
-      awaiting: rows.filter((r) => this.getFulfillmentStage(r) === 'awaiting').length,
-      drafts: rows.filter((r) => this.getFulfillmentStage(r) === 'drafts').length,
-      preparing: rows.filter((r) => this.getFulfillmentStage(r) === 'preparing').length,
-      ready: rows.filter((r) => this.getFulfillmentStage(r) === 'ready').length,
-    };
+  readonly actionInbox = computed<readonly ActionInboxPill[]>(() => {
+    const stats = this.queueStats();
+    const awaiting = stats.find((s) => s.id === 'awaiting')?.value ?? 0;
+    const drafts = stats.find((s) => s.id === 'drafts')?.value ?? 0;
+    const ready = stats.find((s) => s.id === 'ready')?.value ?? 0;
+
+    const pills: ActionInboxPill[] = [];
+    if (drafts > 0) {
+      pills.push({
+        token: 'drafts',
+        label: drafts === 1 ? '1 draft to resume' : `${drafts} drafts to resume`,
+        count: drafts,
+        severity: 'info',
+        icon: 'edit_note',
+      });
+    }
+    if (awaiting > 0) {
+      pills.push({
+        token: 'awaiting',
+        label:
+          awaiting === 1
+            ? '1 awaiting stock reservation'
+            : `${awaiting} awaiting stock reservation`,
+        count: awaiting,
+        severity: 'warning',
+        icon: 'pending_actions',
+      });
+    }
+    if (ready > 0) {
+      pills.push({
+        token: 'ready',
+        label: ready === 1 ? '1 ready to hand off' : `${ready} ready to hand off`,
+        count: ready,
+        severity: 'success',
+        icon: 'local_shipping',
+      });
+    }
+    return pills;
   });
 
   readonly unreadCounts = computed<Record<FulfillmentFilter, number>>(() => {
@@ -174,6 +286,17 @@ export class PackageFulfillmentQueueComponent implements OnInit {
       drafts: countOperationsUnreadIds(this.getFilterRequestIds('drafts', rows), seen['drafts']),
       preparing: countOperationsUnreadIds(this.getFilterRequestIds('preparing', rows), seen['preparing']),
       ready: countOperationsUnreadIds(this.getFilterRequestIds('ready', rows), seen['ready']),
+    };
+  });
+
+  readonly filterChipCounts = computed<Record<FulfillmentFilter, number>>(() => {
+    const stats = this.queueStats();
+    return {
+      all: this.activeQueueCount(),
+      awaiting: stats.find((s) => s.id === 'awaiting')?.value ?? 0,
+      drafts: stats.find((s) => s.id === 'drafts')?.value ?? 0,
+      preparing: stats.find((s) => s.id === 'preparing')?.value ?? 0,
+      ready: stats.find((s) => s.id === 'ready')?.value ?? 0,
     };
   });
 
@@ -242,9 +365,13 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   onSearch(value: string): void {
     this.searchTerm.set(value);
+    this.page.set(1);
   }
 
   setFilter(filter: FulfillmentFilter): void {
+    if (this.activeFilter() !== filter) {
+      this.page.set(1);
+    }
     this.activeFilter.set(filter);
     this.markFilterSeen(filter);
   }
@@ -257,13 +384,93 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     this.setFilter(token);
   }
 
+  onInboxClick(pill: ActionInboxPill): void {
+    this.setFilter(pill.token);
+  }
+
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  nextAction(row: PackageQueueItem): { label: string; icon: string } {
+    const stage = this.getFulfillmentStage(row);
+    switch (stage) {
+      case 'drafts':
+        return { label: 'Resume draft', icon: 'edit_note' };
+      case 'preparing':
+        return { label: 'Continue packing', icon: 'inventory_2' };
+      case 'ready':
+        return { label: 'Hand off to dispatch', icon: 'local_shipping' };
+      case 'awaiting':
+      default:
+        return { label: 'Allocate stock', icon: 'play_arrow' };
+    }
+  }
+
+  nextActionAriaLabel(row: PackageQueueItem): string {
+    const { label } = this.nextAction(row);
+    const id = row.tracking_no ?? `REQ-${row.reliefrqst_id}`;
+    return `${label} for ${id}`;
+  }
+
+  timeInStageHours(row: PackageQueueItem): number | null {
+    const value = row.create_dtime ?? row.request_date;
+    if (!value) {
+      return null;
+    }
+    const then = new Date(value).getTime();
+    if (Number.isNaN(then)) {
+      return null;
+    }
+    return Math.max(0, (Date.now() - then) / (60 * 60 * 1000));
+  }
+
+  timeInStageTone(row: PackageQueueItem): TimeInStageTone {
+    const hours = this.timeInStageHours(row);
+    if (hours === null) {
+      return 'normal';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.fresh) {
+      return 'fresh';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.normal) {
+      return 'normal';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.stale) {
+      return 'stale';
+    }
+    return 'breach';
+  }
+
+  stageLabel(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    switch (stage) {
+      case 'awaiting':
+        return 'Awaiting';
+      case 'drafts':
+        return 'Draft';
+      case 'preparing':
+        return 'Preparing';
+      case 'ready':
+        return 'Ready';
+      default:
+        return '—';
+    }
+  }
+
+  stageDotClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? '' : `ops-stage-dot--${stage}`;
   }
 
   stageClass(row: PackageQueueItem): string {
     const stage = this.getFulfillmentStage(row);
     return stage === 'excluded' ? '' : `ops-row--${stage}`;
+  }
+
+  actionClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? 'pfq-action--awaiting' : `pfq-action--${stage}`;
   }
 
   ageClass(row: PackageQueueItem): string {
@@ -301,11 +508,30 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   filterAriaLabel(label: string, filter: FulfillmentFilter): string {
+    const count = this.filterChipCounts()[filter] ?? 0;
     const unread = this.unreadCount(filter);
+    const base = `${label}, ${count} ${count === 1 ? 'request' : 'requests'}`;
     if (!unread) {
-      return label;
+      return base;
     }
-    return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+    return `${base}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+  }
+
+  setPage(page: number): void {
+    const clamped = Math.max(1, Math.min(this.totalPages(), page));
+    this.page.set(clamped);
+  }
+
+  nextPage(): void {
+    this.setPage(this.currentPage() + 1);
+  }
+
+  prevPage(): void {
+    this.setPage(this.currentPage() - 1);
+  }
+
+  trackByPage(_index: number, value: number | 'ellipsis'): string {
+    return typeof value === 'number' ? `p-${value}` : `e-${_index}`;
   }
 
   private isOutOfContractRow(row: PackageQueueItem): boolean {
@@ -369,6 +595,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         this.warnOutOfContractRows(rows);
         this.items.set(rows);
         this.loadError.set(null);
+        this.page.set(1);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
