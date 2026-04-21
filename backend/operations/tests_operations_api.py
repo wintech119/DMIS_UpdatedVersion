@@ -35,6 +35,9 @@ from replenishment.services.allocation_dispatch import InventoryDriftError
 class OperationsApiTests(SimpleTestCase):
     def setUp(self) -> None:
         self.client = APIClient()
+        self.active_event_patcher = patch("operations.views.data_access.get_active_event", return_value=None)
+        self.active_event_patcher.start()
+        self.addCleanup(self.active_event_patcher.stop)
         cache.clear()
 
     def tearDown(self) -> None:
@@ -567,7 +570,16 @@ class OperationsApiTests(SimpleTestCase):
         )
         receive_leg_response = self.client.post(
             "/api/v1/operations/packages/90/consolidation-legs/301/receive",
-            {"received_by_name": "Receiver"},
+            {
+                "received_by_name": "Receiver",
+                "receipt_lines": [
+                    {
+                        "leg_item_id": 8001,
+                        "received_qty": "1.0000",
+                        "damaged_qty": "0.0000",
+                    }
+                ],
+            },
             format="json",
             HTTP_IDEMPOTENCY_KEY="receive-leg-301",
         )
@@ -612,6 +624,8 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_dispatch_leg.call_args.kwargs["idempotency_key"], "dispatch-leg-301")
         self.assertEqual(mock_receive_leg.call_args.args[:2], (90, 301))
         self.assertEqual(mock_receive_leg.call_args.kwargs["payload"]["received_by_name"], "Receiver")
+        self.assertEqual(mock_receive_leg.call_args.kwargs["payload"]["receipt_lines"][0]["leg_item_id"], 8001)
+        self.assertEqual(mock_receive_leg.call_args.kwargs["payload"]["receipt_lines"][0]["received_qty"], "1.0000")
         self.assertEqual(mock_receive_leg.call_args.kwargs["idempotency_key"], "receive-leg-301")
         self.assertEqual(mock_leg_waybill.call_args.args[:2], (90, 301))
         self.assertEqual(mock_partial_request.call_args.args[0], 90)
@@ -2088,6 +2102,10 @@ class OperationsApiTenantIsolationTests(TestCase):
 class OperationsViewHelperTests(SimpleTestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
+        self.client = APIClient()
+        self.active_event_patcher = patch("operations.views.data_access.get_active_event", return_value=None)
+        self.active_event_patcher.start()
+        self.addCleanup(self.active_event_patcher.stop)
         cache.clear()
 
     def tearDown(self) -> None:

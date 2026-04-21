@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Mapping
 from unittest.mock import MagicMock, Mock, patch
 
-from django.db import DatabaseError, IntegrityError, connection
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.core.cache import cache
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from api.tenancy import TenantContext, TenantMembership
@@ -63,6 +64,7 @@ from operations.models import (
     OperationsActionAudit,
     OperationsConsolidationLeg,
     OperationsConsolidationLegItem,
+    OperationsConsolidationReceipt,
     OperationsDispatch,
     OperationsDispatchTransport,
     OperationsEligibilityDecision,
@@ -188,6 +190,12 @@ class RequestAuthorityHierarchyTests(TestCase):
 class OperationsWorkflowContractTests(TestCase):
     def setUp(self) -> None:
         cache.clear()
+        stale_request_ids = [191, 192, 193, 194]
+        stale_package_ids = [191, 292, 293, 294]
+        OperationsQueueAssignment.objects.filter(entity_id__in=stale_request_ids + stale_package_ids).delete()
+        OperationsNotification.objects.filter(entity_id__in=stale_request_ids + stale_package_ids).delete()
+        OperationsPackage.objects.filter(package_id__in=stale_package_ids).delete()
+        OperationsReliefRequest.objects.filter(relief_request_id__in=stale_request_ids).delete()
         self.request = SimpleNamespace(
             reliefrqst_id=70,
             agency_id=501,
@@ -304,6 +312,63 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_type="EXTERNAL",
         )
 
+    def _create_staging_receipt_fixture(
+        self,
+        *,
+        request_id: int,
+        package_id: int,
+        planned_qty: Decimal = Decimal("2.0000"),
+    ) -> tuple[OperationsReliefRequest, OperationsPackage, OperationsConsolidationLeg, OperationsConsolidationLegItem]:
+        request_record = self._create_operations_request_record(relief_request_id=request_id)
+        package_record = OperationsPackage.objects.create(
+            package_id=package_id,
+            package_no=f"PK{package_id:05d}",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=planned_qty,
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg_item = OperationsConsolidationLegItem.objects.create(
+            leg=leg,
+            item_id=101,
+            batch_id=1001,
+            quantity=planned_qty,
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_STAGING_RECEIPT,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        return request_record, package_record, leg, leg_item
+
     @patch("operations.contract_services.get_lookup")
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
     def test_request_reference_data_filters_agencies_to_allowed_scope(
@@ -348,43 +413,44 @@ class OperationsWorkflowContractTests(TestCase):
 
     def _insert_legacy_agency(self, agency_id: int) -> None:
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO agency (
-                        agency_id,
-                        agency_name,
-                        address1_text,
-                        parish_code,
-                        contact_name,
-                        phone_no,
-                        create_by_id,
-                        create_dtime,
-                        update_by_id,
-                        update_dtime,
-                        version_nbr,
-                        agency_type,
-                        status_code
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO agency (
+                            agency_id,
+                            agency_name,
+                            address1_text,
+                            parish_code,
+                            contact_name,
+                            phone_no,
+                            create_by_id,
+                            create_dtime,
+                            update_by_id,
+                            update_dtime,
+                            version_nbr,
+                            agency_type,
+                            status_code
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (agency_id) DO NOTHING
+                        """,
+                        [
+                            agency_id,
+                            f"AGENCY {agency_id}",
+                            f"{agency_id} Test Street",
+                            "01",
+                            "TEST CONTACT",
+                            "555-0100",
+                            "tester",
+                            datetime(2026, 3, 26, 9, 0, 0),
+                            "tester",
+                            datetime(2026, 3, 26, 9, 0, 0),
+                            1,
+                            "SHELTER",
+                            "A",
+                        ],
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (agency_id) DO NOTHING
-                    """,
-                    [
-                        agency_id,
-                        f"AGENCY {agency_id}",
-                        f"{agency_id} Test Street",
-                        "01",
-                        "TEST CONTACT",
-                        "555-0100",
-                        "tester",
-                        datetime(2026, 3, 26, 9, 0, 0),
-                        "tester",
-                        datetime(2026, 3, 26, 9, 0, 0),
-                        1,
-                        "SHELTER",
-                        "A",
-                    ],
-                )
         except DatabaseError:
             return
 
@@ -3848,6 +3914,162 @@ class OperationsWorkflowContractTests(TestCase):
                 assigned_role_code=ROLE_INVENTORY_CLERK,
             ).exists()
         )
+
+    @patch("operations.contract_services._receive_leg_stock_into_staging")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_receive_consolidation_leg_rejects_line_outside_target_leg(
+        self,
+        package_context_mock,
+        receive_stock_mock,
+    ) -> None:
+        request_record, package_record, leg, leg_item = self._create_staging_receipt_fixture(
+            request_id=272,
+            package_id=372,
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=372, reliefrqst_id=272, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=272, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.receive_consolidation_leg(
+                372,
+                int(leg.leg_id),
+                payload={
+                    "receipt_lines": [
+                        {
+                            "leg_item_id": int(leg_item.leg_item_id) + 999,
+                            "received_qty": "1.0000",
+                            "variance_reason_text": "Wrong leg",
+                        }
+                    ]
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="receive-leg-372",
+            )
+
+        self.assertIn("outside this consolidation leg", raised.exception.errors["leg_item_id"])
+        receive_stock_mock.assert_not_called()
+
+    @patch("operations.contract_services._receive_leg_stock_into_staging")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_receive_consolidation_leg_requires_variance_reason(
+        self,
+        package_context_mock,
+        receive_stock_mock,
+    ) -> None:
+        request_record, package_record, leg, leg_item = self._create_staging_receipt_fixture(
+            request_id=273,
+            package_id=373,
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=373, reliefrqst_id=273, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=273, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.receive_consolidation_leg(
+                373,
+                int(leg.leg_id),
+                payload={
+                    "receipt_lines": [
+                        {
+                            "leg_item_id": int(leg_item.leg_item_id),
+                            "received_qty": "1.0000",
+                        }
+                    ]
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="receive-leg-373",
+            )
+
+        self.assertIn(
+            "variance_reason_text is required",
+            raised.exception.errors[f"receipt_lines.{int(leg_item.leg_item_id)}.variance_reason_text"],
+        )
+        receive_stock_mock.assert_not_called()
+
+    @patch("operations.contract_services._receive_leg_stock_into_staging")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_receive_consolidation_leg_writes_audit_history_and_replays_idempotently(
+        self,
+        package_context_mock,
+        receive_stock_mock,
+    ) -> None:
+        request_record, package_record, leg, leg_item = self._create_staging_receipt_fixture(
+            request_id=274,
+            package_id=374,
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=374, reliefrqst_id=274, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=274, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+        payload = {
+            "received_by_name": "Staging Receiver",
+            "receipt_notes": "Short one carton",
+            "receipt_lines": [
+                {
+                    "leg_item_id": int(leg_item.leg_item_id),
+                    "received_qty": "1.0000",
+                    "variance_reason_text": "Seal broken before handoff",
+                }
+            ],
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.receive_consolidation_leg(
+                374,
+                int(leg.leg_id),
+                payload=payload,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="receive-leg-374",
+            )
+        second = contract_services.receive_consolidation_leg(
+            374,
+            int(leg.leg_id),
+            payload={**payload, "receipt_notes": "Replay should be ignored"},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="receive-leg-374",
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["status"], contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING)
+        self.assertEqual(receive_stock_mock.call_count, 1)
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="CONSOLIDATION_LEG",
+                entity_id=int(leg.leg_id),
+                to_status_code=contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+            ).count(),
+            1,
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            action_code=contract_services.ACTION_STAGING_RECEIPT_RECORDED,
+        )
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.consolidation_leg_id, int(leg.leg_id))
+        self.assertEqual(action_audit.warehouse_id, int(leg.staging_warehouse_id))
+        self.assertTrue(action_audit.artifact_reference.startswith("operations_consolidation_receipt:"))
+        self.assertEqual(OperationsConsolidationReceipt.objects.filter(leg=leg).count(), 1)
+        receipt = OperationsConsolidationReceipt.objects.get(leg=leg)
+        self.assertEqual(receipt.receipt_artifact_json["line_items"][0]["shortage_qty"], "1.0000")
+        self.assertEqual(package_context_mock.call_count, 1)
 
     @patch("operations.contract_services._create_consolidation_waybill")
     @patch("operations.contract_services.legacy_service._apply_stock_delta_for_rows")
@@ -8394,25 +8616,68 @@ class OperationsWorkflowContractTests(TestCase):
         package_summary_payload_mock.assert_called_once()
 
 
-class StagingReservationContractTests(TransactionTestCase):
+class StagingReservationContractTests(TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        super().setUpClass()
         cls._created_legacy_tables: list[type] = []
         existing_tables = set(connection.introspection.table_names())
         with connection.schema_editor() as schema_editor:
             for model in (Inventory, ItemBatch):
                 if model._meta.db_table in existing_tables:
+                    with connection.cursor() as cursor:
+                        existing_columns = {
+                            column.name
+                            for column in connection.introspection.get_table_description(
+                                cursor,
+                                model._meta.db_table,
+                            )
+                        }
+                    for field in model._meta.local_fields:
+                        if field.primary_key or field.column in existing_columns:
+                            continue
+                        schema_editor.add_field(model, field)
+                        existing_columns.add(field.column)
                     continue
                 schema_editor.create_model(model)
                 cls._created_legacy_tables.append(model)
+        contract_services._legacy_table_columns.cache_clear()
+        super().setUpClass()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        super().tearDownClass()
         with connection.schema_editor() as schema_editor:
             for model in reversed(cls._created_legacy_tables):
                 schema_editor.delete_model(model)
-        super().tearDownClass()
+        contract_services._legacy_table_columns.cache_clear()
+
+    def setUp(self) -> None:
+        OperationsReliefRequest.objects.filter(relief_request_id__in=[191, 192, 193, 194, 195, 196, 197]).delete()
+        Inventory.objects.filter(inventory_id=55, item_id=101).delete()
+        table_columns = contract_services._legacy_table_columns(ItemBatch._meta.db_table)
+        if "batch_id" in table_columns:
+            batch_ids = [
+                4001,
+                4002,
+                4003,
+                4004,
+                4005,
+                4006,
+                4007,
+                95501,
+                95502,
+                95503,
+                95504,
+                95505,
+                95506,
+                95507,
+            ]
+            placeholders = ", ".join(["%s"] * len(batch_ids))
+            contract_services._execute(
+                f"DELETE FROM {connection.ops.quote_name(ItemBatch._meta.db_table)} "
+                f"WHERE batch_id IN ({placeholders})",
+                batch_ids,
+            )
 
     def _create_operations_request_record(self, relief_request_id: int = 70, agency_id: int = 501) -> OperationsReliefRequest:
         return OperationsReliefRequest.objects.create(
@@ -8430,6 +8695,120 @@ class StagingReservationContractTests(TransactionTestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
+
+    def _insert_item_batch(
+        self,
+        *,
+        batch_id: int,
+        inventory_id: int,
+        item_id: int = 101,
+        usable_qty: Decimal = Decimal("5.0000"),
+        reserved_qty: Decimal = Decimal("0.0000"),
+        defective_qty: Decimal = Decimal("0.0000"),
+        batch_no: str | None = None,
+    ) -> None:
+        contract_services._insert_item_batch_snapshot(
+            {
+                "batch_id": batch_id,
+                "inventory_id": inventory_id,
+                "item_id": item_id,
+                "batch_no": batch_no or f"SRC-{batch_id}",
+                "batch_date": date(2026, 3, 20),
+                "expiry_date": date(2026, 12, 31),
+                "usable_qty": usable_qty,
+                "reserved_qty": reserved_qty,
+                "defective_qty": defective_qty,
+                "expired_qty": Decimal("0.0000"),
+                "uom_code": "EA",
+                "status_code": "A",
+                "update_by_id": "tester",
+                "update_dtime": timezone.now(),
+                "version_nbr": 1,
+            }
+        )
+
+    def _item_batch_row(self, batch_id: int) -> dict[str, object]:
+        return contract_services._fetch_item_batch_snapshot(batch_id)
+
+    def _batch_available_qty(self, batch: Mapping[str, object]) -> Decimal:
+        return Decimal(str(batch.get("usable_qty") or "0")) - Decimal(str(batch.get("reserved_qty") or "0"))
+
+    def _create_staging_leg_item(
+        self,
+        *,
+        request_id: int,
+        package_id: int,
+        source_batch_id: int,
+        planned_qty: Decimal = Decimal("2.0000"),
+        create_allocation_line: bool = True,
+    ) -> tuple[OperationsConsolidationLeg, OperationsConsolidationLegItem]:
+        request_record = self._create_operations_request_record(relief_request_id=request_id)
+        package_record = OperationsPackage.objects.create(
+            package_id=package_id,
+            package_no=f"PK{package_id:05d}",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        if create_allocation_line:
+            OperationsAllocationLine.objects.create(
+                package=package_record,
+                item_id=101,
+                source_warehouse_id=4,
+                batch_id=source_batch_id,
+                quantity=planned_qty,
+                source_type="ON_HAND",
+                create_by_id="tester",
+                update_by_id="tester",
+            )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        self._insert_item_batch(
+            batch_id=source_batch_id,
+            inventory_id=4,
+        )
+        leg_item = OperationsConsolidationLegItem.objects.create(
+            leg=leg,
+            item_id=101,
+            batch_id=source_batch_id,
+            quantity=planned_qty,
+            source_type="ON_HAND",
+            source_record_id=None,
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        return leg, leg_item
+
+    def _receive_single_leg_item(
+        self,
+        *,
+        leg: OperationsConsolidationLeg,
+        leg_item: OperationsConsolidationLegItem,
+        payload: dict[str, object],
+        staging_batch_id: int,
+    ) -> None:
+        receipt_lines = contract_services._validated_staging_receipt_lines(
+            leg_items=[leg_item],
+            payload=payload,
+        )
+        with patch("operations.contract_services.legacy_service._next_int_id", return_value=staging_batch_id):
+            contract_services._receive_leg_stock_into_staging(
+                leg=leg,
+                actor_id="receiver-1",
+                receipt_lines=receipt_lines,
+            )
 
     def test_receive_leg_stock_into_staging_reserves_the_new_staging_batch_for_final_dispatch(self) -> None:
         request_record = self._create_operations_request_record(relief_request_id=191)
@@ -8453,27 +8832,15 @@ class StagingReservationContractTests(TransactionTestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
-        source_batch = ItemBatch.objects.create(
+        self._insert_item_batch(
             batch_id=4001,
             inventory_id=4,
-            item_id=101,
             batch_no="SRC-4001",
-            batch_date=date(2026, 3, 20),
-            expiry_date=date(2026, 12, 31),
-            usable_qty=Decimal("5.0000"),
-            reserved_qty=Decimal("0.0000"),
-            defective_qty=Decimal("0.0000"),
-            expired_qty=Decimal("0.0000"),
-            uom_code="EA",
-            status_code="A",
-            update_by_id="tester",
-            update_dtime=timezone.now(),
-            version_nbr=1,
         )
         leg_item = OperationsConsolidationLegItem.objects.create(
             leg=leg,
             item_id=101,
-            batch_id=source_batch.batch_id,
+            batch_id=4001,
             quantity=Decimal("2.0000"),
             source_type="ON_HAND",
             source_record_id=None,
@@ -8486,17 +8853,218 @@ class StagingReservationContractTests(TransactionTestCase):
             contract_services._receive_leg_stock_into_staging(leg=leg, actor_id="receiver-1")
 
         leg_item.refresh_from_db()
-        staging_batch = ItemBatch.objects.get(batch_id=95501)
+        staging_batch = self._item_batch_row(95501)
         staging_inventory = Inventory.objects.get(inventory_id=55, item_id=101)
 
         self.assertEqual(leg_item.staging_batch_id, 95501)
-        self.assertEqual(staging_batch.inventory_id, 55)
-        self.assertEqual(staging_batch.usable_qty, Decimal("2.0000"))
-        self.assertEqual(staging_batch.reserved_qty, Decimal("2.0000"))
-        self.assertEqual(staging_batch.available_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.received_qty, Decimal("2.0000"))
+        self.assertEqual(leg_item.shortage_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.overage_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.damaged_qty, Decimal("0.0000"))
+        self.assertIsNone(leg_item.variance_reason_text)
+        self.assertEqual(staging_batch["inventory_id"], 55)
+        self.assertEqual(staging_batch["usable_qty"], Decimal("2.0000"))
+        self.assertEqual(staging_batch["reserved_qty"], Decimal("2.0000"))
+        self.assertEqual(self._batch_available_qty(staging_batch), Decimal("0.0000"))
         self.assertEqual(staging_inventory.usable_qty, Decimal("2.00"))
         self.assertEqual(staging_inventory.reserved_qty, Decimal("2.00"))
         self.assertEqual(staging_inventory.available_qty, Decimal("0.00"))
+
+    def test_receive_leg_stock_records_shortage_and_posts_only_received_qty(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=192,
+            package_id=292,
+            source_batch_id=4002,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={
+                "receipt_lines": [
+                    {
+                        "leg_item_id": int(leg_item.leg_item_id),
+                        "received_qty": "1.2500",
+                        "variance_reason_text": "One carton missing from truck count",
+                    }
+                ]
+            },
+            staging_batch_id=95502,
+        )
+
+        leg_item.refresh_from_db()
+        staging_batch = self._item_batch_row(95502)
+        staging_inventory = Inventory.objects.get(inventory_id=55, item_id=101)
+
+        self.assertEqual(leg_item.received_qty, Decimal("1.2500"))
+        self.assertEqual(leg_item.shortage_qty, Decimal("0.7500"))
+        self.assertEqual(leg_item.overage_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.damaged_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.variance_reason_text, "One carton missing from truck count")
+        self.assertEqual(staging_batch["usable_qty"], Decimal("1.2500"))
+        self.assertEqual(staging_batch["reserved_qty"], Decimal("1.2500"))
+        self.assertEqual(staging_inventory.usable_qty, Decimal("1.25"))
+        self.assertEqual(staging_inventory.reserved_qty, Decimal("1.25"))
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+        self.assertFalse(contract_services._package_has_full_usable_staged_stock(leg.package))
+
+    def test_receive_leg_stock_records_damage_without_reserving_damaged_qty(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=193,
+            package_id=293,
+            source_batch_id=4003,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={
+                "receipt_lines": [
+                    {
+                        "leg_item_id": int(leg_item.leg_item_id),
+                        "received_qty": "2.0000",
+                        "damaged_qty": "0.5000",
+                        "variance_reason_text": "Outer packaging water damaged",
+                    }
+                ]
+            },
+            staging_batch_id=95503,
+        )
+
+        leg_item.refresh_from_db()
+        staging_batch = self._item_batch_row(95503)
+        staging_inventory = Inventory.objects.get(inventory_id=55, item_id=101)
+
+        self.assertEqual(leg_item.received_qty, Decimal("2.0000"))
+        self.assertEqual(leg_item.shortage_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.damaged_qty, Decimal("0.5000"))
+        self.assertEqual(staging_batch["usable_qty"], Decimal("1.5000"))
+        self.assertEqual(staging_batch["reserved_qty"], Decimal("1.5000"))
+        if "defective_qty" in staging_batch:
+            self.assertEqual(staging_batch["defective_qty"], Decimal("0.5000"))
+        self.assertEqual(staging_inventory.usable_qty, Decimal("1.50"))
+        self.assertEqual(staging_inventory.reserved_qty, Decimal("1.50"))
+        self.assertEqual(staging_inventory.defective_qty, Decimal("0.50"))
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+        self.assertFalse(contract_services._package_has_full_usable_staged_stock(leg.package))
+
+    def test_receive_leg_stock_records_overage_without_over_reserving_package(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=194,
+            package_id=294,
+            source_batch_id=4004,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={
+                "variances": {
+                    str(int(leg_item.leg_item_id)): {
+                        "received_qty": "3.2500",
+                        "variance_reason_text": "Extra carton loaded by source warehouse",
+                    }
+                }
+            },
+            staging_batch_id=95504,
+        )
+
+        leg_item.refresh_from_db()
+        staging_batch = self._item_batch_row(95504)
+        staging_inventory = Inventory.objects.get(inventory_id=55, item_id=101)
+
+        self.assertEqual(leg_item.received_qty, Decimal("3.2500"))
+        self.assertEqual(leg_item.shortage_qty, Decimal("0.0000"))
+        self.assertEqual(leg_item.overage_qty, Decimal("1.2500"))
+        self.assertEqual(leg_item.damaged_qty, Decimal("0.0000"))
+        self.assertEqual(staging_batch["usable_qty"], Decimal("3.2500"))
+        self.assertEqual(staging_batch["reserved_qty"], Decimal("2.0000"))
+        self.assertEqual(self._batch_available_qty(staging_batch), Decimal("1.2500"))
+        self.assertEqual(staging_inventory.usable_qty, Decimal("3.25"))
+        self.assertEqual(staging_inventory.reserved_qty, Decimal("2.00"))
+        self.assertEqual(staging_inventory.available_qty, Decimal("1.25"))
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+        self.assertTrue(contract_services._package_has_full_usable_staged_stock(leg.package))
+
+    def test_package_readiness_fallback_uses_leg_planned_qty_without_allocation_lines(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=195,
+            package_id=295,
+            source_batch_id=4005,
+            create_allocation_line=False,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={"receipt_lines": [{"leg_item_id": int(leg_item.leg_item_id), "received_qty": "2.0000"}]},
+            staging_batch_id=95505,
+        )
+
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+
+        self.assertTrue(contract_services._package_has_full_usable_staged_stock(leg.package))
+
+    def test_package_readiness_fallback_blocks_shortage_without_allocation_lines(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=196,
+            package_id=296,
+            source_batch_id=4006,
+            create_allocation_line=False,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={
+                "receipt_lines": [
+                    {
+                        "leg_item_id": int(leg_item.leg_item_id),
+                        "received_qty": "1.2500",
+                        "variance_reason_text": "Missing carton",
+                    }
+                ]
+            },
+            staging_batch_id=95506,
+        )
+
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+
+        self.assertFalse(contract_services._package_has_full_usable_staged_stock(leg.package))
+
+    def test_package_readiness_fallback_blocks_damage_without_allocation_lines(self) -> None:
+        leg, leg_item = self._create_staging_leg_item(
+            request_id=197,
+            package_id=297,
+            source_batch_id=4007,
+            create_allocation_line=False,
+        )
+
+        self._receive_single_leg_item(
+            leg=leg,
+            leg_item=leg_item,
+            payload={
+                "receipt_lines": [
+                    {
+                        "leg_item_id": int(leg_item.leg_item_id),
+                        "received_qty": "2.0000",
+                        "damaged_qty": "0.2500",
+                        "variance_reason_text": "Crushed box",
+                    }
+                ]
+            },
+            staging_batch_id=95507,
+        )
+
+        leg.status_code = contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        leg.save(update_fields=["status_code"])
+
+        self.assertFalse(contract_services._package_has_full_usable_staged_stock(leg.package))
 
 
 @override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)

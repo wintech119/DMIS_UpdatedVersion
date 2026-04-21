@@ -182,3 +182,26 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches allocation enforcement or execution-linked package allocation options, mention this lesson in the closeout and confirm the ranked-allocation enforcement regressions were run.
+
+## Caught Legacy Database Errors Need Savepoint Isolation
+
+### Symptom
+- A test using PostgreSQL failed later in the workflow with `current transaction is aborted` even though the original legacy lookup error had been caught and the code attempted to continue.
+
+### Root Cause
+- Optional legacy table probes and best-effort lookups caught `DatabaseError` without wrapping the risky query in a nested `transaction.atomic()` savepoint.
+- PostgreSQL marks the surrounding transaction as aborted after many database errors; catching the Python exception alone does not restore transaction usability.
+
+### Invariant
+- Any intentionally tolerated `DatabaseError` inside an active workflow transaction must be isolated in a savepoint before it is caught and converted to a fallback result.
+
+### Correct Architectural Rule
+- For optional raw SQL or legacy ORM probes that may fail due schema drift or unavailable legacy tables, wrap the probe in `transaction.atomic()` and catch the error outside that nested block.
+- Keep the fallback explicit and narrow; do not let optional metadata lookups poison authoritative workflow writes.
+
+### Regression Tests That Must Exist
+- Workflow contract tests that exercise optional legacy lookups must continue to perform later ORM writes and reads in the same request path.
+- API contract tests that mock service calls should isolate rate-limit active-event probes rather than requiring database access from `SimpleTestCase`.
+
+### Closeout Expectation
+- If a change catches `DatabaseError` around legacy SQL or unmanaged legacy models, mention this lesson in the closeout and confirm a PostgreSQL-backed test covered the continuation path.

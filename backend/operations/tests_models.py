@@ -8,6 +8,8 @@ from django.test import TestCase
 from operations import staging_selection
 from operations.constants import STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK
 from operations.models import (
+    OperationsConsolidationLeg,
+    OperationsConsolidationLegItem,
     OperationsDispatch,
     OperationsPackage,
     OperationsReceipt,
@@ -138,6 +140,42 @@ class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
         )
 
         self.assertEqual(package.effective_dispatch_source_warehouse_id, 55)
+
+
+class OperationsConsolidationLegItemModelTests(_OperationsRequestFactoryMixin, TestCase):
+    def test_planned_qty_alias_preserves_compatible_quantity_column(self) -> None:
+        request = self._create_request(82)
+        package = OperationsPackage.objects.create(
+            package_id=102,
+            package_no="PK00102",
+            relief_request=request,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode="DELIVER_FROM_STAGING",
+            status_code="CONSOLIDATING",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code="IN_TRANSIT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg_item = OperationsConsolidationLegItem.objects.create(
+            leg=leg,
+            item_id=101,
+            batch_id=1001,
+            quantity="2.5000",
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        self.assertEqual(leg_item.planned_qty, leg_item.quantity)
 
 
 class StagingSelectionRecommendationTests(TestCase):

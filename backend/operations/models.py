@@ -280,7 +280,14 @@ class OperationsConsolidationLegItem(AuditedModel):
     )
     item_id = models.IntegerField()
     batch_id = models.IntegerField()
+    # Freeze schema calls this planned_qty. Keep quantity as the compatible
+    # stored column and expose planned_qty as a documented alias below.
     quantity = models.DecimalField(max_digits=15, decimal_places=4)
+    received_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    shortage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    overage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    damaged_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    variance_reason_text = models.TextField(blank=True, null=True)
     source_type = models.CharField(max_length=20, default="ON_HAND")
     source_record_id = models.IntegerField(blank=True, null=True)
     staging_batch_id = models.IntegerField(blank=True, null=True)
@@ -298,6 +305,10 @@ class OperationsConsolidationLegItem(AuditedModel):
                 name="uq_ops_consolidation_leg_item",
             ),
         ]
+
+    @property
+    def planned_qty(self):
+        return self.quantity
 
 
 class OperationsConsolidationWaybill(models.Model):

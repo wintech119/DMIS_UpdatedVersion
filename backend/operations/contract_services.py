@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from functools import wraps
+from functools import lru_cache, wraps
 from typing import Any, Iterable, Mapping, Sequence
 
 from django.conf import settings
@@ -29,6 +29,7 @@ from operations.constants import (
     ACTION_OVERRIDE_APPROVED,
     ACTION_OVERRIDE_REJECTED,
     ACTION_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+    ACTION_STAGING_RECEIPT_RECORDED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -210,6 +211,29 @@ _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
 )
 _REQUEST_URGENCY_VALUES = {"C", "H", "M", "L"}
 _REQUEST_ITEM_REASON_MAX_LENGTH = 255
+_MAX_RECEIPT_LINES = 200
+_RECEIVED_BY_NAME_MAX_LENGTH = 120
+_RECEIPT_NOTES_MAX_LENGTH = 500
+_RECEIPT_VARIANCE_REASON_MAX_LENGTH = 500
+
+
+@dataclass(frozen=True)
+class _StagingReceiptLine:
+    leg_item_id: int
+    planned_qty: Decimal
+    received_qty: Decimal
+    shortage_qty: Decimal
+    overage_qty: Decimal
+    damaged_qty: Decimal
+    variance_reason_text: str | None
+
+    @property
+    def usable_qty(self) -> Decimal:
+        return max(Decimal("0"), self.received_qty - self.damaged_qty)
+
+    @property
+    def package_reserved_qty(self) -> Decimal:
+        return min(self.usable_qty, self.planned_qty)
 
 STATUS_DRAFT = 0
 STATUS_AWAITING_APPROVAL = 1
@@ -276,6 +300,86 @@ def _execute(sql: str, params: Sequence[Any] | None = None) -> int:
     with connection.cursor() as cursor:
         cursor.execute(sql, list(params or []))
         return cursor.rowcount
+
+
+@lru_cache(maxsize=16)
+def _legacy_table_columns(table_name: str) -> frozenset[str]:
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                return frozenset(
+                    column.name
+                    for column in connection.introspection.get_table_description(cursor, table_name)
+                )
+    except DatabaseError:
+        return frozenset()
+
+
+def _fetch_item_batch_snapshot(batch_id: int) -> dict[str, Any]:
+    columns = _legacy_table_columns(ItemBatch._meta.db_table)
+    selected_columns = [
+        column
+        for column in (
+            "batch_id",
+            "inventory_id",
+            "item_id",
+            "batch_no",
+            "batch_date",
+            "expiry_date",
+            "usable_qty",
+            "reserved_qty",
+            "defective_qty",
+            "expired_qty",
+            "uom_code",
+            "status_code",
+        )
+        if column in columns
+    ]
+    if "batch_id" not in selected_columns:
+        raise ItemBatch.DoesNotExist(f"ItemBatch {batch_id} is not readable.")
+    quoted_table = connection.ops.quote_name(ItemBatch._meta.db_table)
+    quoted_columns = ", ".join(connection.ops.quote_name(column) for column in selected_columns)
+    rows = _fetch_rows(
+        f"SELECT {quoted_columns} FROM {quoted_table} WHERE batch_id = %s LIMIT 1",
+        [int(batch_id)],
+    )
+    if not rows:
+        raise ItemBatch.DoesNotExist(f"ItemBatch {batch_id} does not exist.")
+    return rows[0]
+
+
+def _insert_item_batch_snapshot(values: Mapping[str, Any]) -> None:
+    columns = _legacy_table_columns(ItemBatch._meta.db_table)
+    insert_columns = [
+        column
+        for column in (
+            "batch_id",
+            "inventory_id",
+            "item_id",
+            "batch_no",
+            "batch_date",
+            "expiry_date",
+            "usable_qty",
+            "reserved_qty",
+            "defective_qty",
+            "expired_qty",
+            "uom_code",
+            "status_code",
+            "update_by_id",
+            "update_dtime",
+            "version_nbr",
+        )
+        if column in columns and column in values
+    ]
+    if not insert_columns:
+        raise OperationValidationError({"batch": "Item batch table is not available."})
+    quoted_table = connection.ops.quote_name(ItemBatch._meta.db_table)
+    quoted_columns = ", ".join(connection.ops.quote_name(column) for column in insert_columns)
+    placeholders = ", ".join(["%s"] * len(insert_columns))
+    _execute(
+        f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})",
+        [values[column] for column in insert_columns],
+    )
 
 
 def _tenant_cache_key_value(tenant_context: TenantContext | None) -> str:
@@ -508,6 +612,190 @@ def _decimal_or_zero(value: Any) -> Decimal:
         return value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         return Decimal("0")
+
+
+def _receipt_decimal(
+    value: Any,
+    field_name: str,
+    errors: dict[str, str],
+    *,
+    default: Decimal | None = None,
+) -> Decimal | None:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        errors[field_name] = "Must be a non-negative decimal quantity."
+        return None
+    try:
+        parsed = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        errors[field_name] = "Must be a non-negative decimal quantity."
+        return None
+    if not parsed.is_finite() or parsed < 0:
+        errors[field_name] = "Must be a non-negative decimal quantity."
+        return None
+    if parsed.as_tuple().exponent < -4:
+        errors[field_name] = "Must have no more than 4 decimal places."
+        return None
+    return _quantize_qty(parsed)
+
+
+def _receipt_line_payloads(payload: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
+    has_receipt_lines = payload.get("receipt_lines") not in (None, "")
+    has_variances = payload.get("variances") not in (None, "")
+    if has_receipt_lines and has_variances:
+        raise OperationValidationError(
+            {"receipt_lines": "Submit either receipt_lines or variances, not both."}
+        )
+    if not has_receipt_lines and not has_variances:
+        return {}
+
+    errors: dict[str, str] = {}
+    normalized: dict[int, Mapping[str, Any]] = {}
+    if has_receipt_lines:
+        raw_lines = payload.get("receipt_lines")
+        if not isinstance(raw_lines, list):
+            raise OperationValidationError({"receipt_lines": "receipt_lines must be an array."})
+        if len(raw_lines) > _MAX_RECEIPT_LINES:
+            raise OperationValidationError(
+                {"receipt_lines": f"receipt_lines must contain no more than {_MAX_RECEIPT_LINES} entries."}
+            )
+        for index, raw_line in enumerate(raw_lines):
+            field_prefix = f"receipt_lines[{index}]"
+            if not isinstance(raw_line, Mapping):
+                errors[field_prefix] = "Each receipt line must be an object."
+                continue
+            leg_item_id = _positive_int(raw_line.get("leg_item_id"), f"{field_prefix}.leg_item_id", errors)
+            if leg_item_id is None:
+                continue
+            if leg_item_id in normalized:
+                errors[f"{field_prefix}.leg_item_id"] = "Duplicate leg_item_id."
+                continue
+            normalized[leg_item_id] = raw_line
+    else:
+        raw_variances = payload.get("variances")
+        if not isinstance(raw_variances, Mapping):
+            raise OperationValidationError({"variances": "variances must be an object keyed by leg_item_id."})
+        if len(raw_variances) > _MAX_RECEIPT_LINES:
+            raise OperationValidationError(
+                {"variances": f"variances must contain no more than {_MAX_RECEIPT_LINES} entries."}
+            )
+        for raw_key, raw_line in raw_variances.items():
+            field_prefix = f"variances.{raw_key}"
+            leg_item_id = _positive_int(raw_key, f"{field_prefix}.leg_item_id", errors)
+            if leg_item_id is None:
+                continue
+            if not isinstance(raw_line, Mapping):
+                errors[field_prefix] = "Each variance entry must be an object."
+                continue
+            if leg_item_id in normalized:
+                errors[f"{field_prefix}.leg_item_id"] = "Duplicate leg_item_id."
+                continue
+            normalized[leg_item_id] = raw_line
+
+    if errors:
+        raise OperationValidationError(errors)
+    return normalized
+
+
+def _validated_staging_receipt_lines(
+    *,
+    leg_items: Sequence[OperationsConsolidationLegItem],
+    payload: Mapping[str, Any],
+) -> dict[int, _StagingReceiptLine]:
+    submitted_payloads = _receipt_line_payloads(payload)
+    leg_item_ids = {int(item.leg_item_id) for item in leg_items}
+    unknown_ids = sorted(set(submitted_payloads) - leg_item_ids)
+    if unknown_ids:
+        raise OperationValidationError(
+            {"leg_item_id": f"Receipt line(s) are outside this consolidation leg: {unknown_ids}."}
+        )
+
+    errors: dict[str, str] = {}
+    receipt_lines: dict[int, _StagingReceiptLine] = {}
+    for item in leg_items:
+        leg_item_id = int(item.leg_item_id)
+        planned_qty = _quantize_qty(item.quantity)
+        raw_line = submitted_payloads.get(leg_item_id, {})
+        field_prefix = f"receipt_lines.{leg_item_id}"
+        received_qty = _receipt_decimal(
+            raw_line.get("received_qty"),
+            f"{field_prefix}.received_qty",
+            errors,
+            default=planned_qty,
+        )
+        damaged_qty = _receipt_decimal(
+            raw_line.get("damaged_qty"),
+            f"{field_prefix}.damaged_qty",
+            errors,
+            default=Decimal("0.0000"),
+        )
+        if received_qty is None or damaged_qty is None:
+            continue
+        if damaged_qty > received_qty:
+            errors[f"{field_prefix}.damaged_qty"] = "damaged_qty cannot exceed received_qty."
+            continue
+
+        shortage_qty = max(Decimal("0.0000"), planned_qty - received_qty)
+        overage_qty = max(Decimal("0.0000"), received_qty - planned_qty)
+        reason = str(
+            raw_line.get("variance_reason_text")
+            or raw_line.get("variance_reason")
+            or ""
+        ).strip()
+        if len(reason) > _RECEIPT_VARIANCE_REASON_MAX_LENGTH:
+            errors[f"{field_prefix}.variance_reason_text"] = (
+                f"Must be {_RECEIPT_VARIANCE_REASON_MAX_LENGTH} characters or fewer."
+            )
+            continue
+        has_variance = any(
+            qty > Decimal("0")
+            for qty in (shortage_qty, overage_qty, damaged_qty)
+        )
+        if has_variance and not reason:
+            errors[f"{field_prefix}.variance_reason_text"] = (
+                "variance_reason_text is required for shortages, overages, or damaged quantities."
+            )
+            continue
+
+        receipt_lines[leg_item_id] = _StagingReceiptLine(
+            leg_item_id=leg_item_id,
+            planned_qty=planned_qty,
+            received_qty=_quantize_qty(received_qty),
+            shortage_qty=_quantize_qty(shortage_qty),
+            overage_qty=_quantize_qty(overage_qty),
+            damaged_qty=_quantize_qty(damaged_qty),
+            variance_reason_text=reason or None,
+        )
+
+    if errors:
+        raise OperationValidationError(errors)
+    return receipt_lines
+
+
+def _receipt_line_artifact(line: _StagingReceiptLine) -> dict[str, Any]:
+    return {
+        "leg_item_id": line.leg_item_id,
+        "planned_qty": str(line.planned_qty),
+        "received_qty": str(line.received_qty),
+        "shortage_qty": str(line.shortage_qty),
+        "overage_qty": str(line.overage_qty),
+        "damaged_qty": str(line.damaged_qty),
+        "usable_qty": str(_quantize_qty(line.usable_qty)),
+        "package_reserved_qty": str(_quantize_qty(line.package_reserved_qty)),
+        "variance_reason_text": line.variance_reason_text,
+    }
+
+
+def _leg_item_usable_qty(item: OperationsConsolidationLegItem) -> Decimal:
+    planned_qty = _quantize_qty(item.quantity)
+    received_qty = _quantize_qty(item.received_qty if item.received_qty is not None else planned_qty)
+    damaged_qty = _quantize_qty(item.damaged_qty or Decimal("0"))
+    return max(Decimal("0.0000"), received_qty - damaged_qty)
+
+
+def _leg_item_package_reserved_qty(item: OperationsConsolidationLegItem) -> Decimal:
+    return min(_leg_item_usable_qty(item), _quantize_qty(item.quantity))
 
 
 def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | None:
@@ -2387,12 +2675,13 @@ def _operations_allocation_payload(
         )
     )
     try:
-        batch_lookup = {
-            int(batch.batch_id): batch
-            for batch in ItemBatch.objects.filter(
-                batch_id__in=[int(line.batch_id) for line in allocation_lines]
-            )
-        }
+        with transaction.atomic():
+            batch_lookup = {
+                int(batch.batch_id): batch
+                for batch in ItemBatch.objects.filter(
+                    batch_id__in=[int(line.batch_id) for line in allocation_lines]
+                )
+            }
     except DatabaseError:
         batch_lookup = {}
     dispatch = OperationsDispatch.objects.filter(package_id=int(package.reliefpkg_id)).first()
@@ -2528,6 +2817,14 @@ def _consolidation_leg_payload(leg: OperationsConsolidationLeg) -> dict[str, Any
                 "item_id": item.item_id,
                 "batch_id": item.batch_id,
                 "quantity": str(item.quantity),
+                "planned_qty": str(item.planned_qty),
+                "received_qty": str(item.received_qty) if item.received_qty is not None else None,
+                "shortage_qty": str(item.shortage_qty) if item.shortage_qty is not None else None,
+                "overage_qty": str(item.overage_qty) if item.overage_qty is not None else None,
+                "damaged_qty": str(item.damaged_qty) if item.damaged_qty is not None else None,
+                "usable_qty": str(_quantize_qty(_leg_item_usable_qty(item))),
+                "package_reserved_qty": str(_quantize_qty(_leg_item_package_reserved_qty(item))),
+                "variance_reason_text": item.variance_reason_text,
                 "source_type": item.source_type,
                 "source_record_id": item.source_record_id,
                 "staging_batch_id": item.staging_batch_id,
@@ -2572,7 +2869,7 @@ def _pickup_release_rows(package_record: OperationsPackage) -> list[dict[str, An
             rows.append(
                 {
                     "item_id": int(item.item_id),
-                    "quantity": item.quantity,
+                    "quantity": _leg_item_package_reserved_qty(item),
                     "inventory_id": int(leg.staging_warehouse_id),
                     "batch_id": int(item.staging_batch_id),
                     "source_type": "ON_HAND",
@@ -2617,6 +2914,39 @@ def _materialized_leg_item_mapping(
         for item in leg.items.order_by("leg_item_id"):
             mapping[(int(leg.source_warehouse_id), int(item.batch_id), int(item.item_id))] = item
     return mapping
+
+
+def _package_has_full_usable_staged_stock(package_record: OperationsPackage) -> bool:
+    allocation_lines = list(package_record.allocation_lines.order_by("line_id"))
+    if not allocation_lines:
+        received_items = list(
+            OperationsConsolidationLegItem.objects.filter(
+                leg__package=package_record,
+                leg__status_code=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+            ).order_by("leg__leg_sequence", "leg_item_id")
+        )
+        if not received_items:
+            # Legacy compatibility: older/mocked package flows may have no
+            # native allocation rows and no materialized leg items, which means
+            # there is no planned staged quantity to verify here.
+            return True
+        for leg_item in received_items:
+            if leg_item.staging_batch_id is None:
+                return False
+            if _leg_item_package_reserved_qty(leg_item) < _quantize_qty(leg_item.quantity):
+                return False
+        return True
+    mapping = _materialized_leg_item_mapping(package_record)
+    if not mapping:
+        return False
+    for line in allocation_lines:
+        key = (int(line.source_warehouse_id), int(line.batch_id), int(line.item_id))
+        leg_item = mapping.get(key)
+        if leg_item is None or leg_item.staging_batch_id is None:
+            return False
+        if _leg_item_package_reserved_qty(leg_item) < _quantize_qty(line.quantity):
+            return False
+    return True
 
 
 def _staging_delivery_ready(package_record: OperationsPackage) -> bool:
@@ -2907,63 +3237,104 @@ def _receive_leg_stock_into_staging(
     *,
     leg: OperationsConsolidationLeg,
     actor_id: str,
+    receipt_lines: Mapping[int, _StagingReceiptLine] | None = None,
 ) -> None:
     now = timezone.now()
-    for item in leg.items.select_for_update().order_by("leg_item_id"):
-        source_batch = ItemBatch.objects.select_for_update().get(batch_id=int(item.batch_id))
-        inventory = (
-            Inventory.objects.select_for_update()
-            .filter(inventory_id=int(leg.staging_warehouse_id), item_id=int(item.item_id))
-            .first()
-        )
-        if inventory is None:
-            inventory = Inventory.objects.create(
-                inventory_id=int(leg.staging_warehouse_id),
-                item_id=int(item.item_id),
-                usable_qty=legacy_service._quantize_qty(0),
-                reserved_qty=legacy_service._quantize_qty(0),
-                defective_qty=legacy_service._quantize_qty(0),
-                expired_qty=legacy_service._quantize_qty(0),
-                uom_code=item.uom_code or source_batch.uom_code,
-                status_code="A",
-                update_by_id=actor_id,
-                update_dtime=now,
-                version_nbr=1,
-            )
-        # Keep received staging stock reserved for the package so pickup/final
-        # dispatch consumes the same reservation rather than unclaimed stock.
-        inventory.usable_qty = legacy_service._quantize_qty(inventory.usable_qty) + item.quantity
-        inventory.reserved_qty = legacy_service._quantize_qty(inventory.reserved_qty) + item.quantity
-        inventory.update_by_id = actor_id
-        inventory.update_dtime = now
-        inventory.version_nbr = int(inventory.version_nbr or 0) + 1
-        inventory.save(
-            update_fields=["usable_qty", "reserved_qty", "update_by_id", "update_dtime", "version_nbr"]
-        )
+    leg_items = list(leg.items.select_for_update().order_by("leg_item_id"))
+    if receipt_lines is None:
+        receipt_lines = _validated_staging_receipt_lines(leg_items=leg_items, payload={})
+    for item in leg_items:
+        receipt_line = receipt_lines[int(item.leg_item_id)]
+        usable_qty = _quantize_qty(receipt_line.usable_qty)
+        package_reserved_qty = _quantize_qty(receipt_line.package_reserved_qty)
+        damaged_qty = _quantize_qty(receipt_line.damaged_qty)
+        posted_qty = usable_qty + damaged_qty
+        staging_batch_id: int | None = None
 
-        staging_batch_id = int(legacy_service._next_int_id("itembatch", "batch_id"))
-        ItemBatch.objects.create(
-            batch_id=staging_batch_id,
-            inventory_id=int(leg.staging_warehouse_id),
-            item_id=int(item.item_id),
-            batch_no=source_batch.batch_no,
-            batch_date=source_batch.batch_date,
-            expiry_date=source_batch.expiry_date,
-            usable_qty=item.quantity,
-            reserved_qty=item.quantity,
-            defective_qty=legacy_service._quantize_qty(0),
-            expired_qty=legacy_service._quantize_qty(0),
-            uom_code=item.uom_code or source_batch.uom_code,
-            status_code=source_batch.status_code or "A",
-            update_by_id=actor_id,
-            update_dtime=now,
-            version_nbr=1,
-        )
+        if posted_qty > Decimal("0"):
+            source_batch = _fetch_item_batch_snapshot(int(item.batch_id))
+            inventory = (
+                Inventory.objects.select_for_update()
+                .filter(inventory_id=int(leg.staging_warehouse_id), item_id=int(item.item_id))
+                .first()
+            )
+            if inventory is None:
+                inventory = Inventory.objects.create(
+                    inventory_id=int(leg.staging_warehouse_id),
+                    item_id=int(item.item_id),
+                    usable_qty=legacy_service._quantize_qty(0),
+                    reserved_qty=legacy_service._quantize_qty(0),
+                    defective_qty=legacy_service._quantize_qty(0),
+                    expired_qty=legacy_service._quantize_qty(0),
+                    uom_code=item.uom_code or source_batch.get("uom_code"),
+                    status_code="A",
+                    update_by_id=actor_id,
+                    update_dtime=now,
+                    version_nbr=1,
+                )
+            # Keep only the usable, package-eligible stock reserved. Overage
+            # remains usable staging stock but is not silently allocated to the
+            # originating package without an approved overage policy.
+            inventory.usable_qty = legacy_service._quantize_qty(inventory.usable_qty) + usable_qty
+            inventory.reserved_qty = legacy_service._quantize_qty(inventory.reserved_qty) + package_reserved_qty
+            inventory.defective_qty = legacy_service._quantize_qty(inventory.defective_qty) + damaged_qty
+            inventory.update_by_id = actor_id
+            inventory.update_dtime = now
+            inventory.version_nbr = int(inventory.version_nbr or 0) + 1
+            inventory.save(
+                update_fields=[
+                    "usable_qty",
+                    "reserved_qty",
+                    "defective_qty",
+                    "update_by_id",
+                    "update_dtime",
+                    "version_nbr",
+                ]
+            )
+
+            staging_batch_id = int(legacy_service._next_int_id("itembatch", "batch_id"))
+            _insert_item_batch_snapshot(
+                {
+                    "batch_id": staging_batch_id,
+                    "inventory_id": int(leg.staging_warehouse_id),
+                    "item_id": int(item.item_id),
+                    "batch_no": source_batch.get("batch_no"),
+                    "batch_date": source_batch.get("batch_date"),
+                    "expiry_date": source_batch.get("expiry_date"),
+                    "usable_qty": usable_qty,
+                    "reserved_qty": package_reserved_qty,
+                    "defective_qty": damaged_qty,
+                    "expired_qty": legacy_service._quantize_qty(0),
+                    "uom_code": item.uom_code or source_batch.get("uom_code"),
+                    "status_code": source_batch.get("status_code") or "A",
+                    "update_by_id": actor_id,
+                    "update_dtime": now,
+                    "version_nbr": 1,
+                }
+            )
+
+        item.received_qty = receipt_line.received_qty
+        item.shortage_qty = receipt_line.shortage_qty
+        item.overage_qty = receipt_line.overage_qty
+        item.damaged_qty = receipt_line.damaged_qty
+        item.variance_reason_text = receipt_line.variance_reason_text
         item.staging_batch_id = staging_batch_id
         item.update_by_id = actor_id
         item.update_dtime = now
         item.version_nbr = int(item.version_nbr or 0) + 1
-        item.save(update_fields=["staging_batch_id", "update_by_id", "update_dtime", "version_nbr"])
+        item.save(
+            update_fields=[
+                "received_qty",
+                "shortage_qty",
+                "overage_qty",
+                "damaged_qty",
+                "variance_reason_text",
+                "staging_batch_id",
+                "update_by_id",
+                "update_dtime",
+                "version_nbr",
+            ]
+        )
 
 
 def _materialize_staged_dispatch_sources(
@@ -2987,6 +3358,14 @@ def _materialize_staged_dispatch_sources(
                 {
                     "dispatch": (
                         f"Package allocation line {line.line_id} is missing a staging stock mapping."
+                    )
+                }
+            )
+        if _leg_item_package_reserved_qty(leg_item) < _quantize_qty(line.quantity):
+            raise OperationValidationError(
+                {
+                    "dispatch": (
+                        f"Package allocation line {line.line_id} does not have enough usable staged stock."
                     )
                 }
             )
@@ -6801,19 +7180,44 @@ def receive_consolidation_leg(
         error_message="You are not assigned to receive this consolidation leg.",
     )
     now = timezone.now()
-    _receive_leg_stock_into_staging(leg=leg, actor_id=actor_id)
-    OperationsConsolidationReceipt.objects.update_or_create(
+    leg_items = list(leg.items.select_for_update().order_by("leg_item_id"))
+    receipt_lines = _validated_staging_receipt_lines(leg_items=leg_items, payload=payload)
+    receipt_line_artifacts = [
+        _receipt_line_artifact(receipt_lines[int(item.leg_item_id)])
+        for item in leg_items
+    ]
+    received_by_name = str(payload.get("received_by_name") or actor_id).strip()
+    receipt_notes = str(payload.get("receipt_notes") or "").strip() or None
+    receipt_errors: dict[str, str] = {}
+    if len(received_by_name) > _RECEIVED_BY_NAME_MAX_LENGTH:
+        receipt_errors["received_by_name"] = (
+            f"received_by_name must be {_RECEIVED_BY_NAME_MAX_LENGTH} characters or fewer."
+        )
+    if receipt_notes is not None and len(receipt_notes) > _RECEIPT_NOTES_MAX_LENGTH:
+        receipt_errors["receipt_notes"] = (
+            f"receipt_notes must be {_RECEIPT_NOTES_MAX_LENGTH} characters or fewer."
+        )
+    if receipt_errors:
+        raise OperationValidationError(receipt_errors)
+    _receive_leg_stock_into_staging(
+        leg=leg,
+        actor_id=actor_id,
+        receipt_lines=receipt_lines,
+    )
+    receipt_record, _ = OperationsConsolidationReceipt.objects.update_or_create(
         leg=leg,
         defaults={
             "received_by_user_id": actor_id,
-            "received_by_name": str(payload.get("received_by_name") or actor_id).strip(),
+            "received_by_name": received_by_name,
             "received_at": now,
-            "receipt_notes": str(payload.get("receipt_notes") or "").strip() or None,
+            "receipt_notes": receipt_notes,
             "receipt_artifact_json": {
                 "received_by_user_id": actor_id,
-                "received_by_name": str(payload.get("received_by_name") or actor_id).strip(),
+                "received_by_name": received_by_name,
                 "received_at": now.isoformat(),
-                "receipt_notes": str(payload.get("receipt_notes") or "").strip() or None,
+                "receipt_notes": receipt_notes,
+                "line_items": receipt_line_artifacts,
+                "overage_policy": "RECORDED_UNRESERVED",
             },
         },
     )
@@ -6831,6 +7235,24 @@ def receive_consolidation_leg(
     leg.update_dtime = now
     leg.version_nbr = int(leg.version_nbr or 0) + 1
     leg.save()
+    variance_reasons = [
+        line.variance_reason_text
+        for line in receipt_lines.values()
+        if line.variance_reason_text
+    ]
+    record_action_audit(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        package_id=int(package_record.package_id),
+        consolidation_leg_id=int(leg.leg_id),
+        tenant_id=request_record.beneficiary_tenant_id,
+        warehouse_id=int(leg.staging_warehouse_id),
+        action_code=ACTION_STAGING_RECEIPT_RECORDED,
+        action_reason=receipt_notes or "; ".join(dict.fromkeys(variance_reasons)) or None,
+        artifact_reference=f"operations_consolidation_receipt:{receipt_record.receipt_id}",
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
+    )
     if leg.shadow_transfer_id:
         Transfer.objects.filter(transfer_id=int(leg.shadow_transfer_id)).update(
             received_at=now,
@@ -6849,7 +7271,7 @@ def receive_consolidation_leg(
         package_record=package_record,
         actor_id=actor_id,
     )
-    if consolidation_status == CONSOLIDATION_STATUS_ALL_RECEIVED:
+    if consolidation_status == CONSOLIDATION_STATUS_ALL_RECEIVED and _package_has_full_usable_staged_stock(package_record):
         if package_record.fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING:
             package_record = _transition_staged_package_ready(
                 package=package,
