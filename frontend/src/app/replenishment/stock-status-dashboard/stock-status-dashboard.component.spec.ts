@@ -454,6 +454,144 @@ describe('StockStatusDashboardComponent', () => {
     expect(component['toSummaryStatus']('RETURNED')).toBe('RETURNED');
   });
 
+  it('computes Action Inbox counts from FR02.93 status buckets', () => {
+    // 2 awaiting approval (SUBMITTED + PENDING_APPROVAL normalize to SUBMITTED).
+    // 3 drafts.
+    // 2 returned (RETURNED → MODIFIED, REJECTED → REJECTED, both fold into
+    // the "returned" inbox bucket).
+    // 1 APPROVED ignored.
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'A1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'SUBMITTED'
+      },
+      {
+        needs_list_id: 'A2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'PENDING_APPROVAL'
+      },
+      {
+        needs_list_id: 'D1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'D2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'D3',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'R1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'RETURNED'
+      },
+      {
+        needs_list_id: 'R2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'REJECTED'
+      },
+      {
+        needs_list_id: 'OK',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'APPROVED'
+      }
+    ];
+
+    expect(component.actionInbox).toEqual({
+      awaitingApproval: 2,
+      draftsInProgress: 3,
+      returned: 2,
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    });
+    expect(component.actionInboxTotal).toBe(7);
+  });
+
+  it('produces a zero-aware category rollup without divide-by-zero artifacts', () => {
+    // Items WITHOUT category fall into 'Uncategorized' (per pre-plan review
+    // requirement). Mixed severities exercise each bucket; a Water-only/
+    // all-good bucket asserts atRiskPct is 0 (not NaN / Infinity).
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [
+          { item_id: 1, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'CRITICAL', category: 'Food' },
+          { item_id: 2, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'WARNING', category: 'Food' },
+          { item_id: 3, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'OK', category: 'Water' },
+          { item_id: 4, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'CRITICAL' }
+        ],
+        critical_count: 2,
+        warning_count: 1,
+        watch_count: 0,
+        ok_count: 1
+      }
+    ];
+
+    const rollup = component.categoryRollup;
+    const byName = (name: string) => rollup.find((r) => r.name === name);
+
+    expect(byName('Food')).toEqual(
+      jasmine.objectContaining({ critical: 1, warning: 1, good: 0, atRisk: 2, total: 2, atRiskPct: 100 })
+    );
+    expect(byName('Water')).toEqual(
+      jasmine.objectContaining({ critical: 0, warning: 0, good: 1, atRisk: 0, total: 1, atRiskPct: 0 })
+    );
+    expect(byName('Uncategorized')).toEqual(
+      jasmine.objectContaining({ critical: 1, warning: 0, good: 0, atRisk: 1, total: 1, atRiskPct: 100 })
+    );
+
+    for (const row of rollup) {
+      expect(Number.isFinite(row.atRiskPct)).toBeTrue();
+      expect(row.atRiskPct).toBeGreaterThanOrEqual(0);
+      expect(row.atRiskPct).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('returns an empty category rollup when no items exist', () => {
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [],
+        critical_count: 0,
+        warning_count: 0,
+        watch_count: 0,
+        ok_count: 0
+      }
+    ];
+    expect(component.categoryRollup).toEqual([]);
+  });
+
   it('returns the full stock item name for item tooltips', () => {
     expect(component.getStockItemTooltip({
       item_id: 42,
@@ -948,7 +1086,7 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     };
   }
 
-  it('never renders raw WATCH or OK tokens in severity status badges', () => {
+  it('never renders raw WATCH or OK tokens in severity status chips', () => {
     // First detectChanges runs ngOnInit → autoLoadDashboard → loadMultiWarehouseStatus
     // which resets warehouseGroups from the mock service response. Seed the
     // mixed-severity groups AFTER that lifecycle completes, then re-render.
@@ -957,35 +1095,47 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    // Filter out freshness badges (class `badge-freshness-*`) — the selector
-    // would otherwise catch the data-freshness chip that lives alongside the
-    // severity pill inside `.mobile-card-header`.
-    const statusBadges = Array.from(
+    // Severity chip is the first app-ops-status-chip inside each desktop
+    // row's Status column (first td) and the first chip inside each mobile
+    // card header. Freshness chips sit in a later cell / position and are
+    // excluded by the :first-of-type / :first-child selector.
+    const severityChips = Array.from(
       host.querySelectorAll<HTMLElement>(
-        'td.col-status span.badge, .mobile-card-header span.badge'
+        'tr.stock-dashboard__item-row > td:first-of-type app-ops-status-chip span.ops-chip,'
+          + ' .stock-dashboard__item-card-header > app-ops-status-chip:first-of-type span.ops-chip'
       )
-    ).filter((el) => !/\bbadge-freshness-/.test(el.className));
+    );
 
-    expect(statusBadges.length).toBeGreaterThan(0);
+    expect(severityChips.length).toBeGreaterThan(0);
 
-    for (const badge of statusBadges) {
-      const text = (badge.textContent ?? '').trim().toUpperCase();
-      const aria = (badge.getAttribute('aria-label') ?? '').toUpperCase();
+    for (const chip of severityChips) {
+      const text = (chip.textContent ?? '').trim().toUpperCase();
 
       // Display-boundary vocabulary is CRITICAL / WARNING / GOOD only.
       expect(['CRITICAL', 'WARNING', 'GOOD']).toContain(text);
-      expect(aria).not.toContain('WATCH');
-      // The literal 'OK' must not appear as a standalone bucket label; the
-      // aria-label should read as 'Status: GOOD' for OK-severity items.
-      expect(aria).not.toMatch(/STATUS:\s*OK\b/);
-      // Bucket class must be one of the 3-bucket aliases.
-      expect(badge.className).toMatch(/badge-(critical|warning|good)/);
-      expect(badge.className).not.toMatch(/badge-watch\b/);
-      expect(badge.className).not.toMatch(/badge-ok\b/);
+      // Tone class must be one of the 3-bucket aliases (GOOD maps to `success` tone).
+      expect(chip.className).toMatch(/ops-chip--(critical|warning|success)/);
+      expect(chip.className).not.toMatch(/ops-chip--watch\b/);
+      expect(chip.className).not.toMatch(/ops-chip--ok\b/);
+    }
+
+    // The per-row bucket class must likewise be 3-bucket only.
+    const itemRows = Array.from(
+      host.querySelectorAll<HTMLElement>('tr.stock-dashboard__item-row')
+    );
+    expect(itemRows.length).toBeGreaterThan(0);
+    for (const row of itemRows) {
+      expect(row.className).toMatch(/stock-dashboard__item-row--(critical|warning|good)/);
+      expect(row.className).not.toMatch(/stock-dashboard__item-row--watch\b/);
+      expect(row.className).not.toMatch(/stock-dashboard__item-row--ok\b/);
     }
   });
 
   it('renders the severity filter chips with only CRITICAL / WARNING / GOOD labels', () => {
+    fixture.detectChanges();
+    // Filters panel is gated on `warehouseGroups.length > 0`; seed after
+    // ngOnInit so the chip-listbox is in the DOM when we query it.
+    seedDashboardWithMixedSeverities();
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
@@ -1001,5 +1151,73 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     expect(chipLabels).toContain('GOOD');
     expect(chipLabels).not.toContain('WATCH');
     expect(chipLabels).not.toContain('OK');
+  });
+
+  it('renders the mobile FAB when an event is active with warehouses', () => {
+    fixture.detectChanges();
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    // CSS toggles the FAB's display between desktop and narrow viewports,
+    // but the DOM element itself must always be rendered when there is an
+    // active event with warehouses — this is Kemar's one-tap field CTA.
+    const fab = host.querySelector<HTMLButtonElement>('button.stock-dashboard__fab');
+    expect(fab).not.toBeNull();
+    expect(fab?.disabled).toBeFalse();
+    expect((fab?.textContent ?? '').toLowerCase()).toContain('generate');
+  });
+
+  it('renders the Action Inbox chips with FR02.93 labels', () => {
+    fixture.detectChanges();
+    component.activeEvent = event;
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'A1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'SUBMITTED'
+      },
+      {
+        needs_list_id: 'D1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      }
+    ];
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const chipLabels = Array.from(
+      host.querySelectorAll<HTMLElement>('.ops-action-inbox__chips .ops-chip')
+    ).map((el) => (el.textContent ?? '').trim());
+
+    expect(chipLabels.length).toBe(3);
+    expect(chipLabels.some((l) => l.includes('awaiting approval'))).toBeTrue();
+    expect(chipLabels.some((l) => l.includes('drafts in progress'))).toBeTrue();
+    expect(chipLabels.some((l) => l.includes('returned'))).toBeTrue();
+  });
+
+  it('renders risk-by-category bars without divide-by-zero artifacts', () => {
+    fixture.detectChanges();
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const categoryRows = Array.from(
+      host.querySelectorAll<HTMLElement>('.stock-dashboard__category-row')
+    );
+    expect(categoryRows.length).toBeGreaterThan(0);
+
+    for (const row of categoryRows) {
+      const pctText = (row.querySelector('.stock-dashboard__category-row-pct')?.textContent ?? '').trim();
+      // Percent label must NEVER read as NaN% / Infinity% even for all-good buckets.
+      expect(pctText).not.toContain('NaN');
+      expect(pctText).not.toContain('Infinity');
+    }
   });
 });

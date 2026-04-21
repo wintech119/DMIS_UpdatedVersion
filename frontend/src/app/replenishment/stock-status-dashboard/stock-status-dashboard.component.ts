@@ -55,6 +55,44 @@ import { ScopePickerDialogComponent, ScopePickerDialogResult } from './dialogs/s
 import { DuplicateGuardDialogComponent, DuplicateGuardDialogResult } from './dialogs/duplicate-guard-dialog.component';
 import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-dialog.component';
 import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
+import { OpsMetricStripComponent, OpsMetricStripItem } from '../../operations/shared/ops-metric-strip.component';
+import { OpsStatusChipComponent } from '../../operations/shared/ops-status-chip.component';
+
+// Ops-shell chip tone vocabulary, narrowed to what this dashboard surfaces.
+type OpsChipTone = 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline';
+
+export interface ActionInboxCounts {
+  awaitingApproval: number;
+  draftsInProgress: number;
+  returned: number;
+  reviewQueueTarget: string;
+}
+
+export interface FreshnessRow {
+  warehouseId: number;
+  warehouseName: string;
+  tone: FreshnessLevel;
+  chipTone: OpsChipTone;
+  ageLabel: string;
+  ageHours: number | null;
+}
+
+export interface CategoryRollupEntry {
+  name: string;
+  critical: number;
+  warning: number;
+  good: number;
+  atRisk: number;
+  total: number;
+  atRiskPct: number;
+}
+
+export interface FreshnessSummary {
+  fresh: number;
+  total: number;
+  tone: FreshnessLevel;
+  chipTone: OpsChipTone;
+}
 
 
 interface FilterState {
@@ -88,6 +126,8 @@ interface FilterState {
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
     DmisEmptyStateComponent,
+    OpsMetricStripComponent,
+    OpsStatusChipComponent,
   ],
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
@@ -980,6 +1020,270 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
       case 'GOOD':
         return 'GOOD: More than 72 hours of stock remaining. Stock levels are healthy.';
     }
+  }
+
+  // -- Ops-shell chip tone mappers (display boundary) ------------------
+
+  /** Map a 3-bucket display severity into an ops-shell chip tone. */
+  displaySeverityTone(severity: SeverityLevel | undefined): OpsChipTone {
+    switch (this.displaySeverity(severity)) {
+      case 'CRITICAL': return 'critical';
+      case 'WARNING': return 'warning';
+      case 'GOOD': return 'success';
+    }
+  }
+
+  /** Map a freshness level into an ops-shell chip tone. */
+  freshnessChipTone(tone: FreshnessLevel | undefined): OpsChipTone {
+    switch (tone) {
+      case 'HIGH': return 'success';
+      case 'MEDIUM': return 'warning';
+      case 'LOW': return 'critical';
+      default: return 'neutral';
+    }
+  }
+
+  /** Map a FR02.93 display status into an ops-shell chip tone. */
+  statusChipTone(status: string | undefined | null): OpsChipTone {
+    switch (this.displayStatus(status)) {
+      case 'SUBMITTED': return 'info';
+      case 'DRAFT': return 'soft';
+      case 'MODIFIED': return 'warning';
+      case 'APPROVED': return 'success';
+      case 'REJECTED': return 'critical';
+      case 'IN_PROGRESS': return 'info';
+      case 'FULFILLED': return 'success';
+      case 'SUPERSEDED': return 'neutral';
+    }
+  }
+
+  // -- Action Inbox (FR02.93 status buckets) ---------------------------
+
+  /**
+   * Derived action-inbox counts for the hero bar. Source: the existing
+   * `myNeedsLists` field (populated by `loadMyNeedsLists()` — no new fetch).
+   * Statuses pass through the FR02.93 display mapper so UI vocabulary stays
+   * stable across backend drift (PENDING_APPROVAL / UNDER_REVIEW collapse
+   * into SUBMITTED, RETURNED folds into MODIFIED, etc.).
+   */
+  get actionInbox(): ActionInboxCounts {
+    const lists = this.myNeedsLists ?? [];
+    const countBy = (predicate: (display: DisplayStatus) => boolean): number =>
+      lists.filter((l) => predicate(toDisplayStatus(l.status))).length;
+    return {
+      awaitingApproval: countBy((s) => s === 'SUBMITTED'),
+      draftsInProgress: countBy((s) => s === 'DRAFT'),
+      returned: countBy((s) => s === 'MODIFIED' || s === 'REJECTED'),
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    };
+  }
+
+  /** Total pending across all three buckets. */
+  get actionInboxTotal(): number {
+    const inbox = this.actionInbox;
+    return inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+  }
+
+  // -- LOW confidence banner -------------------------------------------
+
+  /** True if any item in any warehouse has LOW confidence. */
+  get hasLowConfidence(): boolean {
+    return (this.warehouseGroups ?? []).some((g) =>
+      (g.items ?? []).some((item) => item.confidence?.level === 'LOW')
+    );
+  }
+
+  /** How many items are flagged LOW confidence (for banner copy). */
+  get lowConfidenceItemCount(): number {
+    return (this.warehouseGroups ?? []).reduce((sum, g) => {
+      return sum + (g.items ?? []).filter((item) => item.confidence?.level === 'LOW').length;
+    }, 0);
+  }
+
+  // -- Data freshness panel --------------------------------------------
+
+  /**
+   * Rows for the right-side Data Freshness panel. One row per warehouse,
+   * using `overall_freshness` for the chip tone and the max per-item
+   * `age_hours` for the "X ago" label. No new API call.
+   */
+  get freshnessRows(): FreshnessRow[] {
+    return (this.warehouseGroups ?? []).map((g) => {
+      const maxAge = this.maxAgeHoursFor(g);
+      const tone = g.overall_freshness ?? 'HIGH';
+      return {
+        warehouseId: g.warehouse_id,
+        warehouseName: g.warehouse_name,
+        tone,
+        chipTone: this.freshnessChipTone(tone),
+        ageLabel: this.formatAgeLabel(maxAge),
+        ageHours: maxAge
+      };
+    });
+  }
+
+  /**
+   * Hero freshness summary chip. Counts HIGH as "fresh", escalates tone
+   * (LOW overrides MEDIUM overrides HIGH).
+   */
+  get freshnessSummary(): FreshnessSummary {
+    const groups = this.warehouseGroups ?? [];
+    const total = groups.length;
+    const fresh = groups.filter((g) => g.overall_freshness === 'HIGH').length;
+    const anyLow = groups.some((g) => g.overall_freshness === 'LOW');
+    const anyMedium = groups.some((g) => g.overall_freshness === 'MEDIUM');
+    const tone: FreshnessLevel = anyLow ? 'LOW' : anyMedium ? 'MEDIUM' : 'HIGH';
+    return {
+      fresh,
+      total,
+      tone,
+      chipTone: this.freshnessChipTone(tone)
+    };
+  }
+
+  // -- Risk by category rollup -----------------------------------------
+
+  /**
+   * Group items by category into CRITICAL / WARNING / GOOD counts.
+   * Items whose `category` is missing bucket into an explicit
+   * 'Uncategorized' entry (per pre-plan review requirement). Zero-aware:
+   * `atRiskPct` is 0 when a category has no items (guards divide-by-zero).
+   */
+  get categoryRollup(): CategoryRollupEntry[] {
+    const buckets = new Map<string, { critical: number; warning: number; good: number }>();
+    for (const group of this.warehouseGroups ?? []) {
+      for (const item of group.items ?? []) {
+        const raw = String(item.category ?? '').trim();
+        const name = raw.length > 0 ? raw : 'Uncategorized';
+        const bucket = buckets.get(name) ?? { critical: 0, warning: 0, good: 0 };
+        const disp = toDisplaySeverity(item.severity);
+        if (disp === 'CRITICAL') {
+          bucket.critical += 1;
+        } else if (disp === 'WARNING') {
+          bucket.warning += 1;
+        } else {
+          bucket.good += 1;
+        }
+        buckets.set(name, bucket);
+      }
+    }
+    return Array.from(buckets.entries())
+      .map(([name, b]) => {
+        const total = b.critical + b.warning + b.good;
+        const atRisk = b.critical + b.warning;
+        const atRiskPct = total > 0 ? Math.round((atRisk / total) * 100) : 0;
+        return {
+          name,
+          critical: b.critical,
+          warning: b.warning,
+          good: b.good,
+          atRisk,
+          total,
+          atRiskPct
+        };
+      })
+      .sort((a, b) => (b.atRisk - a.atRisk) || a.name.localeCompare(b.name));
+  }
+
+  // -- KPI strip (4 cards for app-ops-metric-strip) --------------------
+
+  /**
+   * Feed for `<app-ops-metric-strip [items]="kpiStrip">`. Order matches
+   * the Claude Design screenshot (Items at risk | Warehouses at risk |
+   * Pending needs lists | Data freshness).
+   */
+  get kpiStrip(): readonly OpsMetricStripItem[] {
+    const totalCritical = this.getTotalCriticalCount();
+    const totalWarning = this.getTotalWarningCount();
+    const totalAtRisk = totalCritical + totalWarning;
+    const groups = this.warehouseGroups ?? [];
+    const warehousesAtRisk = groups.filter((g) => g.critical_count > 0 || g.warning_count > 0).length;
+    const inbox = this.actionInbox;
+    const pending = inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+    const freshness = this.freshnessSummary;
+
+    return [
+      {
+        label: 'Items at risk',
+        value: String(totalAtRisk),
+        hint: totalAtRisk > 0
+          ? `${totalCritical} critical · ${totalWarning} warning`
+          : 'All items healthy',
+        token: totalCritical > 0 ? 'critical' : totalWarning > 0 ? 'warning' : 'success',
+        icon: totalAtRisk > 0 ? 'priority_high' : 'check_circle'
+      },
+      {
+        label: 'Warehouses at risk',
+        value: groups.length > 0 ? `${warehousesAtRisk}/${groups.length}` : '0',
+        hint: warehousesAtRisk > 0 ? 'Need action' : 'All stable',
+        token: warehousesAtRisk > 0 ? 'warning' : 'success',
+        icon: 'warehouse'
+      },
+      {
+        label: 'Pending needs lists',
+        value: String(pending),
+        hint: inbox.awaitingApproval > 0
+          ? `${inbox.awaitingApproval} awaiting approval`
+          : pending > 0
+            ? `${inbox.draftsInProgress} drafts · ${inbox.returned} returned`
+            : 'Nothing pending',
+        token: inbox.awaitingApproval > 0 ? 'info' : pending > 0 ? 'soft' : 'neutral',
+        interactive: this.canAccessReviewQueue,
+        icon: 'assignment',
+        ariaLabel: `Pending needs lists, ${pending}. Open review queue.`
+      },
+      {
+        label: 'Data freshness',
+        value: freshness.total > 0 ? `${freshness.fresh}/${freshness.total}` : '—',
+        hint: `${freshness.tone} confidence`,
+        token: freshness.chipTone,
+        icon: freshness.tone === 'LOW' ? 'sync_problem' : 'history'
+      }
+    ];
+  }
+
+  /**
+   * Click handler for an interactive KPI card. Only the "Pending needs
+   * lists" card emits today; others are display-only. Route is stable
+   * (verified at `replenishment.routes.ts:22`).
+   */
+  onKpiStripClick(item: OpsMetricStripItem): void {
+    if (item.label === 'Pending needs lists' && this.canAccessReviewQueue) {
+      this.openReviewQueue();
+    }
+  }
+
+  // -- Age-label / max-age helpers -------------------------------------
+
+  private maxAgeHoursFor(group: WarehouseStockGroup): number | null {
+    const values: number[] = [];
+    for (const item of group.items ?? []) {
+      const age = item.freshness?.age_hours;
+      if (typeof age === 'number' && Number.isFinite(age) && age >= 0) {
+        values.push(age);
+      }
+    }
+    return values.length > 0 ? Math.max(...values) : null;
+  }
+
+  private formatAgeLabel(ageHours: number | null): string {
+    if (ageHours == null || !Number.isFinite(ageHours)) {
+      return 'No sync';
+    }
+    if (ageHours < 1 / 60) {
+      return 'Just now';
+    }
+    if (ageHours < 1) {
+      const minutes = Math.max(1, Math.round(ageHours * 60));
+      return `${minutes}m ago`;
+    }
+    if (ageHours < 24) {
+      const rounded = ageHours < 10 ? ageHours.toFixed(1) : Math.round(ageHours).toString();
+      return `${rounded}h ago`;
+    }
+    const days = Math.floor(ageHours / 24);
+    const remainderHours = Math.round(ageHours - days * 24);
+    return remainderHours > 0 ? `${days}d ${remainderHours}h ago` : `${days}d ago`;
   }
 
   getTotalCriticalCount(): number {

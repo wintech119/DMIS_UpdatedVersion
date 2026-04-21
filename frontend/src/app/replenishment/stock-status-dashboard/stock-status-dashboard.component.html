@@ -1,560 +1,776 @@
-<div class="dmis-page">
-  <!-- Page Header -->
-  <div class="page-header">
-    <div class="page-header-row">
-      <h1 class="page-title">Stock Status Dashboard</h1>
-      @if (refreshing) {
-        <mat-progress-spinner
-          diameter="20"
-          mode="indeterminate"
-          class="refreshing-indicator"
-          aria-label="Refreshing data"
-        ></mat-progress-spinner>
+<div class="ops-page-shell stock-dashboard">
+  <!-- Hero band -->
+  <header class="ops-hero ops-hero--with-context" aria-label="Supply replenishment dashboard header">
+    <div class="ops-hero__lead">
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">insights</mat-icon>
+        <span>EP-02</span>
+        <span class="ops-hero__eyebrow-sep" aria-hidden="true">/</span>
+        <span class="ops-hero__eyebrow-current">Supply Replenishment</span>
+      </p>
+      <h1 class="ops-hero__title">Stock Replenishment Command Center</h1>
+      <p class="ops-hero__copy">
+        Monitor burn rates, stock-outs, and freshness across every warehouse in the active event. Generate needs lists when an item trends critical — transfers first, then donations, then procurement.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="triggerManualRefresh()"
+        [disabled]="refreshing"
+        aria-label="Refresh dashboard data"
+      >
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        Refresh
+      </button>
+      @if (viewMode === 'multi' && warehouseGroups.length > 0) {
+        <button
+          mat-flat-button
+          color="primary"
+          type="button"
+          class="stock-dashboard__generate-btn"
+          (click)="generateNeedsListWithGates('hero')"
+          [disabled]="ctaInFlight()"
+          matTooltip="Create a replenishment needs list. Select a warehouse if more than one is visible."
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
+          <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
+          Generate Needs List
+        </button>
+      }
+      @if (viewMode === 'multi') {
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="changeEventOrPhase()"
+          matTooltip="Switch event or response phase (Surge / Stabilized / Baseline)"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
+          <mat-icon aria-hidden="true">event</mat-icon>
+          Change event / phase
+        </button>
+      }
+      @if (viewMode === 'single') {
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="returnToMultiView()"
+          matTooltip="Return to multi-warehouse overview"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
+          <mat-icon aria-hidden="true">arrow_back</mat-icon>
+          Back to all warehouses
+        </button>
+      }
+      @if (canManagePhaseWindows()) {
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="openPhaseWindowsDialog()"
+          matTooltip="Edit demand and planning windows per phase"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
+          <mat-icon aria-hidden="true">tune</mat-icon>
+          Configure windows
+        </button>
       }
     </div>
-    <p class="page-subtitle">Monitor burn rates and replenishment needs across all warehouses</p>
-  </div>
 
-  <!-- Context Display -->
-  @if (activeEvent) {
-    <div class="context-card">
-      <div class="context-header">
-        <div class="context-info">
-          <div class="context-row">
-            <span class="context-label">Active Event:</span>
-            <span class="context-value">{{ getEventName() }}</span>
-          </div>
-          <div class="context-row">
-            <span class="context-label">Phase:</span>
-            <span class="context-value phase-badge" [attr.data-phase]="getPhaseLabel()">{{ getPhaseLabel() }}</span>
-          </div>
-          <div class="context-row">
-            <span class="context-label">Viewing:</span>
-            <span class="context-value">
-              @if (viewMode === 'multi' && selectedWarehouseIds.length === 0) {
-                <span>
-                  All Warehouses ({{ allWarehouses.length }})
-                </span>
-              }
-              @if (viewMode === 'multi' && selectedWarehouseIds.length > 0) {
-                <span>
-                  {{ selectedWarehouseIds.length }} Selected Warehouses
-                </span>
-              }
-              @if (viewMode === 'single') {
-                <span>
-                  Single Warehouse Detail
-                </span>
-              }
-            </span>
-          </div>
-        </div>
-        <div class="context-actions">
-          @if (viewMode === 'multi' && warehouseGroups.length > 0) {
-            <button
-              matButton="filled"
-              color="primary"
-              class="hero-cta"
-              (click)="generateNeedsListWithGates('hero')"
-              [disabled]="ctaInFlight()"
-              matTooltip="Create a replenishment needs list. Select a warehouse if more than one is visible."
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>add_shopping_cart</mat-icon>
-              Generate Needs List
-            </button>
-          }
-          @if (viewMode === 'multi') {
-            <button
-              matButton="outlined"
-              (click)="changeEventOrPhase()"
-              matTooltip="Switch to a different disaster event or view a different response phase (Surge, Stabilized, Baseline)"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>event</mat-icon>
-              Change Event/Phase
-            </button>
-          }
-          @if (canManagePhaseWindows()) {
-            <button
-              matButton="outlined"
-              (click)="openPhaseWindowsDialog()"
-              matTooltip="Edit demand and planning windows per phase"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>tune</mat-icon>
-              Phase Windows
-            </button>
-          }
-          @if (viewMode === 'multi') {
-            <button
-              matButton="outlined"
-              [matMenuTriggerFor]="warehouseMenu"
-              matTooltip="Show stock status for specific warehouses only"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>warehouse</mat-icon>
-              Filter by Warehouse
-            </button>
-          }
-          <mat-menu #warehouseMenu="matMenu">
-            <button mat-menu-item (click)="clearWarehouseFilter()">
-              <mat-icon>select_all</mat-icon>
-              Show All Warehouses
-            </button>
-            <mat-divider></mat-divider>
-            @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
-              <button
-                mat-menu-item
-                (click)="toggleWarehouseFilter(warehouse.warehouse_id); $event.stopPropagation()"
-                >
-                <mat-icon>{{ isWarehouseSelected(warehouse.warehouse_id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
-                {{ warehouse.warehouse_name }}
-              </button>
-            }
-          </mat-menu>
-          @if (viewMode === 'single') {
-            <button
-              matButton="outlined"
-              (click)="returnToMultiView()"
-              matTooltip="Return to multi-warehouse overview"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>arrow_back</mat-icon>
-              Back to All Warehouses
-            </button>
-          }
-        </div>
-      </div>
-    </div>
-  }
-
-  <!-- Filters & Sort (Collapsible, Optional) -->
-  <mat-expansion-panel class="filters-panel" [(expanded)]="filtersExpanded">
-    <mat-expansion-panel-header>
-      <mat-panel-title>
-        <mat-icon>filter_list</mat-icon>
-        Filters & Sort
-        @if (hasActiveFilters()) {
-          <span class="filter-badge">{{ selectedCategories.length + selectedSeverities.length }} active</span>
+    @if (activeEvent) {
+      <div class="ops-hero__context stock-dashboard__context">
+        <span
+          class="ops-chip stock-dashboard__phase-pill"
+          [attr.data-phase]="getPhaseLabel()"
+          [attr.aria-label]="'Active phase: ' + getPhaseLabel()"
+        >
+          <span class="ops-chip__dot" aria-hidden="true"></span>
+          {{ getPhaseLabel() }}
+        </span>
+        <span class="stock-dashboard__event-pill" aria-label="Active event">
+          <mat-icon aria-hidden="true">bolt</mat-icon>
+          <span class="stock-dashboard__event-pill-label">Event</span>
+          <strong>{{ getEventName() }}</strong>
+        </span>
+        <span
+          class="stock-dashboard__freshness-pill"
+          [attr.data-tone]="freshnessSummary.tone.toLowerCase()"
+          aria-label="Overall data freshness"
+        >
+          <mat-icon aria-hidden="true">history</mat-icon>
+          <strong>{{ freshnessSummary.fresh }} / {{ freshnessSummary.total }} fresh</strong>
+          <app-ops-status-chip
+            [label]="freshnessSummary.tone"
+            [tone]="freshnessSummary.chipTone"
+            [showDot]="false"
+          />
+        </span>
+        @if (refreshing) {
+          <span class="stock-dashboard__refreshing" role="status" aria-live="polite">
+            <mat-progress-spinner diameter="16" mode="indeterminate" aria-hidden="true" />
+            <span>Refreshing…</span>
+          </span>
         }
-      </mat-panel-title>
-    </mat-expansion-panel-header>
-
-    <div class="filters-content">
-      <!-- Sort Controls -->
-      <div class="filter-section">
-        <span class="filter-label">Sort By:</span>
-        <div class="sort-buttons">
-          <button
-            matButton="outlined"
-            [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
-            (click)="changeSortBy('time_to_stockout')"
-            class="sort-btn"
-            matTooltip="Sort by days until stock runs out. Items running out soonest appear first."
-            matTooltipPosition="above"
-            matTooltipShowDelay="300"
-            >
-            Time to Stockout
-            @if (sortBy === 'time_to_stockout') {
-              <span>
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            }
-          </button>
-          <button
-            matButton="outlined"
-            [color]="sortBy === 'severity' ? 'primary' : undefined"
-            (click)="changeSortBy('severity')"
-            class="sort-btn"
-            matTooltip="Sort by stock health status. Critical items appear first, then Warning, then Good."
-            matTooltipPosition="above"
-            matTooltipShowDelay="300"
-            >
-            Severity
-            @if (sortBy === 'severity') {
-              <span>
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            }
-          </button>
-          <button
-            matButton="outlined"
-            [color]="sortBy === 'item_name' ? 'primary' : undefined"
-            (click)="changeSortBy('item_name')"
-            class="sort-btn"
-            matTooltip="Sort alphabetically by item name."
-            matTooltipPosition="above"
-            matTooltipShowDelay="300"
-            >
-            Item Name
-            @if (sortBy === 'item_name') {
-              <span>
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            }
-          </button>
-        </div>
       </div>
+    }
+  </header>
 
-      <!-- Severity Filter (3-bucket display boundary: CRITICAL/WARNING/GOOD) -->
-      @if (displaySeverityOptions.length) {
-        <div class="filter-section">
-          <span class="filter-label">Filter by Severity:</span>
-          <mat-chip-listbox class="chip-list" multiple>
-            @for (bucket of displaySeverityOptions; track bucket) {
-              <mat-chip-option
-                [selected]="isDisplaySeveritySelected(bucket)"
-                (selectionChange)="onDisplaySeveritySelectionChange(bucket, $event)"
-                [ngClass]="getDisplayChipClass(bucket)"
-                [matTooltip]="getDisplaySeverityTooltip(bucket)"
-                matTooltipPosition="above"
-                matTooltipShowDelay="300"
-                >
-                {{ bucket }}
-              </mat-chip-option>
-            }
-          </mat-chip-listbox>
-        </div>
+  <!-- Action inbox bar -->
+  @if (activeEvent) {
+    <section class="ops-action-inbox" aria-label="Your action inbox">
+      <div class="ops-action-inbox__lead">
+        <p class="ops-action-inbox__eyebrow">Your action inbox</p>
+        <p class="ops-action-inbox__copy">Outstanding needs lists you own or can advance.</p>
+      </div>
+      <div class="ops-action-inbox__chips" role="list">
+        <span class="ops-action-inbox__chip" role="listitem">
+          <app-ops-status-chip
+            [label]="actionInbox.awaitingApproval + ' awaiting approval'"
+            [tone]="actionInbox.awaitingApproval > 0 ? 'info' : 'neutral'"
+          />
+        </span>
+        <span class="ops-action-inbox__chip" role="listitem">
+          <app-ops-status-chip
+            [label]="actionInbox.draftsInProgress + ' drafts in progress'"
+            [tone]="actionInbox.draftsInProgress > 0 ? 'soft' : 'neutral'"
+          />
+        </span>
+        <span class="ops-action-inbox__chip" role="listitem">
+          <app-ops-status-chip
+            [label]="actionInbox.returned + ' returned'"
+            [tone]="actionInbox.returned > 0 ? 'warning' : 'neutral'"
+          />
+        </span>
+      </div>
+      @if (canAccessReviewQueue) {
+        <button
+          mat-stroked-button
+          type="button"
+          class="ops-action-inbox__cta"
+          (click)="openReviewQueue()"
+          aria-label="Open needs list review queue"
+        >
+          Review queue
+          <mat-icon aria-hidden="true">chevron_right</mat-icon>
+        </button>
       }
-
-      <!-- Category Filter -->
-      @if (availableCategories.length) {
-        <div class="filter-section">
-          <span class="filter-label">Filter by Category:</span>
-          <mat-chip-listbox class="chip-list" multiple>
-            @for (category of availableCategories; track category) {
-              <mat-chip-option
-                [selected]="isCategorySelected(category)"
-                (selectionChange)="onCategorySelectionChange(category, $event)"
-                >
-                {{ category }}
-              </mat-chip-option>
-            }
-          </mat-chip-listbox>
-        </div>
-      }
-
-      <!-- Reset Button -->
-      @if (hasActiveFilters()) {
-        <div class="filter-actions">
-          <button
-            mat-button
-            color="warn"
-            (click)="resetFilters()"
-            matTooltip="Clear all active filters and return to default sorting"
-            matTooltipPosition="above"
-            matTooltipShowDelay="300"
-            >
-            <mat-icon>clear</mat-icon>
-            Reset Filters
-          </button>
-        </div>
-      }
-    </div>
-  </mat-expansion-panel>
-
-  <!-- Skeleton Loading State (Initial Load) -->
-  @if (loading && warehouseGroups.length === 0) {
-    <div class="skeleton-loading" aria-live="polite">
-      <dmis-skeleton-loader variant="stat-box" [count]="3"></dmis-skeleton-loader>
-      <dmis-skeleton-loader variant="warehouse-card" [count]="3"></dmis-skeleton-loader>
-    </div>
+    </section>
   }
 
-  <!-- Warehouse Cards (Multi-Warehouse View) -->
-  @if (!loading && warehouseGroups.length) {
-    <div class="warehouses-container">
-      @for (group of warehouseGroups; track group.warehouse_id) {
-        <div class="warehouse-card">
-          <!-- Warehouse Header -->
-      <div class="warehouse-header" [ngClass]="{
-        'header-critical': group.critical_count > 0,
-        'header-warning': group.critical_count === 0 && group.warning_count > 0,
-        'header-ok': group.critical_count === 0 && group.warning_count === 0
-      }">
-            <div class="warehouse-title">
-              <mat-icon>warehouse</mat-icon>
-              <h2>{{ group.warehouse_name }}</h2>
-            </div>
-            <div class="warehouse-stats">
-              @if (group.critical_count > 0) {
-                <span class="stat-chip stat-chip-critical">
-                  <mat-icon>error</mat-icon>
-                  {{ group.critical_count }} Critical
-                </span>
+  <!-- LOW confidence banner -->
+  @if (hasLowConfidence) {
+    <aside class="ops-banner ops-banner--critical stock-dashboard__low-confidence" role="alert">
+      <mat-icon aria-hidden="true">report_problem</mat-icon>
+      <div class="ops-banner__body">
+        <p class="ops-banner__title">Low confidence on {{ lowConfidenceItemCount }} item{{ lowConfidenceItemCount === 1 ? '' : 's' }}</p>
+        <p class="ops-banner__copy">
+          Burn-rate calculations for at least one item rely on stale or sparse data. Review freshness before submitting a needs list.
+        </p>
+      </div>
+    </aside>
+  }
+
+  <!-- KPI strip -->
+  @if (activeEvent && warehouseGroups.length > 0) {
+    <app-ops-metric-strip
+      [items]="kpiStrip"
+      (itemClick)="onKpiStripClick($event)"
+    />
+  }
+
+  <!-- Filters & Sort (preserved; collapsible) -->
+  @if (activeEvent && warehouseGroups.length > 0) {
+    <mat-expansion-panel class="stock-dashboard__filters ops-panel" [(expanded)]="filtersExpanded">
+      <mat-expansion-panel-header>
+        <mat-panel-title>
+          <mat-icon aria-hidden="true">filter_list</mat-icon>
+          Filters &amp; sort
+          @if (hasActiveFilters()) {
+            <span class="stock-dashboard__filter-badge">{{ selectedCategories.length + selectedSeverities.length }} active</span>
+          }
+        </mat-panel-title>
+      </mat-expansion-panel-header>
+
+      <div class="stock-dashboard__filters-body">
+        <div class="stock-dashboard__filter-row">
+          <span class="stock-dashboard__filter-label">Sort by</span>
+          <div class="stock-dashboard__sort-buttons">
+            <button
+              mat-stroked-button
+              type="button"
+              [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
+              (click)="changeSortBy('time_to_stockout')"
+              matTooltip="Sort by days until stock runs out. Items running out soonest appear first."
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+            >
+              Time to stockout
+              @if (sortBy === 'time_to_stockout') {
+                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
               }
-              @if (group.warning_count > 0) {
-                <span class="stat-chip stat-chip-warning">
-                  <mat-icon>warning</mat-icon>
-                  {{ group.warning_count }} Warning
-                </span>
+            </button>
+            <button
+              mat-stroked-button
+              type="button"
+              [color]="sortBy === 'severity' ? 'primary' : undefined"
+              (click)="changeSortBy('severity')"
+              matTooltip="Sort by stock health status. Critical first, then Warning, then Good."
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+            >
+              Severity
+              @if (sortBy === 'severity') {
+                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
               }
-              @if (group.critical_count === 0 && group.warning_count === 0) {
-                <span class="stat-chip stat-chip-ok">
-                  <mat-icon>check_circle</mat-icon>
-                  All Good
-                </span>
+            </button>
+            <button
+              mat-stroked-button
+              type="button"
+              [color]="sortBy === 'item_name' ? 'primary' : undefined"
+              (click)="changeSortBy('item_name')"
+              matTooltip="Sort alphabetically by item name."
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+            >
+              Item name
+              @if (sortBy === 'item_name') {
+                <span aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
               }
-            </div>
-            <div class="warehouse-actions">
-              <button
-                mat-raised-button
-                [color]="group.critical_count > 0 ? 'warn' : 'primary'"
-                (click)="generateNeedsListWithGates('warehouse-card', group.warehouse_id)"
-                [disabled]="group.items.length === 0 || ctaInFlight()"
-                matTooltip="Create a replenishment needs list for this warehouse. Lists items requiring restocking with recommended quantities and sources."
-                matTooltipPosition="above"
-                matTooltipShowDelay="300"
-                >
-                <mat-icon>add_shopping_cart</mat-icon>
-                Generate Needs List
-              </button>
-              @if (viewMode === 'multi') {
-                <button
-                  matButton="outlined"
-                  (click)="drillDownToWarehouse(group.warehouse_id)"
-                  matTooltip="View detailed stock information and history for this warehouse"
+            </button>
+          </div>
+        </div>
+
+        @if (displaySeverityOptions.length) {
+          <div class="stock-dashboard__filter-row">
+            <span class="stock-dashboard__filter-label">Severity</span>
+            <mat-chip-listbox class="stock-dashboard__chip-list" multiple>
+              @for (bucket of displaySeverityOptions; track bucket) {
+                <mat-chip-option
+                  [selected]="isDisplaySeveritySelected(bucket)"
+                  (selectionChange)="onDisplaySeveritySelectionChange(bucket, $event)"
+                  [ngClass]="getDisplayChipClass(bucket)"
+                  [matTooltip]="getDisplaySeverityTooltip(bucket)"
                   matTooltipPosition="above"
                   matTooltipShowDelay="300"
-                  >
-                  <mat-icon>visibility</mat-icon>
-                  View Details
+                >
+                  {{ bucket }}
+                </mat-chip-option>
+              }
+            </mat-chip-listbox>
+          </div>
+        }
+
+        @if (availableCategories.length) {
+          <div class="stock-dashboard__filter-row">
+            <span class="stock-dashboard__filter-label">Category</span>
+            <mat-chip-listbox class="stock-dashboard__chip-list" multiple>
+              @for (category of availableCategories; track category) {
+                <mat-chip-option
+                  [selected]="isCategorySelected(category)"
+                  (selectionChange)="onCategorySelectionChange(category, $event)"
+                >
+                  {{ category }}
+                </mat-chip-option>
+              }
+            </mat-chip-listbox>
+          </div>
+        }
+
+        <div class="stock-dashboard__filter-row">
+          <span class="stock-dashboard__filter-label">Warehouses</span>
+          <div class="stock-dashboard__warehouse-menu-wrap">
+            @if (viewMode === 'multi') {
+              <button
+                mat-stroked-button
+                type="button"
+                [matMenuTriggerFor]="warehouseMenu"
+                matTooltip="Show stock status for specific warehouses only"
+                matTooltipPosition="above"
+                matTooltipShowDelay="300"
+              >
+                <mat-icon aria-hidden="true">warehouse</mat-icon>
+                Filter by warehouse
+                @if (selectedWarehouseIds.length > 0) {
+                  <span class="stock-dashboard__filter-badge">{{ selectedWarehouseIds.length }}</span>
+                }
+              </button>
+            }
+            <mat-menu #warehouseMenu="matMenu">
+              <button mat-menu-item type="button" (click)="clearWarehouseFilter()">
+                <mat-icon aria-hidden="true">select_all</mat-icon>
+                Show all warehouses
+              </button>
+              <mat-divider />
+              @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
+                <button
+                  mat-menu-item
+                  type="button"
+                  (click)="toggleWarehouseFilter(warehouse.warehouse_id); $event.stopPropagation()"
+                >
+                  <mat-icon aria-hidden="true">{{ isWarehouseSelected(warehouse.warehouse_id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+                  {{ warehouse.warehouse_name }}
                 </button>
               }
-            </div>
+            </mat-menu>
           </div>
-          <!-- Data Freshness Warning -->
-          @if (getDataFreshnessWarning(group); as warning) {
-            <div class="alert alert-warning" role="alert">
-              <mat-icon aria-hidden="true">schedule</mat-icon>
-              {{ warning }}
-            </div>
-          }
-          <!-- Stock Items Table (Desktop) -->
-          @if (group.items.length > 0) {
-            <div class="warehouse-content">
-              <div class="table-responsive desktop-only">
-                <table class="dmis-table">
-                  <caption class="sr-only">Stock status items for {{ group.warehouse_name }}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col" class="col-status" matTooltip="Stock health status based on hours until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
-                      <th scope="col" class="col-item" matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
-                      <th scope="col" class="col-available" matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
-                      <th scope="col" class="col-inbound" matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
-                      <th scope="col" class="col-burn-rate" matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
-                      <th scope="col" class="col-time-to-stockout" matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
-                      <th scope="col" class="col-required" matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
-                      <th scope="col" class="col-gap" matTooltip="Shortfall after accounting for confirmed inbound (hover for calculation)" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
-                      <th scope="col" class="col-data" matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (item of group.items; track item.item_id) {
-                      <tr [ngClass]="'row-' + getSeverityClass(item.severity)">
-                        <td class="col-status">
-                          <span class="badge" [ngClass]="getDisplayBadgeClass(item.severity)" [attr.aria-label]="'Status: ' + displaySeverity(item.severity)">
-                            {{ displaySeverity(item.severity) }}
-                          </span>
-                        </td>
-                        <td class="col-item">
-                          <div
-                            class="item-name"
-                            tabindex="0"
-                            [attr.aria-label]="getStockItemTooltip(item)"
-                            [matTooltip]="getStockItemTooltip(item)"
-                            matTooltipPosition="above"
-                            matTooltipShowDelay="300">
-                            {{ item.item_name || 'Item ' + item.item_id }}
-                          </div>
-                          @if (item.item_code) {
-                            <div class="item-code">{{ item.item_code }}</div>
-                          }
-                          @if (item.category) {
-                            <div class="text-muted">{{ item.category }}</div>
-                          }
-                        </td>
-                        <td class="col-available">{{ item.available_qty | number: '1.0-0' }}</td>
-                        <td class="col-inbound">{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
-                        <td class="col-burn-rate">
-                          <div class="burn-rate-cell" [matTooltip]="getBurnRateTooltip(item)" matTooltipPosition="above">
-                            <div class="burn-rate-main">
-                      <span class="burn-rate-value" [ngClass]="{
-                        'burn-rate-zero-stale': shouldShowZeroWarning(item),
-                        'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
-                      }">
+        </div>
+
+        @if (hasActiveFilters()) {
+          <div class="stock-dashboard__filter-actions">
+            <button
+              mat-button
+              type="button"
+              color="warn"
+              (click)="resetFilters()"
+              matTooltip="Clear all active filters and return to default sorting"
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+            >
+              <mat-icon aria-hidden="true">clear</mat-icon>
+              Reset filters
+            </button>
+          </div>
+        }
+      </div>
+    </mat-expansion-panel>
+  }
+
+  <!-- Skeleton Loading (Initial Load) -->
+  @if (loading && warehouseGroups.length === 0) {
+    <div class="stock-dashboard__skeleton" aria-live="polite">
+      <dmis-skeleton-loader variant="stat-box" [count]="4" />
+      <dmis-skeleton-loader variant="warehouse-card" [count]="3" />
+    </div>
+  }
+
+  <!-- Main split: warehouses at risk (2/3) + side panels (1/3) -->
+  @if (!loading && warehouseGroups.length > 0) {
+    <div class="ops-grid ops-grid--split">
+      <!-- LEFT: warehouses at risk -->
+      <section class="ops-panel stock-dashboard__warehouses-panel" aria-label="Warehouses at risk">
+        <div class="ops-panel__header">
+          <div>
+            <p class="ops-section__eyebrow">Warehouses</p>
+            <h2 class="ops-section__title">Warehouses at risk</h2>
+            <p class="ops-section__copy">
+              Every warehouse with items trending critical or warning under the current phase window. Expand a card to inspect line items and generate a scoped needs list.
+            </p>
+          </div>
+          <span class="ops-table-shell__meta">
+            {{ warehouseGroups.length }} warehouse{{ warehouseGroups.length === 1 ? '' : 's' }}
+          </span>
+        </div>
+
+        <div class="ops-panel__body">
+          @for (group of warehouseGroups; track group.warehouse_id) {
+            <details
+              class="ops-row ops-row--interactive stock-dashboard__warehouse-row"
+              [ngClass]="{
+                'stock-dashboard__warehouse-row--critical': group.critical_count > 0,
+                'stock-dashboard__warehouse-row--warning': group.critical_count === 0 && group.warning_count > 0,
+                'stock-dashboard__warehouse-row--good': group.critical_count === 0 && group.warning_count === 0
+              }"
+              [attr.open]="group.critical_count > 0 || viewMode === 'single' ? '' : null"
+            >
+              <summary class="stock-dashboard__warehouse-summary">
+                <div class="stock-dashboard__warehouse-identity">
+                  <mat-icon aria-hidden="true" class="stock-dashboard__warehouse-icon">warehouse</mat-icon>
+                  <div>
+                    <h3 class="stock-dashboard__warehouse-name">{{ group.warehouse_name }}</h3>
+                    <p class="stock-dashboard__warehouse-meta">
+                      {{ group.items.length }} item{{ group.items.length === 1 ? '' : 's' }} in view
+                      @if (group.overall_freshness) {
+                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
+                        <span>Freshness {{ group.overall_freshness }}</span>
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                <div class="stock-dashboard__warehouse-chips">
+                  @if (group.critical_count > 0) {
+                    <app-ops-status-chip
+                      [label]="group.critical_count + ' critical'"
+                      tone="critical"
+                    />
+                  }
+                  @if (group.warning_count > 0) {
+                    <app-ops-status-chip
+                      [label]="group.warning_count + ' warning'"
+                      tone="warning"
+                    />
+                  }
+                  @if (group.critical_count === 0 && group.warning_count === 0) {
+                    <app-ops-status-chip label="All good" tone="success" />
+                  }
+                </div>
+
+                <div class="stock-dashboard__warehouse-actions">
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="generateNeedsListWithGates('warehouse-card', group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
+                    [disabled]="group.items.length === 0 || ctaInFlight()"
+                    matTooltip="Create a replenishment needs list for this warehouse."
+                    matTooltipPosition="above"
+                    matTooltipShowDelay="300"
+                  >
+                    <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
+                    Generate needs list
+                  </button>
+                  @if (viewMode === 'multi') {
+                    <button
+                      mat-stroked-button
+                      type="button"
+                      (click)="drillDownToWarehouse(group.warehouse_id); $event.preventDefault(); $event.stopPropagation();"
+                      matTooltip="View detailed stock information and history for this warehouse"
+                      matTooltipPosition="above"
+                      matTooltipShowDelay="300"
+                    >
+                      <mat-icon aria-hidden="true">visibility</mat-icon>
+                      Details
+                    </button>
+                  }
+                  <span class="stock-dashboard__warehouse-chevron" aria-hidden="true">
+                    <mat-icon>expand_more</mat-icon>
+                  </span>
+                </div>
+              </summary>
+
+              <!-- Warehouse-scoped freshness warning -->
+              @if (getDataFreshnessWarning(group); as warning) {
+                <p class="stock-dashboard__stale-note" role="status">
+                  <mat-icon aria-hidden="true">schedule</mat-icon>
+                  {{ warning }}
+                </p>
+              }
+
+              @if (group.items.length > 0) {
+                <!-- Desktop item table -->
+                <div class="stock-dashboard__items-shell stock-dashboard__items-shell--desktop">
+                  <table class="ops-row-list stock-dashboard__items-table">
+                    <caption class="sr-only">Stock status items for {{ group.warehouse_name }}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Status</th>
+                        <th scope="col">Item</th>
+                        <th scope="col" class="num">Available</th>
+                        <th scope="col" class="num">Inbound</th>
+                        <th scope="col">Burn rate</th>
+                        <th scope="col">Time to stockout</th>
+                        <th scope="col" class="num">Required</th>
+                        <th scope="col" class="num">Gap</th>
+                        <th scope="col">Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (item of group.items; track item.item_id) {
+                        <tr [ngClass]="'stock-dashboard__item-row stock-dashboard__item-row--' + displaySeverity(item.severity).toLowerCase()">
+                          <td>
+                            <app-ops-status-chip
+                              [label]="displaySeverity(item.severity)"
+                              [tone]="displaySeverityTone(item.severity)"
+                            />
+                          </td>
+                          <td>
+                            <p
+                              class="stock-dashboard__item-name"
+                              tabindex="0"
+                              [attr.aria-label]="getStockItemTooltip(item)"
+                              [matTooltip]="getStockItemTooltip(item)"
+                              matTooltipPosition="above"
+                              matTooltipShowDelay="300"
+                            >
+                              {{ item.item_name || 'Item ' + item.item_id }}
+                            </p>
+                            @if (item.item_code) {
+                              <p class="stock-dashboard__item-meta">{{ item.item_code }}</p>
+                            }
+                            @if (item.category) {
+                              <p class="stock-dashboard__item-meta">{{ item.category }}</p>
+                            }
+                          </td>
+                          <td class="num">{{ item.available_qty | number: '1.0-0' }}</td>
+                          <td class="num">{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
+                          <td>
+                            <div
+                              class="stock-dashboard__burn-cell"
+                              [matTooltip]="getBurnRateTooltip(item)"
+                              matTooltipPosition="above"
+                            >
+                              <span
+                                class="stock-dashboard__burn-value"
+                                [ngClass]="{
+                                  'stock-dashboard__burn-value--zero-stale': shouldShowZeroWarning(item),
+                                  'stock-dashboard__burn-value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                                }"
+                              >
                                 {{ getBurnRateDisplay(item) }}
                               </span>
                               @if (item.burn_rate_trend && getTrendIcon(item.burn_rate_trend)) {
                                 <mat-icon
-                                  class="trend-icon"
+                                  class="stock-dashboard__trend-icon"
                                   [ngClass]="getTrendClass(item.burn_rate_trend)"
                                   inline="true"
-                                  >
+                                >
                                   {{ getTrendIcon(item.burn_rate_trend) }}
                                 </mat-icon>
                               }
-                            </div>
-                            <div class="burn-rate-indicators">
-                              <span
-                                class="confidence-badge"
-                                [ngClass]="getBurnRateConfidenceClass(getBurnRateConfidence(item))"
-                                >
-                                {{ getBurnRateConfidence(item) }}
-                              </span>
                               @if (isStaleDataBurnRate(item)) {
-                                <span class="stale-badge">
-                                  ⚠ Stale Data
-                                </span>
+                                <span class="stock-dashboard__stale-chip" aria-label="Stale data">⚠ Stale</span>
                               }
                             </div>
-                          </div>
-                        </td>
-                        <td class="col-time-to-stockout">
-                          <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
-                        </td>
-                        <td class="col-required">{{ item.required_qty | number: '1.0-0' }}</td>
-                        <td class="col-gap gap-cell"
-                          [matTooltip]="'Gap = Required (' + ((item.required_qty ?? 0) | number: '1.0-0') + ') - Available (' + (item.available_qty | number: '1.0-0') + ') - Inbound (' + (item.inbound_strict_qty | number: '1.0-0') + ')'"
-                          matTooltipPosition="above">
-                          <span
-                            [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'"
-                            [attr.aria-label]="item.gap_qty > 0 ? ('Gap remaining ' + (item.gap_qty | number: '1.0-0')) : ('No gap ' + (item.gap_qty | number: '1.0-0'))"
+                          </td>
+                          <td>
+                            <app-time-to-stockout [data]="getTimeToStockoutData(item)" />
+                          </td>
+                          <td class="num">{{ item.required_qty | number: '1.0-0' }}</td>
+                          <td
+                            class="num"
+                            [matTooltip]="'Gap = Required (' + ((item.required_qty ?? 0) | number: '1.0-0') + ') - Available (' + (item.available_qty | number: '1.0-0') + ') - Inbound (' + (item.inbound_strict_qty | number: '1.0-0') + ')'"
+                            matTooltipPosition="above"
+                          >
+                            <span
+                              [ngClass]="item.gap_qty > 0 ? 'stock-dashboard__gap--positive' : 'stock-dashboard__gap--zero'"
+                              [attr.aria-label]="item.gap_qty > 0 ? ('Gap remaining ' + (item.gap_qty | number: '1.0-0')) : ('No gap ' + (item.gap_qty | number: '1.0-0'))"
                             >
+                              {{ item.gap_qty | number: '1.0-0' }}
+                            </span>
+                          </td>
+                          <td>
+                            <app-ops-status-chip
+                              [label]="item.freshness?.state || 'N/A'"
+                              [tone]="freshnessChipTone(item.freshness?.state)"
+                              [showDot]="false"
+                            />
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Mobile card list -->
+                <div class="stock-dashboard__items-shell stock-dashboard__items-shell--mobile">
+                  @for (item of group.items; track item.item_id) {
+                    <article
+                      class="stock-dashboard__item-card"
+                      [ngClass]="'stock-dashboard__item-card--' + displaySeverity(item.severity).toLowerCase()"
+                    >
+                      <header class="stock-dashboard__item-card-header">
+                        <app-ops-status-chip
+                          [label]="displaySeverity(item.severity)"
+                          [tone]="displaySeverityTone(item.severity)"
+                        />
+                        <div class="stock-dashboard__item-card-identity">
+                          <p
+                            class="stock-dashboard__item-name"
+                            tabindex="0"
+                            [matTooltip]="getStockItemTooltip(item)"
+                            matTooltipPosition="above"
+                            matTooltipShowDelay="300"
+                          >
+                            {{ item.item_name || 'Item ' + item.item_id }}
+                          </p>
+                          @if (item.category) {
+                            <p class="stock-dashboard__item-meta">{{ item.category }}</p>
+                          }
+                        </div>
+                        <app-ops-status-chip
+                          [label]="item.freshness?.state || 'N/A'"
+                          [tone]="freshnessChipTone(item.freshness?.state)"
+                          [showDot]="false"
+                        />
+                      </header>
+                      <dl class="stock-dashboard__item-card-metrics">
+                        <div>
+                          <dt>Available</dt>
+                          <dd>{{ item.available_qty | number: '1.0-0' }}</dd>
+                        </div>
+                        <div>
+                          <dt>Burn rate</dt>
+                          <dd
+                            [ngClass]="{
+                              'stock-dashboard__burn-value--zero-stale': shouldShowZeroWarning(item),
+                              'stock-dashboard__burn-value--zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                            }"
+                          >
+                            {{ getBurnRateDisplay(item) }}
+                          </dd>
+                        </div>
+                        <div class="stock-dashboard__item-card-metric--highlight">
+                          <dt>Time to stockout</dt>
+                          <dd>
+                            <app-time-to-stockout [data]="getTimeToStockoutData(item)" />
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Gap</dt>
+                          <dd [ngClass]="item.gap_qty > 0 ? 'stock-dashboard__gap--positive' : 'stock-dashboard__gap--zero'">
                             {{ item.gap_qty | number: '1.0-0' }}
-                          </span>
-                        </td>
-                        <td class="col-data">
-                          <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')" [attr.aria-label]="'Data freshness: ' + (item.freshness?.state || 'Unknown')">
-                            {{ item.freshness?.state || 'N/A' }}
-                          </span>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              <!-- Stock Items Card List (Mobile) -->
-              <div class="mobile-card-list mobile-only">
-                @for (item of group.items; track item.item_id) {
-                  <div class="mobile-item-card"
-                    [ngClass]="'card-' + getSeverityClass(item.severity)">
-                    <div class="mobile-card-header">
-                      <span class="badge" [ngClass]="getDisplayBadgeClass(item.severity)" [attr.aria-label]="'Status: ' + displaySeverity(item.severity)">
-                        {{ displaySeverity(item.severity) }}
-                      </span>
-                      <div class="mobile-card-title">
-                        <span
-                          class="item-name"
-                          tabindex="0"
-                          [matTooltip]="getStockItemTooltip(item)"
-                          matTooltipPosition="above"
-                          matTooltipShowDelay="300">
-                          {{ item.item_name || 'Item ' + item.item_id }}
-                        </span>
-                        @if (item.category) {
-                          <span class="item-category">{{ item.category }}</span>
-                        }
-                      </div>
-                      <span class="badge badge-sm" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')" [attr.aria-label]="'Data freshness: ' + (item.freshness?.state || 'Unknown')">
-                        {{ item.freshness?.state || 'N/A' }}
-                      </span>
-                    </div>
-                    <div class="mobile-card-metrics">
-                      <div class="metric">
-                        <span class="metric-label">Available</span>
-                        <span class="metric-value">{{ item.available_qty | number: '1.0-0' }}</span>
-                      </div>
-                      <div class="metric">
-                        <span class="metric-label">Burn Rate</span>
-                <span class="metric-value" [ngClass]="{
-                  'burn-rate-zero-stale': shouldShowZeroWarning(item),
-                  'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
-                }">{{ getBurnRateDisplay(item) }}</span>
-                      </div>
-                      <div class="metric metric-highlight">
-                        <span class="metric-label">Time to Stockout</span>
-                        <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
-                      </div>
-                      <div class="metric">
-                        <span class="metric-label">Gap</span>
-                        <span class="metric-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
-                          {{ item.gap_qty | number: '1.0-0' }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                }
-              </div>
-            </div>
-          }
-          <!-- No Items in Warehouse (filtered) -->
-          @if (group.items.length === 0) {
-            <div class="warehouse-content">
-              <dmis-empty-state
-                icon="search_off"
-                title="No Matching Items"
-                message="No items match your current filters for this warehouse."
-                [actionLabel]="hasActiveFilters() ? 'Clear Filters' : ''"
-                actionIcon="filter_list_off"
-                (action)="resetFilters()"
-              ></dmis-empty-state>
-            </div>
+                          </dd>
+                        </div>
+                      </dl>
+                    </article>
+                  }
+                </div>
+              } @else {
+                <dmis-empty-state
+                  icon="search_off"
+                  title="No matching items"
+                  message="No items match your current filters for this warehouse."
+                  [actionLabel]="hasActiveFilters() ? 'Clear filters' : ''"
+                  actionIcon="filter_list_off"
+                  (action)="resetFilters()"
+                />
+              }
+            </details>
           }
         </div>
-      }
+      </section>
+
+      <!-- RIGHT column: side panels -->
+      <aside class="ops-grid stock-dashboard__side">
+        <!-- Data freshness panel -->
+        <section class="ops-panel stock-dashboard__freshness-panel" aria-label="Data freshness by warehouse">
+          <div class="ops-panel__header">
+            <div>
+              <p class="ops-section__eyebrow">Signals</p>
+              <h2 class="ops-section__title">Data freshness</h2>
+              <p class="ops-section__copy">
+                Thresholds for the current phase: HIGH under a few hours, MEDIUM up to a working day, LOW beyond that.
+              </p>
+            </div>
+          </div>
+          <div class="ops-panel__body">
+            @if (freshnessRows.length === 0) {
+              <p class="stock-dashboard__empty-hint">No warehouse data loaded yet.</p>
+            } @else {
+              <ul class="stock-dashboard__freshness-list" role="list">
+                @for (row of freshnessRows; track row.warehouseId) {
+                  <li class="stock-dashboard__freshness-row" role="listitem">
+                    <div class="stock-dashboard__freshness-row-main">
+                      <mat-icon aria-hidden="true" class="stock-dashboard__freshness-row-icon">warehouse</mat-icon>
+                      <div>
+                        <p class="stock-dashboard__freshness-row-name">{{ row.warehouseName }}</p>
+                        <p class="stock-dashboard__freshness-row-age">{{ row.ageLabel }}</p>
+                      </div>
+                    </div>
+                    <app-ops-status-chip [label]="row.tone" [tone]="row.chipTone" [showDot]="false" />
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </section>
+
+        <!-- Risk-by-category panel -->
+        <section class="ops-panel stock-dashboard__category-panel" aria-label="Risk by category">
+          <div class="ops-panel__header">
+            <div>
+              <p class="ops-section__eyebrow">Rollup</p>
+              <h2 class="ops-section__title">Risk by category</h2>
+              <p class="ops-section__copy">Share of items in each category that are currently critical or warning.</p>
+            </div>
+          </div>
+          <div class="ops-panel__body">
+            @if (categoryRollup.length === 0) {
+              <p class="stock-dashboard__empty-hint">No items loaded yet.</p>
+            } @else {
+              <ul class="stock-dashboard__category-list" role="list">
+                @for (entry of categoryRollup; track entry.name) {
+                  <li class="stock-dashboard__category-row" role="listitem">
+                    <div class="stock-dashboard__category-row-head">
+                      <span class="stock-dashboard__category-row-name">{{ entry.name }}</span>
+                      <span class="stock-dashboard__category-row-value">
+                        {{ entry.atRisk }} / {{ entry.total }}
+                        <span class="stock-dashboard__category-row-pct" aria-hidden="true">· {{ entry.atRiskPct }}%</span>
+                      </span>
+                    </div>
+                    <div
+                      class="stock-dashboard__category-bar"
+                      role="progressbar"
+                      [attr.aria-valuemin]="0"
+                      [attr.aria-valuemax]="entry.total"
+                      [attr.aria-valuenow]="entry.atRisk"
+                      [attr.aria-label]="entry.name + ' at risk'"
+                    >
+                      @if (entry.total > 0) {
+                        <span
+                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--critical"
+                          [style.width.%]="(entry.critical / entry.total) * 100"
+                        ></span>
+                        <span
+                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--warning"
+                          [style.width.%]="(entry.warning / entry.total) * 100"
+                        ></span>
+                        <span
+                          class="stock-dashboard__category-bar-seg stock-dashboard__category-bar-seg--good"
+                          [style.width.%]="(entry.good / entry.total) * 100"
+                        ></span>
+                      }
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </section>
+      </aside>
     </div>
   }
 
-  <!-- Empty State (No Active Event) -->
+  <!-- Empty state: no active event -->
   @if (!loading && !activeEvent) {
     <dmis-empty-state
       icon="event_busy"
-      title="No Active Events"
+      title="No active events"
       message="There are currently no active events in the system. To view stock status and burn rates, an event must be declared and marked as active in the Event Management module."
-    ></dmis-empty-state>
+    />
   }
 
-  <!-- Empty State (No Warehouses / All Healthy) -->
+  <!-- Empty state: all clear -->
   @if (!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0) {
     <dmis-empty-state
       icon="verified"
-      title="All Clear"
+      title="All clear"
       message="All items have healthy stock levels. No replenishment action needed."
-      actionLabel="Refresh Data"
+      actionLabel="Refresh data"
       actionIcon="refresh"
       (action)="loadMultiWarehouseStatus()"
-    ></dmis-empty-state>
+    />
   }
 
-  <!-- Empty State (Load Error) -->
+  <!-- Empty state: load error -->
   @if (!loading && activeEvent && errors.length > 0 && warehouseGroups.length === 0) {
     <dmis-empty-state
       icon="error"
-      title="Unable to Load Stock Status"
+      title="Unable to load stock status"
       [message]="errors[0] || 'Failed to load stock status.'"
       actionLabel="Retry"
       actionIcon="refresh"
       (action)="retryCurrentView()"
-    ></dmis-empty-state>
+    />
   }
 
-  <!-- Mobile FAB: Generate Needs List -->
+  <!-- Mobile FAB (field-first CTA, sticky primary) -->
   @if (activeEvent && warehouseGroups.length > 0) {
     <button
-      class="mobile-fab mobile-only"
+      type="button"
+      class="stock-dashboard__fab"
       (click)="generateNeedsListWithGates('fab')"
       [disabled]="ctaInFlight()"
-      [attr.aria-label]="'Generate Needs List'"
+      aria-label="Generate needs list"
       matTooltip="Generate a replenishment needs list"
-      >
-      <mat-icon>add_shopping_cart</mat-icon>
+    >
+      <mat-icon aria-hidden="true">add_shopping_cart</mat-icon>
+      <span class="stock-dashboard__fab-label">Generate</span>
     </button>
   }
 </div>
