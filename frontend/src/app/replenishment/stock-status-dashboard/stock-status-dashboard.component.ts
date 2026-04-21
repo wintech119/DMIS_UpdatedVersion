@@ -55,7 +55,7 @@ import { ScopePickerDialogComponent, ScopePickerDialogResult } from './dialogs/s
 import { DuplicateGuardDialogComponent, DuplicateGuardDialogResult } from './dialogs/duplicate-guard-dialog.component';
 import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-dialog.component';
 import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../../operations/shared/ops-metric-strip.component';
+import type { OpsMetricStripItem } from '../../operations/shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../../operations/shared/ops-status-chip.component';
 
 // Ops-shell chip tone vocabulary, narrowed to what this dashboard surfaces.
@@ -94,6 +94,20 @@ export interface FreshnessSummary {
   chipTone: OpsChipTone;
 }
 
+export interface KpiCardEntry {
+  key: 'items-at-risk' | 'warehouses-at-risk' | 'pending' | 'freshness';
+  label: string;
+  icon: string;
+  value: string;
+  unit?: string;
+  hint: string;
+  delta?: string;
+  chipLabel?: string;
+  chipTone?: OpsChipTone;
+  interactive: boolean;
+  ariaLabel?: string;
+}
+
 
 interface FilterState {
   categories: string[];
@@ -126,7 +140,6 @@ interface FilterState {
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
     DmisEmptyStateComponent,
-    OpsMetricStripComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './stock-status-dashboard.component.html',
@@ -158,6 +171,9 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   readonly phaseWindows = signal<PhaseWindowsResponse | null>(null);
   readonly canManagePhaseWindows = computed(() => !!this.phaseWindows()?.manageable_by_active_tenant);
   readonly ctaInFlight = signal(false);
+
+  // LOW-confidence banner dismissal (session-local, resets on reload).
+  lowConfidenceBannerDismissed = false;
 
   // Safe poll loop state.
   private pollInFlight = false;
@@ -1253,6 +1269,127 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Target-design KPI cards. Same 4 signals as `kpiStrip` but with richer
+   * display data: chip label/tone on top-right + optional delta caption.
+   * Source of truth — still derives from `warehouseGroups`, `actionInbox`,
+   * and `freshnessSummary`, so no new API calls.
+   */
+  get kpiCards(): readonly KpiCardEntry[] {
+    const totalCritical = this.getTotalCriticalCount();
+    const totalWarning = this.getTotalWarningCount();
+    const totalAtRisk = totalCritical + totalWarning;
+    const groups = this.warehouseGroups ?? [];
+    const warehousesAtRisk = groups.filter(
+      (g) => g.critical_count > 0 || g.warning_count > 0
+    ).length;
+    const inbox = this.actionInbox;
+    const pending = inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+    const freshness = this.freshnessSummary;
+
+    const itemsChip: { label: string; tone: OpsChipTone } =
+      totalCritical > 0
+        ? { label: 'Critical', tone: 'critical' }
+        : totalWarning > 0
+          ? { label: 'Warning', tone: 'warning' }
+          : { label: 'All good', tone: 'success' };
+
+    const warehouseChip: { label: string; tone: OpsChipTone } =
+      warehousesAtRisk > 0
+        ? { label: 'Action', tone: 'warning' }
+        : { label: 'Stable', tone: 'success' };
+
+    const pendingChip: { label: string; tone: OpsChipTone } | undefined =
+      inbox.awaitingApproval > 0
+        ? { label: 'Awaiting', tone: 'info' }
+        : inbox.returned > 0
+          ? { label: 'Returned', tone: 'warning' }
+          : pending > 0
+            ? { label: 'Drafts', tone: 'soft' }
+            : undefined;
+
+    const freshnessChip: { label: string; tone: OpsChipTone } = {
+      label: freshness.tone,
+      tone: freshness.chipTone
+    };
+
+    return [
+      {
+        key: 'items-at-risk',
+        label: 'Items at risk',
+        icon: totalAtRisk > 0 ? 'priority_high' : 'check_circle',
+        value: String(totalAtRisk),
+        hint: totalAtRisk > 0
+          ? `${totalCritical} critical · ${totalWarning} warning`
+          : 'All items healthy',
+        chipLabel: itemsChip.label,
+        chipTone: itemsChip.tone,
+        interactive: false
+      },
+      {
+        key: 'warehouses-at-risk',
+        label: 'Warehouses at risk',
+        icon: 'warehouse',
+        value: String(warehousesAtRisk),
+        unit: groups.length > 0 ? `of ${groups.length}` : undefined,
+        hint: warehousesAtRisk > 0 ? 'Need action' : 'All warehouses stable',
+        chipLabel: warehouseChip.label,
+        chipTone: warehouseChip.tone,
+        interactive: false
+      },
+      {
+        key: 'pending',
+        label: 'Pending needs lists',
+        icon: 'assignment',
+        value: String(pending),
+        hint: inbox.awaitingApproval > 0
+          ? `${inbox.awaitingApproval} awaiting approval`
+          : pending > 0
+            ? `${inbox.draftsInProgress} drafts · ${inbox.returned} returned`
+            : 'Nothing pending',
+        delta: pending > 0 && this.canAccessReviewQueue ? 'Open queue →' : undefined,
+        chipLabel: pendingChip?.label,
+        chipTone: pendingChip?.tone,
+        interactive: pending > 0 && this.canAccessReviewQueue,
+        ariaLabel: `Pending needs lists, ${pending}. ${this.canAccessReviewQueue ? 'Open review queue.' : ''}`
+      },
+      {
+        key: 'freshness',
+        label: 'Data freshness',
+        icon: freshness.tone === 'LOW' ? 'sync_problem' : 'history',
+        value: freshness.total > 0 ? String(freshness.fresh) : '—',
+        unit: freshness.total > 0 ? `of ${freshness.total} fresh` : undefined,
+        hint: `${freshness.tone} confidence`,
+        chipLabel: freshnessChip.label,
+        chipTone: freshnessChip.tone,
+        interactive: false
+      }
+    ];
+  }
+
+  /**
+   * Click handler for the custom KPI cards. Only the Pending card is
+   * interactive today — the rest are display-only.
+   */
+  onKpiCardClick(entry: KpiCardEntry): void {
+    if (!entry.interactive) { return; }
+    if (entry.key === 'pending' && this.canAccessReviewQueue) {
+      this.openReviewQueue();
+    }
+  }
+
+  /** Hide the LOW-confidence banner for this session. */
+  dismissLowConfidenceBanner(): void {
+    this.lowConfidenceBannerDismissed = true;
+  }
+
+  /** Scroll to the Data Freshness side panel from the LOW-confidence banner. */
+  scrollToFreshness(): void {
+    if (typeof document === 'undefined') { return; }
+    const panel = document.querySelector('.stock-dashboard__freshness-panel');
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   // -- Age-label / max-age helpers -------------------------------------
 
   private maxAgeHoursFor(group: WarehouseStockGroup): number | null {
@@ -1460,6 +1597,16 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
       return `Warning: Data is aging for ${group.warehouse_name}. Calculations may not reflect current stock levels.`;
     }
     return null;
+  }
+
+  /**
+   * Formatted "Xh ago" label for a warehouse card's synced-at line. Returns
+   * null when no freshness data is available.
+   */
+  getDataFreshnessAgeLabel(group: WarehouseStockGroup): string | null {
+    const maxAge = this.maxAgeHoursFor(group);
+    if (maxAge == null) { return null; }
+    return this.formatAgeLabel(maxAge);
   }
 
   getPhaseLabel(): string {

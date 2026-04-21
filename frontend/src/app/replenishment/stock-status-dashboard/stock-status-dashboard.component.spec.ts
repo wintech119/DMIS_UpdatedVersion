@@ -1168,7 +1168,7 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     expect((fab?.textContent ?? '').toLowerCase()).toContain('generate');
   });
 
-  it('renders the Action Inbox chips with FR02.93 labels', () => {
+  it('renders the Action Inbox pills with FR02.93 labels', () => {
     fixture.detectChanges();
     component.activeEvent = event;
     component.myNeedsLists = [
@@ -1192,14 +1192,14 @@ describe('StockStatusDashboardComponent display severity rendering', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    const chipLabels = Array.from(
-      host.querySelectorAll<HTMLElement>('.ops-action-inbox__chips .ops-chip')
-    ).map((el) => (el.textContent ?? '').trim());
+    const pillLabels = Array.from(
+      host.querySelectorAll<HTMLElement>('.ops-action-inbox__chips .stock-dashboard__inbox-pill')
+    ).map((el) => (el.textContent ?? '').trim().toLowerCase());
 
-    expect(chipLabels.length).toBe(3);
-    expect(chipLabels.some((l) => l.includes('awaiting approval'))).toBeTrue();
-    expect(chipLabels.some((l) => l.includes('drafts in progress'))).toBeTrue();
-    expect(chipLabels.some((l) => l.includes('returned'))).toBeTrue();
+    expect(pillLabels.length).toBe(3);
+    expect(pillLabels.some((l) => l.includes('awaiting approval'))).toBeTrue();
+    expect(pillLabels.some((l) => l.includes('drafts in progress'))).toBeTrue();
+    expect(pillLabels.some((l) => l.includes('returned'))).toBeTrue();
   });
 
   it('renders risk-by-category bars without divide-by-zero artifacts', () => {

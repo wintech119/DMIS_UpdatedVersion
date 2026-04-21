@@ -128,24 +128,51 @@
         <p class="ops-action-inbox__copy">Outstanding needs lists you own or can advance.</p>
       </div>
       <div class="ops-action-inbox__chips" role="list">
-        <span class="ops-action-inbox__chip" role="listitem">
-          <app-ops-status-chip
-            [label]="actionInbox.awaitingApproval + ' awaiting approval'"
-            [tone]="actionInbox.awaitingApproval > 0 ? 'info' : 'neutral'"
-          />
-        </span>
-        <span class="ops-action-inbox__chip" role="listitem">
-          <app-ops-status-chip
-            [label]="actionInbox.draftsInProgress + ' drafts in progress'"
-            [tone]="actionInbox.draftsInProgress > 0 ? 'soft' : 'neutral'"
-          />
-        </span>
-        <span class="ops-action-inbox__chip" role="listitem">
-          <app-ops-status-chip
-            [label]="actionInbox.returned + ' returned'"
-            [tone]="actionInbox.returned > 0 ? 'warning' : 'neutral'"
-          />
-        </span>
+        @if (actionInboxTotal === 0) {
+          <span class="stock-dashboard__inbox-empty" role="listitem">
+            <mat-icon aria-hidden="true">check_circle</mat-icon>
+            Nothing pending
+          </span>
+        } @else {
+          <button
+            type="button"
+            role="listitem"
+            class="stock-dashboard__inbox-pill"
+            [ngClass]="{ 'stock-dashboard__inbox-pill--urgent': actionInbox.awaitingApproval > 0 }"
+            (click)="openReviewQueue()"
+            [disabled]="!canAccessReviewQueue"
+            [attr.aria-label]="actionInbox.awaitingApproval + ' awaiting approval'"
+          >
+            <span class="stock-dashboard__inbox-count">{{ actionInbox.awaitingApproval }}</span>
+            <span>Awaiting approval</span>
+            <mat-icon aria-hidden="true">chevron_right</mat-icon>
+          </button>
+          <button
+            type="button"
+            role="listitem"
+            class="stock-dashboard__inbox-pill"
+            (click)="openReviewQueue()"
+            [disabled]="!canAccessReviewQueue"
+            [attr.aria-label]="actionInbox.draftsInProgress + ' drafts in progress'"
+          >
+            <span class="stock-dashboard__inbox-count">{{ actionInbox.draftsInProgress }}</span>
+            <span>Drafts in progress</span>
+            <mat-icon aria-hidden="true">chevron_right</mat-icon>
+          </button>
+          <button
+            type="button"
+            role="listitem"
+            class="stock-dashboard__inbox-pill"
+            [ngClass]="{ 'stock-dashboard__inbox-pill--returned': actionInbox.returned > 0 }"
+            (click)="openReviewQueue()"
+            [disabled]="!canAccessReviewQueue"
+            [attr.aria-label]="actionInbox.returned + ' returned'"
+          >
+            <span class="stock-dashboard__inbox-count">{{ actionInbox.returned }}</span>
+            <span>Returned</span>
+            <mat-icon aria-hidden="true">chevron_right</mat-icon>
+          </button>
+        }
       </div>
       @if (canAccessReviewQueue) {
         <button
@@ -163,7 +190,7 @@
   }
 
   <!-- LOW confidence banner -->
-  @if (hasLowConfidence) {
+  @if (hasLowConfidence && !lowConfidenceBannerDismissed) {
     <aside class="ops-banner ops-banner--critical stock-dashboard__low-confidence" role="alert">
       <mat-icon aria-hidden="true">report_problem</mat-icon>
       <div class="ops-banner__body">
@@ -171,16 +198,78 @@
         <p class="ops-banner__copy">
           Burn-rate calculations for at least one item rely on stale or sparse data. Review freshness before submitting a needs list.
         </p>
+        <div class="stock-dashboard__banner-actions">
+          <button
+            mat-stroked-button
+            type="button"
+            (click)="triggerManualRefresh()"
+            [disabled]="refreshing"
+          >
+            <mat-icon aria-hidden="true">refresh</mat-icon>
+            Refresh all
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            (click)="scrollToFreshness()"
+          >
+            <mat-icon aria-hidden="true">schedule</mat-icon>
+            Review freshness
+          </button>
+        </div>
       </div>
+      <button
+        type="button"
+        class="stock-dashboard__banner-dismiss"
+        (click)="dismissLowConfidenceBanner()"
+        aria-label="Dismiss low-confidence banner"
+      >
+        <mat-icon aria-hidden="true">close</mat-icon>
+      </button>
     </aside>
   }
 
-  <!-- KPI strip -->
+  <!-- KPI cards -->
   @if (activeEvent && warehouseGroups.length > 0) {
-    <app-ops-metric-strip
-      [items]="kpiStrip"
-      (itemClick)="onKpiStripClick($event)"
-    />
+    <div class="stock-dashboard__kpi-grid" role="list" aria-label="Dashboard KPIs">
+      @for (card of kpiCards; track card.key) {
+        <button
+          type="button"
+          role="listitem"
+          class="stock-dashboard__kpi-card"
+          [attr.data-interactive]="card.interactive"
+          [disabled]="!card.interactive"
+          [attr.aria-label]="card.ariaLabel || (card.label + ': ' + card.value + (card.unit ? ' ' + card.unit : '') + '. ' + card.hint)"
+          (click)="onKpiCardClick(card)"
+        >
+          <div class="stock-dashboard__kpi-head">
+            <span class="stock-dashboard__kpi-label">
+              <mat-icon aria-hidden="true">{{ card.icon }}</mat-icon>
+              {{ card.label }}
+            </span>
+            @if (card.chipLabel && card.chipTone) {
+              <app-ops-status-chip
+                [label]="card.chipLabel"
+                [tone]="card.chipTone"
+                [showDot]="false"
+              />
+            }
+          </div>
+          <div class="stock-dashboard__kpi-number">
+            <span class="stock-dashboard__kpi-value">{{ card.value }}</span>
+            @if (card.unit) {
+              <span class="stock-dashboard__kpi-unit">{{ card.unit }}</span>
+            }
+          </div>
+          <div class="stock-dashboard__kpi-foot">
+            <span class="stock-dashboard__kpi-hint">{{ card.hint }}</span>
+            @if (card.delta) {
+              <span class="stock-dashboard__kpi-delta" aria-hidden="true">{{ card.delta }}</span>
+            }
+          </div>
+        </button>
+      }
+    </div>
   }
 
   <!-- Filters & Sort (preserved; collapsible) -->
@@ -383,10 +472,24 @@
                   <div>
                     <h3 class="stock-dashboard__warehouse-name">{{ group.warehouse_name }}</h3>
                     <p class="stock-dashboard__warehouse-meta">
-                      {{ group.items.length }} item{{ group.items.length === 1 ? '' : 's' }} in view
-                      @if (group.overall_freshness) {
+                      @if (group.critical_count > 0) {
+                        <span class="stock-dashboard__warehouse-counts-critical">
+                          <strong>{{ group.critical_count }}</strong> critical
+                        </span>
                         <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
-                        <span>Freshness {{ group.overall_freshness }}</span>
+                      }
+                      @if (group.warning_count > 0) {
+                        <span class="stock-dashboard__warehouse-counts-warning">
+                          <strong>{{ group.warning_count }}</strong> warning
+                        </span>
+                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
+                      }
+                      <span class="stock-dashboard__warehouse-counts-good">
+                        <strong>{{ group.items.length - group.critical_count - group.warning_count }}</strong> good
+                      </span>
+                      @if (getDataFreshnessAgeLabel(group); as ageLabel) {
+                        <span aria-hidden="true" class="stock-dashboard__meta-sep">·</span>
+                        <span>Synced {{ ageLabel }}</span>
                       }
                     </p>
                   </div>
@@ -398,14 +501,12 @@
                       [label]="group.critical_count + ' critical'"
                       tone="critical"
                     />
-                  }
-                  @if (group.warning_count > 0) {
+                  } @else if (group.warning_count > 0) {
                     <app-ops-status-chip
                       [label]="group.warning_count + ' warning'"
                       tone="warning"
                     />
-                  }
-                  @if (group.critical_count === 0 && group.warning_count === 0) {
+                  } @else {
                     <app-ops-status-chip label="All good" tone="success" />
                   }
                 </div>
@@ -659,7 +760,10 @@
                       <mat-icon aria-hidden="true" class="stock-dashboard__freshness-row-icon">warehouse</mat-icon>
                       <div>
                         <p class="stock-dashboard__freshness-row-name">{{ row.warehouseName }}</p>
-                        <p class="stock-dashboard__freshness-row-age">{{ row.ageLabel }}</p>
+                        <p
+                          class="stock-dashboard__freshness-row-age"
+                          [ngClass]="{ 'stock-dashboard__freshness-row-age--low': row.tone === 'LOW' }"
+                        >{{ row.ageLabel }}</p>
                       </div>
                     </div>
                     <app-ops-status-chip [label]="row.tone" [tone]="row.chipTone" [showDot]="false" />
@@ -692,6 +796,26 @@
                         {{ entry.atRisk }} / {{ entry.total }}
                         <span class="stock-dashboard__category-row-pct" aria-hidden="true">· {{ entry.atRiskPct }}%</span>
                       </span>
+                    </div>
+                    <div class="stock-dashboard__category-legend" aria-hidden="true">
+                      @if (entry.critical > 0) {
+                        <span class="crit">
+                          <span class="stock-dashboard__category-legend-dot"></span>
+                          {{ entry.critical }} critical
+                        </span>
+                      }
+                      @if (entry.warning > 0) {
+                        <span class="warn">
+                          <span class="stock-dashboard__category-legend-dot"></span>
+                          {{ entry.warning }} warning
+                        </span>
+                      }
+                      @if (entry.good > 0) {
+                        <span class="good">
+                          <span class="stock-dashboard__category-legend-dot"></span>
+                          {{ entry.good }} good
+                        </span>
+                      }
                     </div>
                     <div
                       class="stock-dashboard__category-bar"
