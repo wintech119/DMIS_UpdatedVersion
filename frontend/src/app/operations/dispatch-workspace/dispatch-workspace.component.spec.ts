@@ -7,6 +7,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { AppAccessService } from '../../core/app-access.service';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { OperationsService } from '../services/operations.service';
+import type { DispatchDetailResponse } from '../models/operations.model';
 import { OpsDispatchWorkspaceComponent } from './dispatch-workspace.component';
 import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 
@@ -169,7 +170,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
       reliefrqst_id: 12,
       tracking_no: 'PKG-00090',
       fulfillment_mode: 'PICKUP_AT_STAGING',
-    } as any));
+    } as DispatchDetailResponse));
 
     component['loadDetail'](90);
 

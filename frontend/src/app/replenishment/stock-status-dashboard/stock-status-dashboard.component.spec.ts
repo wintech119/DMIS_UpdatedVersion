@@ -34,6 +34,10 @@ import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-di
 import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
 
 describe('StockStatusDashboardComponent', () => {
+  interface GateChainHost {
+    runGateChain: (warehouseId: number) => void;
+  }
+
   let fixture: ComponentFixture<StockStatusDashboardComponent>;
   let component: StockStatusDashboardComponent;
 
@@ -761,7 +765,7 @@ describe('StockStatusDashboardComponent', () => {
   }
 
   it('routes hero, FAB, and warehouse-card triggers through a single CTA gate path', () => {
-    const runGateSpy = spyOn<any>(component, 'runGateChain').and.callFake(() => {
+    const runGateSpy = spyOn(component as unknown as GateChainHost, 'runGateChain').and.callFake(() => {
       component.ctaInFlight.set(false);
     });
 

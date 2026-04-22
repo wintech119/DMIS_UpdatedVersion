@@ -849,6 +849,7 @@ export class StockStatusDashboardComponent implements OnInit, OnDestroy {
     warehouseId: number,
     _source: 'hero' | 'fab' | 'warehouse-card' | 'legacy' = 'legacy'
   ): void {
+    void _source;
     if (!this.activeEvent) return;
 
     this.ctaInFlight.set(true);

@@ -7,10 +7,12 @@ export function localAuthHarnessBuildEnabled(): boolean {
 }
 
 export function isLocalAuthHarnessHost(_locationLike?: LocationLike): boolean {
+  void _locationLike;
   return false;
 }
 
 export function localAuthHarnessClientEnabled(_locationLike?: LocationLike): boolean {
+  void _locationLike;
   return false;
 }
 
