@@ -263,6 +263,43 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(component.activeFilter()).toBe('all');
   });
 
+  it('ignores metric-strip clicks with unexpected filter tokens', () => {
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.setFilter('drafts');
+    component.onMetricClick({ label: 'Invalid', value: '1', interactive: true, token: 'not-a-filter' });
+
+    expect(component.activeFilter()).toBe('drafts');
+  });
+
+  it('derives activeQueueCount from queueStats', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 70, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 71,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 72,
+            current_package: buildPackageSummary({ status_code: 'DISPATCHED' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const statsTotal = component.queueStats().reduce((total, stat) => total + stat.value, 0);
+    expect(component.activeQueueCount()).toBe(statsTotal);
+    expect(component.activeQueueCount()).toBe(2);
+  });
+
   it('syncs queueMetrics.active with the lower filter chip selection (shared source of truth)', () => {
     operationsService.getPackagesQueue.and.returnValue(
       of({

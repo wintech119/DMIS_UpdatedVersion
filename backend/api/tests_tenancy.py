@@ -170,10 +170,12 @@ class TenancyAccessTests(SimpleTestCase):
         self.assertFalse(can_access_tenant(context, 42, write=True))
 
     @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         NATIONAL_PHASE_WINDOW_ADMIN_CODES=[
             "OFFICE-OF-DISASTER-P",
             "ODPEM-NEOC",
-            "ODPEM-LOGISTICS",
         ]
     )
     def test_phase_window_config_requires_direct_odpem_national_membership(self) -> None:

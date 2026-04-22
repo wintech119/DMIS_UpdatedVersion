@@ -845,7 +845,7 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(item["freshness"]["state"], "LOW")
         self.assertNotIn("burn_no_rows_in_window", item["warnings"])
 
-    def test_burn_zero_freshness_unknown_no_estimate(self) -> None:
+    def test_burn_category_fallback_low_confidence_inventory_missing(self) -> None:
         as_of_dt = timezone.now()
         items, _, _ = needs_list.build_preview_items(
             item_ids=[1],
@@ -1148,7 +1148,7 @@ class GlobalPhaseWindowPolicyTests(SimpleTestCase):
         self.assertEqual(
             params,
             [
-                today - timedelta(days=1),
+                today,
                 "phase-admin",
                 now,
                 27,
@@ -1216,6 +1216,7 @@ class GlobalPhaseWindowPolicyTests(SimpleTestCase):
         )
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class GlobalPhaseWindowViewTests(SimpleTestCase):
     def setUp(self) -> None:
         self.factory = APIRequestFactory()
@@ -1254,11 +1255,11 @@ class GlobalPhaseWindowViewTests(SimpleTestCase):
 
     @patch(
         "api.permissions.resolve_roles_and_permissions",
-        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch(
         "replenishment.phase_window_views.resolve_roles_and_permissions",
-        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch("replenishment.phase_window_views._tenant_context")
     @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")
@@ -1283,22 +1284,39 @@ class GlobalPhaseWindowViewTests(SimpleTestCase):
 
     @patch(
         "api.permissions.resolve_roles_and_permissions",
-        return_value=(["ODPEM_DG"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch(
         "replenishment.phase_window_views.resolve_roles_and_permissions",
-        return_value=(["ODPEM_DG"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch("replenishment.phase_window_views._tenant_context")
     @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")
-    def test_put_rejects_non_backlog_authorized_role_even_with_permission(
+    def test_put_rejects_cross_tenant_scope_even_with_manage_permission(
         self,
         mock_set_windows,
         mock_tenant_context,
         _mock_phase_view_roles,
         _mock_permission_roles,
     ) -> None:
-        mock_tenant_context.return_value = self.national_context
+        mock_tenant_context.return_value = TenantContext(
+            requested_tenant_id=28,
+            active_tenant_id=28,
+            active_tenant_code="ODPEM-LOGISTICS",
+            active_tenant_type="NATIONAL",
+            memberships=(
+                TenantMembership(
+                    tenant_id=28,
+                    tenant_code="ODPEM-LOGISTICS",
+                    tenant_name="ODPEM Logistics",
+                    tenant_type="NATIONAL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
 
         response = phase_window_views.event_phase_window_detail(
             self._request(
@@ -1313,16 +1331,16 @@ class GlobalPhaseWindowViewTests(SimpleTestCase):
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertIn("authorization", response.data["errors"])
+        self.assertIn("tenant_scope", response.data["errors"])
         mock_set_windows.assert_not_called()
 
     @patch(
         "api.permissions.resolve_roles_and_permissions",
-        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch(
         "replenishment.phase_window_views.resolve_roles_and_permissions",
-        return_value=(["SYSTEM_ADMINISTRATOR"], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
+        return_value=([], [PERM_EVENT_PHASE_WINDOW_MANAGE]),
     )
     @patch("replenishment.phase_window_views._tenant_context")
     @patch("replenishment.phase_window_views.phase_window_policy.set_global_phase_windows")

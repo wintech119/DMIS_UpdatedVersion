@@ -20,14 +20,6 @@ from api.tenancy import (
 from replenishment.services import phase_window_policy
 from replenishment.services.phase_window_policy import PhaseWindowPolicyError
 
-_PHASE_WINDOW_ADMIN_ROLE_CODES = {
-    "SYSTEM_ADMINISTRATOR",
-    "ODPEM_DIR_PEOD",
-    "DIR_PEOD",
-    "TST_DIR_PEOD",
-}
-
-
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
 
@@ -55,10 +47,14 @@ def _manage_scope_error(request) -> Response | None:
     )
 
 
-def _has_phase_window_admin_role(request) -> bool:
-    roles, _ = resolve_roles_and_permissions(request, request.user)
-    normalized_roles = {str(role).strip().upper() for role in roles}
-    return bool(normalized_roles & _PHASE_WINDOW_ADMIN_ROLE_CODES)
+def _has_phase_window_admin_permission(request) -> bool:
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    normalized_permissions = {
+        str(permission).strip().lower()
+        for permission in permissions
+        if str(permission or "").strip()
+    }
+    return PERM_EVENT_PHASE_WINDOW_MANAGE.lower() in normalized_permissions
 
 
 def _phase_window_error_status(exc: Exception) -> int:
@@ -86,7 +82,7 @@ def event_phase_window_list(request, event_id: int):
             "applies_globally": True,
             "phase_windows": windows,
             "manageable_by_active_tenant": (
-                can_manage_phase_window_config(context) and _has_phase_window_admin_role(request)
+                can_manage_phase_window_config(context) and _has_phase_window_admin_permission(request)
             ),
         }
     )
@@ -100,13 +96,13 @@ def event_phase_window_detail(request, event_id: int, phase: str):
     if scope_error:
         return scope_error
 
-    if not _has_phase_window_admin_role(request):
+    if not _has_phase_window_admin_permission(request):
         return Response(
             {
                 "errors": {
                     "authorization": (
-                        "Only ODPEM national tenant users with System Admin or Director, PEOD "
-                        "authority may update global phase windows."
+                        "Only ODPEM national tenant users with phase-window management "
+                        "permission may update global phase windows."
                     )
                 }
             },

@@ -1828,16 +1828,14 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
 
     phase = payload.get("phase")
     warnings_phase: list[str] = []
-    as_of_raw = payload.get("as_of_datetime")
     as_of_dt = timezone.now()
-    if as_of_raw:
-        parsed = parse_datetime(as_of_raw)
-        if parsed is None:
-            errors["as_of_datetime"] = "Must be an ISO-8601 datetime string."
-        else:
-            if timezone.is_naive(parsed):
-                parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
-            as_of_dt = parsed
+    parsed_as_of = _parse_optional_datetime(
+        payload.get("as_of_datetime"),
+        "as_of_datetime",
+        errors,
+    )
+    if parsed_as_of is not None:
+        as_of_dt = parsed_as_of
 
     if errors:
         return {}, errors

@@ -173,12 +173,14 @@ create_role_notifications(
 ### Correct Architectural Rule
 - Save-time override detection and approval-required logic must reuse the same FEFO/FIFO-ranked item universe that powers item allocation discovery, so omitting a better-ranked warehouse cannot bypass `allocation_order_override`.
 - Execution-linked package options may enrich the ranked response with compatibility metadata, but they must not downgrade item groups back to the old compat-only allocation shape.
+- Submitted source warehouses and requested destination warehouses must be validated against the caller's tenant write scope before override detection, execution-link branches, or commit helpers can run.
 
 ### Regression Tests That Must Exist
 - Submitting only a lower-ranked warehouse while a better-ranked warehouse still has stock triggers `allocation_order_override`.
 - Ranked multi-warehouse continuation remains compliant.
 - Intentional partial fulfillment remains compliant when the submitted rows follow rank order and simply stop early.
 - Execution-linked package options expose `warehouse_cards`, recommendation metadata, shortfall, and continuation fields just like non-execution-linked requests.
+- Out-of-scope submitted source or destination warehouses are rejected before override detection or allocation commit helpers run.
 
 ### Closeout Expectation
 - If a change touches allocation enforcement or execution-linked package allocation options, mention this lesson in the closeout and confirm the ranked-allocation enforcement regressions were run.

@@ -1261,9 +1261,9 @@ export class FulfillmentItemDetailComponent {
   }
 
   remainingForCard(card: WarehouseAllocationCard): number {
-    const requested = Number(this.item().request_qty) || 0;
+    const remaining = this.remainingQty();
     const reserving = this.reservingQty();
-    return Math.max(0, requested - reserving + this.allocatedQtyFor(card));
+    return Math.max(0, remaining - reserving + this.allocatedQtyFor(card));
   }
 
   isOverrideRiskFor(card: WarehouseAllocationCard): boolean {

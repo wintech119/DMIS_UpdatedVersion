@@ -805,16 +805,29 @@ def _leg_item_package_reserved_qty(item: OperationsConsolidationLegItem) -> Deci
     return min(_leg_item_usable_qty(item), _quantize_qty(item.quantity))
 
 
-def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+def _parse_positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | None:
+    if isinstance(value, bool):
+        errors[field_name] = "Must be a positive integer."
+        return None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped.isdecimal():
+            errors[field_name] = "Must be a positive integer."
+            return None
+        parsed = int(stripped)
+    else:
         errors[field_name] = "Must be a positive integer."
         return None
     if parsed <= 0:
         errors[field_name] = "Must be a positive integer."
         return None
     return parsed
+
+
+def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | None:
+    return _parse_positive_int(value, field_name, errors)
 
 
 def _optional_positive_int(value: Any, field_name: str) -> int | None:
@@ -1312,14 +1325,12 @@ def _optional_positive_int_list_payload_value(
     normalized: list[int] = []
     seen: set[int] = set()
     for index, raw_entry in enumerate(raw_value):
-        try:
-            parsed = int(raw_entry)
-        except (TypeError, ValueError) as exc:
+        errors: dict[str, str] = {}
+        parsed = _parse_positive_int(raw_entry, f"{field_name}[{index}]", errors)
+        if errors or parsed is None:
             raise OperationValidationError(
                 {f"{field_name}[{index}]": "Must be a positive integer."}
-            ) from exc
-        if parsed <= 0:
-            raise OperationValidationError({f"{field_name}[{index}]": "Must be a positive integer."})
+            )
         if parsed in seen:
             continue
         seen.add(parsed)
@@ -2169,13 +2180,15 @@ def _ensure_request_access(
     tenant_context: TenantContext,
     write: bool = False,
 ) -> None:
-    normalized_roles = normalize_role_codes(actor_roles)
-    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+    if (write and tenant_context.can_act_cross_tenant) or (
+        not write and (tenant_context.can_read_all_tenants or tenant_context.can_act_cross_tenant)
+    ):
         return
     relevant_tenants = [request_record.requesting_tenant_id, request_record.beneficiary_tenant_id]
     for tenant_id in relevant_tenants:
         if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=write):
             return
+    normalized_roles = normalize_role_codes(actor_roles)
     if actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context).filter(
         entity_type=ENTITY_REQUEST,
         entity_id=int(request_record.relief_request_id),
@@ -4057,6 +4070,30 @@ def _normalize_plan_rows_for_recommended_uom(
     return normalized_rows
 
 
+def _allocation_choice_signature(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[tuple[int, int, int, str, int | None, Decimal]]:
+    grouped: dict[tuple[int, int, int, str, int | None], Decimal] = {}
+    for row in rows:
+        try:
+            key = (
+                int(row["item_id"]),
+                int(row["inventory_id"]),
+                int(row["batch_id"]),
+                str(row.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                (
+                    int(row["source_record_id"])
+                    if row.get("source_record_id") not in (None, "")
+                    else None
+                ),
+            )
+            quantity = _quantize_qty(row["quantity"])
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            continue
+        grouped[key] = _quantize_qty(grouped.get(key, Decimal("0")) + quantity)
+    return sorted((*key, quantity) for key, quantity in grouped.items())
+
+
 def _allocation_override_markers_for_plan(
     *,
     reliefrqst_id: int,
@@ -4099,9 +4136,41 @@ def _allocation_override_markers_for_plan(
         if remaining > 0:
             override_markers.append("insufficient_on_hand_stock")
         normalized_rows = _normalize_plan_rows_for_recommended_uom(rows, recommended)
-        if _group_plan_rows(recommended) != _group_plan_rows(normalized_rows):
+        if _allocation_choice_signature(recommended) != _allocation_choice_signature(normalized_rows):
             override_markers.append("allocation_order_override")
     return list(dict.fromkeys(override_markers))
+
+
+def _ensure_allocation_warehouse_access(
+    *,
+    allocations: Sequence[Mapping[str, Any]],
+    requested_destination_id: int | None,
+    tenant_context: TenantContext | None,
+) -> None:
+    if tenant_context is None:
+        return
+    warehouse_ids = {
+        int(allocation["inventory_id"])
+        for allocation in allocations
+        if allocation.get("inventory_id") not in (None, "")
+    }
+    if requested_destination_id is not None:
+        warehouse_ids.add(int(requested_destination_id))
+    denied_ids: list[int] = []
+    for warehouse_id in sorted(warehouse_ids):
+        if can_access_warehouse(tenant_context, warehouse_id, write=True):
+            continue
+        denied_ids.append(warehouse_id)
+    if denied_ids:
+        raise OperationValidationError(
+            {
+                "warehouse": {
+                    "code": "permission_denied",
+                    "message": "Warehouse is outside the active tenant scope.",
+                    "warehouse_id": denied_ids[0],
+                }
+            }
+        )
 
 
 def build_item_warehouse_cards(
@@ -4526,6 +4595,11 @@ def _save_package_allocation(
     allocations = _normalized_allocations(payload)
     plan_rows = _group_plan_rows(allocations)
     requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
+    _ensure_allocation_warehouse_access(
+        allocations=allocations,
+        requested_destination_id=requested_destination_id,
+        tenant_context=tenant_context,
+    )
     if execution_link is not None:
         override_markers = _allocation_override_markers_for_plan(
             reliefrqst_id=reliefrqst_id,

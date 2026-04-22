@@ -218,17 +218,19 @@ export class OperationsService {
   abandonDraft(
     reliefpkgId: number,
     reason?: string,
+    idempotencyKey?: string,
   ): Observable<PackageAbandonDraftResponse> {
     const body: { reason?: string } = {};
     if (reason && reason.trim().length > 0) {
       body.reason = reason.trim().slice(0, 500);
     }
+    const key = idempotencyKey ?? this.createIdempotencyKey('package-abandon', reliefpkgId);
     return this.http.post<PackageAbandonDraftResponse>(
       `${this.apiUrl}/packages/${reliefpkgId}/abandon-draft`,
       body,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('package-abandon', reliefpkgId),
+          'Idempotency-Key': key,
         },
       },
     );

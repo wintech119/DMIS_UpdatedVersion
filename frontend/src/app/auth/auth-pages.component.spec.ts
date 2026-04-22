@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { AuthSessionService } from '../core/auth-session.service';
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
@@ -108,7 +108,7 @@ describe('Auth pages', () => {
         {
           user_id: '42',
           username: 'local_odpem_logistics_manager_tst',
-          email: 'kemar.campbell+national.logistics-manager@odpem.gov.jm',
+          email: 'local.odpem.logistics.manager@example.test',
           roles: ['ODPEM_LOGISTICS_MANAGER'],
           memberships: [
             {
@@ -138,6 +138,60 @@ describe('Auth pages', () => {
 
     expect(authSession.refreshPrincipal).toHaveBeenCalled();
     expect(navigateByUrl).toHaveBeenCalledWith('/replenishment/dashboard', { replaceUrl: true });
+    httpMock.verify();
+  });
+
+  it('surfaces local harness refresh failures and clears the working state', async () => {
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    const authSession = {
+      loginAvailable: signal(false),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Local harness session unavailable.',
+        configured: true,
+        oidcEnabled: false,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+      refreshPrincipal: jasmine.createSpy('refreshPrincipal').and.returnValue(
+        throwError(() => new Error('Backend unavailable')),
+      ),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/v1/auth/local-harness/').flush({
+      enabled: true,
+      default_user: 'local_system_admin_tst',
+      users: [],
+    });
+    fixture.detectChanges();
+
+    const continueButton = fixture.nativeElement.querySelector('.auth-primary') as HTMLButtonElement;
+    continueButton.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(authSession.refreshPrincipal).toHaveBeenCalled();
+    expect(fixture.componentInstance.localHarnessWorking()).toBeFalse();
+    expect(fixture.componentInstance.localHarnessError()).toBe('Backend unavailable');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Backend unavailable');
     httpMock.verify();
   });
 

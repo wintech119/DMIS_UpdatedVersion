@@ -850,8 +850,9 @@ export class WarehouseAllocationCardComponent {
   /**
    * Numeric remaining qty the item still needs. Used to clamp the qty input so
    * the operator cannot reserve more than the item requires from any single
-   * card. Parent passes `max(0, request - reserving + allocatedForThisCard)`
-   * so `Use max` works intuitively on the active card.
+   * card. Parent passes `max(0, remaining_qty - reserving + allocatedForThisCard)`
+   * so `Use max` works intuitively on the active card without reopening
+   * quantities already issued on another package leg.
    */
   readonly remainingQtyForItem = input<number>(0);
   /**

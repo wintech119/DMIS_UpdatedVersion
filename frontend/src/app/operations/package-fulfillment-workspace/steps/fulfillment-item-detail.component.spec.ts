@@ -466,6 +466,32 @@ describe('FulfillmentItemDetailComponent', () => {
       expect(fixture.nativeElement.querySelector('.detail__stack')).toBeNull();
     });
 
+    it('caps card quantity to residual remaining_qty when prior issuance reduced the request', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        request_qty: '42',
+        issue_qty: '32',
+        remaining_qty: '10',
+        remaining_after_suggestion: '10',
+        remaining_shortfall_qty: '10',
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0, {
+            total_available: '50',
+            suggested_qty: '10',
+          }),
+        ],
+      };
+      qtyByItemWarehouse.set(makeKey(44, 9001), 6);
+
+      const fixture = await render(item);
+
+      expect(fixture.componentInstance.remainingForCard(item.warehouse_cards[0])).toBe(10);
+      const input = fixture.nativeElement.querySelector(
+        'app-warehouse-allocation-card input.wh-card__qty-input',
+      ) as HTMLInputElement;
+      expect(input.getAttribute('max')).toBe('10');
+    });
+
     it('renders the already-issued info banner and read-only cards when fully_issued=true', async () => {
       const item: AllocationItemGroup = {
         ...baseItem,

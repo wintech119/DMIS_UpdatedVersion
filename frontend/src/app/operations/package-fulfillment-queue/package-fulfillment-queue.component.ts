@@ -46,6 +46,13 @@ export type TimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
 const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
+const FULFILLMENT_FILTERS = new Set<FulfillmentFilter>([
+  'all',
+  'awaiting',
+  'drafts',
+  'preparing',
+  'ready',
+]);
 
 const PAGE_SIZE = 5;
 
@@ -236,7 +243,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   });
 
   readonly activeQueueCount = computed(() =>
-    this.items().filter((item) => this.getFulfillmentStage(item) !== 'excluded').length,
+    this.queueStats().reduce((total, stat) => total + stat.value, 0),
   );
 
   readonly defaultWarehouseLabel = signal('All warehouses');
@@ -382,11 +389,11 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   onMetricClick(item: OpsMetricStripItem): void {
-    const token = item.token as FulfillmentFilter | undefined;
-    if (!token) {
+    const token = String(item.token ?? '');
+    if (!FULFILLMENT_FILTERS.has(token as FulfillmentFilter)) {
       return;
     }
-    this.setFilter(token);
+    this.setFilter(token as FulfillmentFilter);
   }
 
   onInboxClick(pill: ActionInboxPill): void {

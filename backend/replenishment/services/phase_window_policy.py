@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 from django.db import DatabaseError, connection, transaction
@@ -135,7 +134,7 @@ def _expire_active_global_phase_window_configs(
             AND (expiry_date IS NULL OR expiry_date >= %s)
         """,
         [
-            today - timedelta(days=1),
+            today,
             actor_ref,
             now,
             int(tenant_id),
@@ -271,7 +270,7 @@ def _fetch_effective_global_phase_window_config(
                     tc.tenant_id = %s
                     AND tc.config_key = %s
                     AND tc.effective_date <= CURRENT_DATE
-                    AND (tc.expiry_date IS NULL OR tc.expiry_date >= CURRENT_DATE)
+                    AND (tc.expiry_date IS NULL OR tc.expiry_date > CURRENT_DATE)
                 ORDER BY tc.effective_date DESC, tc.update_dtime DESC, tc.config_id DESC
                 LIMIT 1
                 """,

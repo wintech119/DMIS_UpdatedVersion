@@ -62,3 +62,17 @@
 2. Completed: patched only TypeScript lint violations without visual layout changes.
 3. Completed: ran targeted frontend lint verification.
 4. Completed: completed frontend and architecture review sanity checks.
+
+## Package Fulfillment Residual Cap Fix
+
+1. Completed: traced the max-quantity clamp from the fulfillment item detail component into the warehouse allocation card.
+2. Completed: patched the parent cap to use residual `remaining_qty` instead of original `request_qty`, preserving the active card's editable allocation.
+3. Completed: added focused regression coverage in the existing fulfillment item detail spec.
+4. Completed: ran the targeted Angular spec and completed the architecture-review closeout.
+
+## Review Comment Verification Sweep - 2026-04-22
+
+1. Completed: verified each cited backend and frontend finding against the current code before editing; stale findings were identified for the phase-window dialog caller, warehouse-card CTA propagation, moved override-routing test code, and allocation-card zero max coverage.
+2. Completed: patched confirmed backend authorization, validation, allocation comparison, and phase-window policy/view issues.
+3. Completed: patched confirmed frontend auth failure handling, live-region placement, idempotency-key retry support, metric filter validation, and stale warning visibility without visual redesign.
+4. Completed: ran focused Django and Angular tests, the production Angular build, and completed backend/frontend architecture-review closeout.

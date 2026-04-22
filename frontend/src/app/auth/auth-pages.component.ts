@@ -207,6 +207,13 @@ export class DmisAuthLoginPageComponent {
         this.authSession.state().message
           ?? 'DMIS could not validate the local harness session. Confirm the Django backend is running over HTTP.',
       );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null;
+      this.localHarnessError.set(
+        message
+          || this.authSession.state().message
+          || 'DMIS could not validate the local harness session. Confirm the Django backend is running over HTTP.',
+      );
     } finally {
       this.localHarnessWorking.set(false);
     }

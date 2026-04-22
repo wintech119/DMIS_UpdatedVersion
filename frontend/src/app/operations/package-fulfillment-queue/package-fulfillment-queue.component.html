@@ -11,16 +11,16 @@
         Active work queue for stock reservation, packing, and dispatch handoff. Dispatched and received packages move to the Dispatch queue.
       </p>
       <div class="pfq-hero__context">
-        <span class="pfq-hero__pill pfq-hero__pill--status" aria-live="polite">
+        <span class="pfq-hero__pill pfq-hero__pill--status">
           <span class="pfq-hero__pill-dot" aria-hidden="true"></span>
           <span>Active work</span>
           <span class="pfq-hero__pill-sep" aria-hidden="true">·</span>
-          <strong>{{ activeQueueCount() }} in queue</strong>
+          <strong aria-live="polite">{{ activeQueueCount() }} in queue</strong>
         </span>
         <span class="pfq-hero__pill pfq-hero__pill--meta">
           <mat-icon aria-hidden="true">schedule</mat-icon>
           <span>Updated</span>
-          <strong>just now</strong>
+          <strong aria-live="polite">just now</strong>
         </span>
         <span class="pfq-hero__warehouse">
           Default warehouse: <strong>{{ defaultWarehouseLabel() }}</strong>

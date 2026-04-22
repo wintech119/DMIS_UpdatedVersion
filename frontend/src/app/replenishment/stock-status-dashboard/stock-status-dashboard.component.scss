@@ -1528,7 +1528,15 @@
 }
 
 .srd-wh-card__stale-note {
-  display: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--dash-crit-fg);
+  font-size: 0.82rem;
+  font-weight: 700;
+
+  mat-icon { font-size: 16px; width: 16px; height: 16px; }
 }
 
 .srd-wh-card__footer {

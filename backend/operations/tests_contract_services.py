@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from api.authentication import Principal
 from api.tenancy import TenantContext, TenantMembership
 from operations import contract_services
 from operations import policy as operations_policy
@@ -83,6 +84,7 @@ from operations.models import (
     TenantRequestPolicy,
 )
 from api.rbac import (
+    PERM_NATIONAL_ACT_CROSS_TENANT,
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
@@ -2766,6 +2768,67 @@ class OperationsWorkflowContractTests(TestCase):
             sorted({call.args[0] for call in fetch_candidates_mock.call_args_list}),
             [1, 9],
         )
+
+    @patch("operations.contract_services.compat_commit_allocation")
+    @patch("operations.contract_services._allocation_override_markers_for_plan")
+    @patch("operations.contract_services.can_access_warehouse", return_value=False)
+    @patch("operations.contract_services._load_request")
+    @patch("operations.contract_services._execution_link_for_request")
+    def test_save_package_allocation_rejects_out_of_scope_warehouse_before_commit(
+        self,
+        execution_link_mock,
+        load_request_mock,
+        can_access_warehouse_mock,
+        override_markers_mock,
+        compat_commit_mock,
+    ) -> None:
+        execution_link_mock.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            needs_list=SimpleNamespace(
+                warehouse_id=9,
+                event_id=12,
+                submitted_by="planner-1",
+            ),
+        )
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+
+        with self.assertRaises(OperationValidationError) as ctx:
+            contract_services._save_package_allocation(
+                70,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 101,
+                            "inventory_id": 9,
+                            "batch_id": 9001,
+                            "quantity": "2.0000",
+                        }
+                    ],
+                    "to_inventory_id": 8,
+                },
+                actor_id="officer-1",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+                actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
+                tenant_context=self.dispatch_ready_context,
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(ctx.exception.errors["warehouse"]["code"], "permission_denied")
+        self.assertEqual(
+            [call.args for call in can_access_warehouse_mock.call_args_list],
+            [(self.dispatch_ready_context, 8), (self.dispatch_ready_context, 9)],
+        )
+        self.assertTrue(
+            all(call.kwargs == {"write": True} for call in can_access_warehouse_mock.call_args_list)
+        )
+        override_markers_mock.assert_not_called()
+        compat_commit_mock.assert_not_called()
 
     @patch("operations.contract_services._apply_package_header_updates")
     @patch("operations.contract_services._apply_stock_delta_for_rows")
@@ -7743,7 +7806,7 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_context=self.odpem_context,
         )
 
-    def test_ensure_request_access_allows_system_administrator_cross_tenant(self) -> None:
+    def test_ensure_request_access_requires_explicit_cross_tenant_permission_for_admin(self) -> None:
         request_record = OperationsReliefRequest.objects.create(
             relief_request_id=95011,
             request_no="RQ95011",
@@ -7759,14 +7822,35 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
+        principal = Principal(
+            user_id="local_system_admin_tst",
+            username="local_system_admin_tst",
+            roles=[ROLE_SYSTEM_ADMINISTRATOR],
+            permissions=[PERM_NATIONAL_ACT_CROSS_TENANT],
+        )
+        cross_tenant_context = _tenant_context(
+            tenant_id=27,
+            tenant_code="OFFICE-OF-DISASTER-P",
+            tenant_type="NATIONAL",
+            can_act_cross_tenant=PERM_NATIONAL_ACT_CROSS_TENANT in principal.permissions,
+        )
 
         contract_services._ensure_request_access(
             request_record,
             actor_id="local_system_admin_tst",
             actor_roles=[ROLE_SYSTEM_ADMINISTRATOR],
-            tenant_context=self.odpem_context,
+            tenant_context=cross_tenant_context,
             write=True,
         )
+
+        with self.assertRaises(OperationValidationError):
+            contract_services._ensure_request_access(
+                request_record,
+                actor_id="local_system_admin_tst",
+                actor_roles=[ROLE_SYSTEM_ADMINISTRATOR],
+                tenant_context=self.odpem_context,
+                write=True,
+            )
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -9557,6 +9641,51 @@ class ItemAllocationOptionsTests(TestCase):
             tenant_context=self.tenant_ctx,
             draft_allocations=None,
             additional_warehouse_ids=[7, 5, 5],
+        )
+
+    def test_optional_positive_int_list_payload_rejects_float_and_oversized_values(self) -> None:
+        with self.assertRaises(OperationValidationError):
+            contract_services._optional_positive_int_list_payload_value(
+                {"additional_warehouse_ids": [1.5]},
+                "additional_warehouse_ids",
+            )
+
+        with self.assertRaises(OperationValidationError):
+            contract_services._optional_positive_int_list_payload_value(
+                {
+                    "additional_warehouse_ids": list(
+                        range(contract_services.MAX_ADDITIONAL_WAREHOUSE_IDS + 1)
+                    )
+                },
+                "additional_warehouse_ids",
+            )
+
+    def test_allocation_choice_signature_ignores_optional_uom_metadata(self) -> None:
+        recommended = [
+            {
+                "item_id": 101,
+                "inventory_id": 4,
+                "batch_id": 1001,
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "uom_code": "EA",
+                "quantity": Decimal("2.0000"),
+            }
+        ]
+        submitted = [
+            {
+                "item_id": 101,
+                "inventory_id": 4,
+                "batch_id": 1001,
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "quantity": Decimal("2.0000"),
+            }
+        ]
+
+        self.assertEqual(
+            contract_services._allocation_choice_signature(recommended),
+            contract_services._allocation_choice_signature(submitted),
         )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
