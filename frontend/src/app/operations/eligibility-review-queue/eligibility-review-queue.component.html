@@ -20,15 +20,7 @@
     </div>
   </header>
 
-  <section class="ops-kpi-grid" aria-label="Eligibility summary">
-    @for (metric of metrics(); track metric.label) {
-      <button class="ops-kpi-card" type="button" (click)="openMetric(metric)">
-        <span class="ops-kpi-card__label">{{ metric.label }}</span>
-        <span class="ops-kpi-card__value">{{ metric.value }}</span>
-        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
-      </button>
-    }
-  </section>
+  <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
@@ -105,7 +97,7 @@
                 (keydown.space)="openReview(request); $event.preventDefault()">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                    <p class="ops-row__title ops-row__id">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                   </div>
@@ -176,7 +168,7 @@
         <div class="ops-card__body">
           <div class="ops-timeline">
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Open a request awaiting action</p>
                 <div class="ops-timeline__meta">
@@ -185,7 +177,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Record an approve, reject, or ineligible decision</p>
                 <div class="ops-timeline__meta">
@@ -194,7 +186,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Decided requests leave this queue</p>
                 <div class="ops-timeline__meta">

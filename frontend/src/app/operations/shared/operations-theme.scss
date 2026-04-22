@@ -108,12 +108,32 @@
 }
 
 .ops-flow-strip__card {
+  --ops-flow-strip-accent: transparent;
+  position: relative;
   padding: 16px 20px;
   background: var(--ops-strip-bg);
   border: 1px solid var(--ops-outline);
   border-radius: var(--ops-radius-md);
   box-shadow: var(--ops-strip-shadow);
+  overflow: hidden;
   transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+// Left-edge accent bar keyed off --ops-flow-strip-accent. Mirrors the flat
+// bar used by PFQ's .ops-queue-tile so queue pages share a single KPI
+// treatment. Pages set the accent via <app-ops-metric-strip> item.accent.
+.ops-flow-strip__card--accent {
+  padding-left: 24px;
+}
+
+.ops-flow-strip__card--accent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--ops-flow-strip-accent);
 }
 
 .ops-flow-strip__card:hover {

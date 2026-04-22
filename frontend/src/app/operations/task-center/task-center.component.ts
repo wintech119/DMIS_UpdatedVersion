@@ -21,6 +21,7 @@ import {
   mapOperationsToneToChipTone,
 } from '../operations-display.util';
 import { OperationsService } from '../services/operations.service';
+import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 
 type TaskFilter = 'all' | 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
@@ -29,6 +30,8 @@ interface TaskMetric {
   label: string;
   value: number;
   note: string;
+  filter?: TaskFilter;
+  accent: string;
 }
 
 const EMPTY_TASK_FEED: OperationsTaskListResponse = {
@@ -47,6 +50,7 @@ const EMPTY_TASK_FEED: OperationsTaskListResponse = {
     MatInputModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    OpsMetricStripComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './task-center.component.html',
@@ -104,11 +108,24 @@ export class TaskCenterComponent implements OnInit {
     const feed = this.taskFeed();
     const rows = feed.results;
     return [
-      { label: 'Assignments', value: feed.queue_assignments.length, note: 'Live queue work' },
-      { label: 'Notifications', value: feed.notifications.length, note: 'Workflow events' },
-      { label: 'Open', value: rows.filter((task) => task.status === 'PENDING').length, note: 'Unread or awaiting action' },
-      { label: 'Completed', value: rows.filter((task) => task.status === 'COMPLETED').length, note: 'Read or closed' },
+      { label: 'Assignments', value: feed.queue_assignments.length, note: 'Live queue work', accent: '#3d4b99' },
+      { label: 'Notifications', value: feed.notifications.length, note: 'Workflow events', accent: '#b7833f' },
+      { label: 'Open', value: rows.filter((task) => task.status === 'PENDING').length, note: 'Unread or awaiting action', filter: 'PENDING', accent: '#7a4fd1' },
+      { label: 'Completed', value: rows.filter((task) => task.status === 'COMPLETED').length, note: 'Read or closed', filter: 'COMPLETED', accent: '#2e8a48' },
     ];
+  });
+
+  readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
+    const active = this.activeFilter();
+    return this.metrics().map((metric) => ({
+      label: metric.label,
+      value: String(metric.value),
+      hint: metric.note,
+      interactive: metric.filter != null,
+      token: metric.filter,
+      active: metric.filter != null && active === metric.filter,
+      accent: metric.accent,
+    }));
   });
 
   readonly formatTaskType = formatTaskType;
@@ -127,6 +144,20 @@ export class TaskCenterComponent implements OnInit {
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  openMetric(metric: OpsMetricStripItem): void {
+    if (!this.isTaskFilter(metric.token)) {
+      return;
+    }
+    this.setFilter(metric.token);
+  }
+
+  private isTaskFilter(value: string | undefined): value is TaskFilter {
+    return value === 'all'
+      || value === 'PENDING'
+      || value === 'IN_PROGRESS'
+      || value === 'COMPLETED';
   }
 
   onSearch(value: string): void {

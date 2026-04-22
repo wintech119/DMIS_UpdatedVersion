@@ -143,12 +143,53 @@ export class ConsolidationQueueComponent implements OnInit {
 
   readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
     const stats = this.queueStats();
+    const active = this.activeFilter();
     return [
-      { label: 'In Consolidation', value: String(stats.total), hint: 'Staged packages with active legs' },
-      { label: 'Awaiting Legs', value: String(stats.awaiting), hint: 'Planned, not yet dispatched' },
-      { label: 'In Transit', value: String(stats.inTransit), hint: 'Legs en route to hub' },
-      { label: 'Partial', value: String(stats.partial), hint: 'Some legs received' },
-      { label: 'Ready to Dispatch', value: String(stats.ready), hint: 'All legs received' },
+      {
+        label: 'In Consolidation',
+        value: String(stats.total),
+        hint: 'Staged packages with active legs',
+        interactive: true,
+        token: 'all',
+        active: active === 'all',
+        accent: '#6b7280',
+      },
+      {
+        label: 'Awaiting Legs',
+        value: String(stats.awaiting),
+        hint: 'Planned, not yet dispatched',
+        interactive: true,
+        token: 'awaiting',
+        active: active === 'awaiting',
+        accent: '#b7833f',
+      },
+      {
+        label: 'In Transit',
+        value: String(stats.inTransit),
+        hint: 'Legs en route to hub',
+        interactive: true,
+        token: 'in_transit',
+        active: active === 'in_transit',
+        accent: '#17447f',
+      },
+      {
+        label: 'Partial',
+        value: String(stats.partial),
+        hint: 'Some legs received',
+        interactive: true,
+        token: 'partial',
+        active: active === 'partial',
+        accent: '#7a4fd1',
+      },
+      {
+        label: 'Ready to Dispatch',
+        value: String(stats.ready),
+        hint: 'All legs received',
+        interactive: true,
+        token: 'ready',
+        active: active === 'ready',
+        accent: '#2e8a48',
+      },
     ];
   });
 
@@ -225,6 +266,21 @@ export class ConsolidationQueueComponent implements OnInit {
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  openMetric(metric: OpsMetricStripItem): void {
+    if (!this.isConsolidationFilter(metric.token)) {
+      return;
+    }
+    this.setFilter(metric.token);
+  }
+
+  private isConsolidationFilter(value: string | undefined): value is ConsolidationFilter {
+    return value === 'all'
+      || value === 'awaiting'
+      || value === 'in_transit'
+      || value === 'partial'
+      || value === 'ready';
   }
 
   getConsolidationStage(row: PackageQueueItem): ConsolidationStage {

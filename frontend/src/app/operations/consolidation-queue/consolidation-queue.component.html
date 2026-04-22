@@ -25,7 +25,7 @@
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="queueMetrics()" />
+  <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
@@ -93,7 +93,7 @@
                 (keydown.space)="openConsolidation(row); $event.preventDefault()">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title">
+                    <p class="ops-row__title ops-row__id">
                       {{ row.current_package?.tracking_no ?? ('PKG-' + row.current_package?.reliefpkg_id) }}
                     </p>
                     <app-ops-status-chip
@@ -179,7 +179,7 @@
         <div class="ops-card__body">
           <div class="ops-timeline">
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Awaiting legs.</p>
                 <div class="ops-timeline__meta">
@@ -188,7 +188,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">In transit.</p>
                 <div class="ops-timeline__meta">
@@ -197,7 +197,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #7c3aed;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--accent"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Partially received.</p>
                 <div class="ops-timeline__meta">
@@ -208,7 +208,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Ready to dispatch.</p>
                 <div class="ops-timeline__meta">

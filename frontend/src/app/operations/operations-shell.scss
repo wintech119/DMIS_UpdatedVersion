@@ -597,6 +597,15 @@ button.ops-chip.ops-chip--active:focus-visible {
   flex-wrap: wrap;
 }
 
+// Shared monospace styling for tracking numbers in row titles. Mirrors
+// the tabular-nums + tight letter-spacing that PFQ uses on .pfq-row__id
+// so alphanumeric identifiers (REQ-9001, PKG-00234) line up across rows.
+.ops-row__id {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
 .ops-row--tiered .ops-row__title {
   margin: 0;
   font-size: 0.97rem;
@@ -862,6 +871,16 @@ button.ops-chip.ops-chip--active:focus-visible {
   color: var(--color-text-primary);
 }
 
+// Shared tone modifiers so queue pages don't inline `style="color: #..."`
+// on workload/summary values. Tones align with the PFQ stage palette and
+// the ops-status-chip vocabulary.
+.ops-summary-card__value--info    { color: #17447f; }
+.ops-summary-card__value--warning { color: #b54708; }
+.ops-summary-card__value--success { color: #286a36; }
+.ops-summary-card__value--critical { color: #b42318; }
+.ops-summary-card__value--accent  { color: #3d4b99; }
+.ops-summary-card__value--muted   { color: var(--color-text-secondary); }
+
 .ops-timeline {
   display: grid;
   gap: 0.65rem;
@@ -881,7 +900,18 @@ button.ops-chip.ops-chip--active:focus-visible {
   height: 0.8rem;
   margin-top: 0.2rem;
   border-radius: 999px;
+  background: var(--color-text-secondary);
 }
+
+// Tone modifiers for guidance timeline dots so queue pages don't inline
+// `style="background: #..."`. Hex values mirror the PFQ stage palette and
+// the tokens defined in `generation.tsx`.
+.ops-timeline__dot--info     { background: #17447f; }
+.ops-timeline__dot--warning  { background: #b54708; }
+.ops-timeline__dot--success  { background: #286a36; }
+.ops-timeline__dot--critical { background: #b42318; }
+.ops-timeline__dot--accent   { background: #7a4fd1; }
+.ops-timeline__dot--neutral  { background: var(--color-text-secondary); }
 
 .ops-timeline__content {
   display: grid;

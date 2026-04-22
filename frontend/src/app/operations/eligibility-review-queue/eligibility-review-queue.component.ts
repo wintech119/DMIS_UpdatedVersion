@@ -10,6 +10,7 @@ import { AuthRbacService } from '../../replenishment/services/auth-rbac.service'
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestSummary } from '../models/operations.model';
@@ -38,7 +39,8 @@ interface ReviewMetric {
   label: string;
   value: number;
   note: string;
-  route: string;
+  filter: ReviewFilter;
+  accent: string;
 }
 
 interface ReviewSummary {
@@ -109,6 +111,7 @@ function oldestAgeHours(rows: readonly RequestSummary[]): number {
     MatInputModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    OpsMetricStripComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './eligibility-review-queue.component.html',
@@ -178,11 +181,24 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly metrics = computed<ReviewMetric[]>(() => {
     const rows = this.actionableRequests();
     return [
-      { label: 'Awaiting action', value: rows.length, note: 'Needs an eligibility decision', route: '/operations/eligibility-review' },
-      { label: 'Critical', value: rows.filter((row) => urgencyCode(row) === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
-      { label: 'High', value: rows.filter((row) => urgencyCode(row) === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
-      { label: 'Oldest waiting (h)', value: oldestAgeHours(rows), note: 'Hours since oldest submission', route: '/operations/eligibility-review' },
+      { label: 'Awaiting action', value: rows.length, note: 'Needs an eligibility decision', filter: 'all', accent: '#3d4b99' },
+      { label: 'Critical', value: rows.filter((row) => urgencyCode(row) === 'C').length, note: 'Immediate attention', filter: 'critical', accent: '#b42318' },
+      { label: 'High', value: rows.filter((row) => urgencyCode(row) === 'H').length, note: 'Priority review lane', filter: 'high', accent: '#b7833f' },
+      { label: 'Oldest waiting (h)', value: oldestAgeHours(rows), note: 'Hours since oldest submission', filter: 'standard', accent: '#6b7280' },
     ];
+  });
+
+  readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
+    const active = this.activeFilter();
+    return this.metrics().map((metric) => ({
+      label: metric.label,
+      value: String(metric.value),
+      hint: metric.note,
+      interactive: true,
+      token: metric.filter,
+      active: active === metric.filter,
+      accent: metric.accent,
+    }));
   });
 
   readonly summary = computed<ReviewSummary>(() => {
@@ -233,8 +249,18 @@ export class EligibilityReviewQueueComponent implements OnInit {
     this.searchTerm.set(value);
   }
 
-  openMetric(metric: ReviewMetric): void {
-    this.router.navigateByUrl(metric.route);
+  openMetric(metric: OpsMetricStripItem): void {
+    if (!this.isReviewFilter(metric.token)) {
+      return;
+    }
+    this.setFilter(metric.token);
+  }
+
+  private isReviewFilter(value: string | undefined): value is ReviewFilter {
+    return value === 'all'
+      || value === 'critical'
+      || value === 'high'
+      || value === 'standard';
   }
 
   openReview(request: RequestSummary): void {

@@ -24,7 +24,7 @@
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="queueMetrics()" />
+  <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
@@ -92,7 +92,7 @@
                 (keyup.space)="viewDispatch(row)">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
+                    <p class="ops-row__title ops-row__id">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
                     <app-ops-status-chip [label]="formatPackageStatus(row.status_code, row.execution_status)" [tone]="chipTone(getPackageTone(row.status_code, row.execution_status))" />
                     @if (row.fulfillment_mode === 'PICKUP_AT_STAGING') {
                       <app-ops-status-chip label="Pickup at staging" tone="info" />
@@ -170,7 +170,7 @@
         <div class="ops-card__body">
           <div class="ops-timeline">
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Ready packages need dispatch handoff.</p>
                 <div class="ops-timeline__meta">
@@ -179,7 +179,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #17447f;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">In-transit packages are on the road.</p>
                 <div class="ops-timeline__meta">
@@ -188,7 +188,7 @@
               </div>
             </div>
             <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #286a36;"></span>
+              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
               <div class="ops-timeline__content">
                 <p class="ops-timeline__title">Completed packages have confirmed receipt.</p>
                 <div class="ops-timeline__meta">

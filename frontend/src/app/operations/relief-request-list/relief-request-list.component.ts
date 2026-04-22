@@ -128,13 +128,23 @@ export class ReliefRequestListComponent implements OnInit {
   });
 
   readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
-    const m = this.metrics();
-    return m.map((metric) => ({
+    const accentByFilter: Record<RequestFilter, string> = {
+      all: '#6b7280',
+      draft: '#3d4b99',
+      review: '#b7833f',
+      approved: '#7a4fd1',
+      dispatched: '#2e8a48',
+      closed: '#6b7280',
+    };
+    const active = this.activeFilter();
+    return this.metrics().map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
       interactive: true,
       token: metric.filter,
+      active: active === metric.filter,
+      accent: accentByFilter[metric.filter],
     }));
   });
 

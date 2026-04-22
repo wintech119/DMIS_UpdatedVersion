@@ -102,20 +102,25 @@ export class DispatchQueueComponent implements OnInit {
     const items = this.items();
     const summary = this.summarizeDispatchStages(items);
     return [
-      { label: 'Ready', value: summary.ready, note: 'Awaiting handoff' },
-      { label: 'In Transit', value: summary.inTransit, note: 'Dispatched, receipt pending' },
-      { label: 'Completed', value: summary.completed, note: 'Receipt confirmed' },
-      { label: 'All Packages', value: items.length, note: 'Visible in the queue' },
+      { label: 'Ready', value: summary.ready, note: 'Awaiting handoff', filter: 'ready' as DispatchFilter, accent: '#b7833f' },
+      { label: 'In Transit', value: summary.inTransit, note: 'Dispatched, receipt pending', filter: 'in_transit' as DispatchFilter, accent: '#17447f' },
+      { label: 'Completed', value: summary.completed, note: 'Receipt confirmed', filter: 'completed' as DispatchFilter, accent: '#2e8a48' },
+      { label: 'All Packages', value: items.length, note: 'Visible in the queue', filter: 'all' as DispatchFilter, accent: '#6b7280' },
     ];
   });
 
-  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() =>
-    this.queueStats().map((stat) => ({
+  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
+    const active = this.activeFilter();
+    return this.queueStats().map((stat) => ({
       label: stat.label,
       value: String(stat.value),
       hint: stat.note,
-    })),
-  );
+      interactive: true,
+      token: stat.filter,
+      active: active === stat.filter,
+      accent: stat.accent,
+    }));
+  });
 
   readonly sidebarSummary = computed(() => {
     const rows = this.filteredItems();
@@ -163,6 +168,20 @@ export class DispatchQueueComponent implements OnInit {
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  openMetric(metric: OpsMetricStripItem): void {
+    if (!this.isDispatchFilter(metric.token)) {
+      return;
+    }
+    this.setFilter(metric.token);
+  }
+
+  private isDispatchFilter(value: string | undefined): value is DispatchFilter {
+    return value === 'all'
+      || value === 'ready'
+      || value === 'in_transit'
+      || value === 'completed';
   }
 
   hasUnread(filter: DispatchFilter): boolean {
