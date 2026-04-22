@@ -26,9 +26,13 @@ from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
 from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
+    ACTION_CONSOLIDATION_LEG_DISPATCHED,
     ACTION_OVERRIDE_APPROVED,
     ACTION_OVERRIDE_REJECTED,
     ACTION_OVERRIDE_RETURNED_FOR_ADJUSTMENT,
+    ACTION_PARTIAL_RELEASE_APPROVED,
+    ACTION_PARTIAL_RELEASE_REQUESTED,
+    ACTION_PICKUP_RELEASE_COMPLETED,
     ACTION_STAGING_RECEIPT_RECORDED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
@@ -86,6 +90,8 @@ from operations.constants import (
     OVERRIDE_STATUS_PENDING_APPROVAL,
     OVERRIDE_STATUS_REJECTED,
     OVERRIDE_STATUS_RETURNED_FOR_ADJUSTMENT,
+    PARTIAL_RELEASE_APPROVAL_APPROVED,
+    PARTIAL_RELEASE_APPROVAL_PENDING,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_CONSOLIDATION_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
@@ -122,6 +128,7 @@ from operations.models import (
     OperationsEligibilityDecision,
     OperationsPackage,
     OperationsPackageLock,
+    OperationsPartialReleaseRequest,
     OperationsPickupRelease,
     OperationsQueueAssignment,
     OperationsReceipt,
@@ -7095,7 +7102,25 @@ def dispatch_consolidation_leg(
     leg.update_dtime = now
     leg.version_nbr = int(leg.version_nbr or 0) + 1
     leg.save()
-    _create_consolidation_waybill(leg=leg, package=package, request=request, actor_id=actor_id)
+    waybill = _create_consolidation_waybill(leg=leg, package=package, request=request, actor_id=actor_id)
+    waybill_id = getattr(waybill, "waybill_id", None)
+    record_action_audit(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        package_id=int(package_record.package_id),
+        consolidation_leg_id=int(leg.leg_id),
+        tenant_id=request_record.beneficiary_tenant_id,
+        warehouse_id=int(leg.source_warehouse_id),
+        action_code=ACTION_CONSOLIDATION_LEG_DISPATCHED,
+        action_reason=leg.transport_notes,
+        artifact_reference=(
+            f"operations_consolidation_waybill:{waybill_id}"
+            if waybill_id not in (None, "")
+            else None
+        ),
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
+    )
     _update_package_consolidation_status(package_record=package_record, actor_id=actor_id)
     complete_queue_assignments(
         entity_type=ENTITY_CONSOLIDATION_LEG,
@@ -7438,7 +7463,7 @@ def pickup_release(
         actor_id=actor_id,
         status_code=PACKAGE_STATUS_RECEIVED,
     )
-    OperationsPickupRelease.objects.create(
+    pickup_release_record = OperationsPickupRelease.objects.create(
         package=package_record,
         staging_warehouse_id=package_record.staging_warehouse_id,
         tenant_id=pickup_tenant_id,
@@ -7458,6 +7483,18 @@ def pickup_release(
             "released_at": now.isoformat(),
             "release_notes": release_notes,
         },
+    )
+    record_action_audit(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        package_id=int(package_record.package_id),
+        tenant_id=pickup_tenant_id,
+        warehouse_id=package_record.staging_warehouse_id,
+        action_code=ACTION_PICKUP_RELEASE_COMPLETED,
+        action_reason=release_notes,
+        artifact_reference=f"operations_pickup_release:{pickup_release_record.pickup_release_id}",
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
     )
     complete_queue_assignments(
         entity_type=ENTITY_PACKAGE,
@@ -7493,6 +7530,7 @@ def pickup_release(
 
 
 @_release_idempotency_reservation_on_error
+@transaction.atomic
 def request_partial_release(
     reliefpkg_id: int,
     *,
@@ -7531,13 +7569,57 @@ def request_partial_release(
     reason = str(payload.get("reason") or payload.get("partial_release_reason") or "").strip()
     if not reason:
         raise OperationValidationError({"reason": "A partial release reason is required."})
+    if OperationsPartialReleaseRequest.objects.filter(
+        package=package_record,
+        approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
+    ).exists():
+        raise OperationValidationError({"partial_release": "A partial release request is already pending."})
+    now = timezone.now()
+    previous_consolidation_status = package_record.consolidation_status
+    workflow_request = OperationsPartialReleaseRequest.objects.create(
+        package=package_record,
+        requested_by_user_id=actor_id,
+        requested_at=now,
+        request_reason=reason,
+        approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
+        artifact_json={
+            "package_id": int(package_record.package_id),
+            "request_reason": reason,
+            "requested_by_user_id": actor_id,
+            "requested_at": now.isoformat(),
+        },
+        create_by_id=actor_id,
+        create_dtime=now,
+        update_by_id=actor_id,
+        update_dtime=now,
+    )
     _update_package_workflow_fields(
         package_record,
         actor_id=actor_id,
         partial_release_requested_by_id=actor_id,
-        partial_release_requested_at=timezone.now(),
+        partial_release_requested_at=now,
         partial_release_request_reason=reason,
         consolidation_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+    )
+    record_status_transition(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        from_status=previous_consolidation_status,
+        to_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+        actor_id=actor_id,
+        reason_text=reason,
+    )
+    record_action_audit(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        package_id=int(package_record.package_id),
+        tenant_id=request_record.beneficiary_tenant_id,
+        warehouse_id=package_record.staging_warehouse_id,
+        action_code=ACTION_PARTIAL_RELEASE_REQUESTED,
+        action_reason=reason,
+        artifact_reference=f"operations_partial_release_request:{workflow_request.partial_release_request_id}",
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
     )
     assign_roles_to_queue(
         queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
@@ -7841,6 +7923,48 @@ def split_package(
     }
 
 
+def _partial_release_child_package_id(split_result: Mapping[str, Any], child_key: str) -> int | None:
+    child_payload = split_result.get(child_key)
+    if not isinstance(child_payload, Mapping):
+        return None
+    raw_package_id = child_payload.get("package_id") or child_payload.get("reliefpkg_id")
+    if raw_package_id in (None, ""):
+        return None
+    try:
+        return int(raw_package_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _update_partial_release_split_artifact(
+    workflow_request: OperationsPartialReleaseRequest,
+    split_result: Mapping[str, Any],
+    *,
+    actor_id: str,
+) -> None:
+    released_child_package_id = _partial_release_child_package_id(split_result, "released_child")
+    residual_child_package_id = _partial_release_child_package_id(split_result, "residual_child")
+    artifact_json = dict(workflow_request.artifact_json or {})
+    artifact_json.update(
+        {
+            "released_child_package_id": released_child_package_id,
+            "residual_child_package_id": residual_child_package_id,
+        }
+    )
+    update_fields = ["artifact_json", "update_by_id", "update_dtime", "version_nbr"]
+    if released_child_package_id is not None:
+        workflow_request.released_child_package_id = released_child_package_id
+        update_fields.append("released_child_package")
+    if residual_child_package_id is not None:
+        workflow_request.residual_child_package_id = residual_child_package_id
+        update_fields.append("residual_child_package")
+    workflow_request.artifact_json = artifact_json
+    workflow_request.update_by_id = actor_id
+    workflow_request.update_dtime = timezone.now()
+    workflow_request.version_nbr = int(workflow_request.version_nbr or 0) + 1
+    workflow_request.save(update_fields=update_fields)
+
+
 @_release_idempotency_reservation_on_error
 @transaction.atomic
 def approve_partial_release(
@@ -7883,20 +8007,90 @@ def approve_partial_release(
         tenant_context=tenant_context,
         error_message="You are not assigned to approve partial release for this package.",
     )
-    if not package_record.partial_release_requested_at:
+    workflow_request = (
+        OperationsPartialReleaseRequest.objects.select_for_update()
+        .filter(
+            package=package_record,
+            approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
+        )
+        .order_by("-requested_at", "-partial_release_request_id")
+        .first()
+    )
+    if workflow_request is None:
         raise OperationValidationError({"partial_release": "No partial release request is pending."})
+    approval_reason = str(payload.get("approval_reason") or "").strip() or None
+    now = timezone.now()
     _update_package_workflow_fields(
         package_record,
         actor_id=actor_id,
         partial_release_approved_by_id=actor_id,
-        partial_release_approved_at=timezone.now(),
-        partial_release_approval_reason=str(payload.get("approval_reason") or "").strip() or None,
+        partial_release_approved_at=now,
+        partial_release_approval_reason=approval_reason,
+    )
+    workflow_artifact = dict(workflow_request.artifact_json or {})
+    workflow_artifact.update(
+        {
+            "approval_status_code": PARTIAL_RELEASE_APPROVAL_APPROVED,
+            "approved_by_user_id": actor_id,
+            "approved_at": now.isoformat(),
+            "approval_reason": approval_reason,
+        }
+    )
+    workflow_request.approval_status_code = PARTIAL_RELEASE_APPROVAL_APPROVED
+    workflow_request.approved_by_user_id = actor_id
+    workflow_request.approved_at = now
+    workflow_request.approval_reason = approval_reason
+    workflow_request.artifact_json = workflow_artifact
+    workflow_request.update_by_id = actor_id
+    workflow_request.update_dtime = now
+    workflow_request.version_nbr = int(workflow_request.version_nbr or 0) + 1
+    workflow_request.save(
+        update_fields=[
+            "approval_status_code",
+            "approved_by_user_id",
+            "approved_at",
+            "approval_reason",
+            "artifact_json",
+            "update_by_id",
+            "update_dtime",
+            "version_nbr",
+        ]
     )
     split_result = split_package(
         package=package,
         request_record=request_record,
         package_record=package_record,
         actor_id=actor_id,
+    )
+    if not OperationsStatusHistory.objects.filter(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        to_status_code=PACKAGE_STATUS_SPLIT,
+    ).exists():
+        record_status_transition(
+            entity_type=ENTITY_PACKAGE,
+            entity_id=int(package_record.package_id),
+            from_status=package_record.status_code,
+            to_status=PACKAGE_STATUS_SPLIT,
+            actor_id=actor_id,
+            reason_text=approval_reason,
+        )
+    _update_partial_release_split_artifact(
+        workflow_request,
+        split_result,
+        actor_id=actor_id,
+    )
+    record_action_audit(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        package_id=int(package_record.package_id),
+        tenant_id=request_record.beneficiary_tenant_id,
+        warehouse_id=package_record.staging_warehouse_id,
+        action_code=ACTION_PARTIAL_RELEASE_APPROVED,
+        action_reason=approval_reason,
+        artifact_reference=f"operations_partial_release_request:{workflow_request.partial_release_request_id}",
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
     )
     complete_queue_assignments(
         entity_type=ENTITY_PACKAGE,

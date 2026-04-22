@@ -44,6 +44,7 @@ from operations.constants import (
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_FULFILLMENT,
     QUEUE_CODE_OVERRIDE,
+    QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
     QUEUE_CODE_PICKUP_RELEASE,
     QUEUE_CODE_RECEIPT,
     QUEUE_CODE_STAGING_RECEIPT,
@@ -71,6 +72,7 @@ from operations.models import (
     OperationsNotification,
     OperationsPackage,
     OperationsPackageLock,
+    OperationsPartialReleaseRequest,
     OperationsPickupRelease,
     OperationsQueueAssignment,
     OperationsReceipt,
@@ -368,6 +370,88 @@ class OperationsWorkflowContractTests(TestCase):
             assignment_status="OPEN",
         )
         return request_record, package_record, leg, leg_item
+
+    def _create_partial_release_fixture(
+        self,
+        *,
+        request_id: int,
+        package_id: int,
+    ) -> tuple[OperationsReliefRequest, OperationsPackage, OperationsConsolidationLeg, OperationsConsolidationLeg]:
+        request_record = self._create_operations_request_record(relief_request_id=request_id)
+        package_record = OperationsPackage.objects.create(
+            package_id=package_id,
+            package_no=f"PK{package_id:05d}",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=contract_services.CONSOLIDATION_STATUS_PARTIALLY_RECEIVED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=102,
+            source_warehouse_id=5,
+            batch_id=1002,
+            quantity=Decimal("1.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        received_leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLegItem.objects.create(
+            leg=received_leg,
+            item_id=101,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            received_qty=Decimal("2.0000"),
+            shortage_qty=Decimal("0.0000"),
+            overage_qty=Decimal("0.0000"),
+            damaged_qty=Decimal("0.0000"),
+            source_type="ON_HAND",
+            staging_batch_id=2001,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        outstanding_leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=2,
+            source_warehouse_id=5,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLegItem.objects.create(
+            leg=outstanding_leg,
+            item_id=102,
+            batch_id=1002,
+            quantity=Decimal("1.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        return request_record, package_record, received_leg, outstanding_leg
 
     @patch("operations.contract_services.get_lookup")
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
@@ -4131,16 +4215,40 @@ class OperationsWorkflowContractTests(TestCase):
             request_record,
             package_record,
         )
+        waybill = contract_services.OperationsConsolidationWaybill.objects.create(
+            leg=leg,
+            waybill_no="PK00191-L01",
+            artifact_payload_json={"leg_id": int(leg.leg_id)},
+            generated_by_id="logistics-manager-1",
+        )
+        _create_waybill_mock.return_value = waybill
 
-        result = contract_services.dispatch_consolidation_leg(
+        with self.captureOnCommitCallbacks(execute=True):
+            result = contract_services.dispatch_consolidation_leg(
+                191,
+                int(leg.leg_id),
+                payload={
+                    "driver_name": "Jane Driver",
+                    "driver_license_no": "DL123456789",
+                    "vehicle_registration": "1234AB",
+                    "departure_dtime": "2026-03-26T09:00:00Z",
+                    "estimated_arrival_dtime": "2026-03-26T10:00:00Z",
+                    "transport_notes": "Gate handoff",
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="dispatch-leg-191",
+            )
+        replay = contract_services.dispatch_consolidation_leg(
             191,
             int(leg.leg_id),
             payload={
-                "driver_name": "Jane Driver",
-                "driver_license_no": "DL123456789",
-                "vehicle_registration": "1234AB",
-                "departure_dtime": "2026-03-26T09:00:00Z",
-                "estimated_arrival_dtime": "2026-03-26T10:00:00Z",
+                "driver_name": "Replay Driver",
+                "driver_license_no": "DL000000000",
+                "vehicle_registration": "0000ZZ",
+                "departure_dtime": "2026-03-26T09:30:00Z",
+                "estimated_arrival_dtime": "2026-03-26T10:30:00Z",
             },
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
@@ -4148,10 +4256,34 @@ class OperationsWorkflowContractTests(TestCase):
             idempotency_key="dispatch-leg-191",
         )
 
+        self.assertEqual(result, replay)
         self.assertEqual(result["status"], CONSOLIDATION_LEG_STATUS_IN_TRANSIT)
         leg.refresh_from_db()
         self.assertEqual(leg.driver_license_last4, "6789")
         self.assertEqual(result["leg"]["driver_license_last4"], "6789")
+        _create_shadow_transfer_mock.assert_called_once()
+        _apply_stock_delta_mock.assert_called_once()
+        _create_waybill_mock.assert_called_once()
+        package_context_mock.assert_called_once()
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="CONSOLIDATION_LEG",
+                entity_id=int(leg.leg_id),
+                to_status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            ).count(),
+            1,
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            action_code=contract_services.ACTION_CONSOLIDATION_LEG_DISPATCHED,
+        )
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.consolidation_leg_id, int(leg.leg_id))
+        self.assertEqual(action_audit.tenant_id, request_record.beneficiary_tenant_id)
+        self.assertEqual(action_audit.warehouse_id, int(leg.source_warehouse_id))
+        self.assertEqual(action_audit.action_reason, "Gate handoff")
+        self.assertEqual(action_audit.artifact_reference, f"operations_consolidation_waybill:{waybill.waybill_id}")
         self.assertEqual(
             set(
                 OperationsQueueAssignment.objects.filter(
@@ -4322,14 +4454,27 @@ class OperationsWorkflowContractTests(TestCase):
         )
         package_context_mock.return_value = (package, request, request_record, package_record)
 
-        result = contract_services.pickup_release(
+        with self.captureOnCommitCallbacks(execute=True):
+            result = contract_services.pickup_release(
+                192,
+                payload={
+                    "collected_by_name": "Community Driver",
+                    "collected_by_id_ref": "NID-7788",
+                    "released_by_name": "Receiver",
+                    "release_notes": "Pickup at gate",
+                    "driver_name": "Ignored",
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="pickup-192",
+            )
+        replay = contract_services.pickup_release(
             192,
             payload={
-                "collected_by_name": "Community Driver",
-                "collected_by_id_ref": "NID-7788",
-                "released_by_name": "Receiver",
-                "release_notes": "Pickup at gate",
-                "driver_name": "Ignored",
+                "collected_by_name": "Replay Driver",
+                "released_by_name": "Replay Receiver",
+                "release_notes": "Replay should be ignored",
             },
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
@@ -4337,6 +4482,7 @@ class OperationsWorkflowContractTests(TestCase):
             idempotency_key="pickup-192",
         )
 
+        self.assertEqual(result, replay)
         package_record.refresh_from_db()
         pickup_release_record = OperationsPickupRelease.objects.get(package_id=192)
         self.assertEqual(result["status"], "RECEIVED")
@@ -4373,6 +4519,30 @@ class OperationsWorkflowContractTests(TestCase):
                     "source_type": "ON_HAND",
                 }
             ],
+        )
+        self.assertEqual(OperationsPickupRelease.objects.filter(package_id=192).count(), 1)
+        self.assertEqual(package_context_mock.call_count, 1)
+        sync_operations_request_mock.assert_called_once()
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=int(package_record.package_id),
+                to_status_code=PACKAGE_STATUS_RECEIVED,
+            ).count(),
+            1,
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            action_code=contract_services.ACTION_PICKUP_RELEASE_COMPLETED,
+        )
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Pickup at gate")
+        self.assertEqual(
+            action_audit.artifact_reference,
+            f"operations_pickup_release:{pickup_release_record.pickup_release_id}",
         )
 
     @patch("operations.contract_services._sync_operations_request")
@@ -8557,64 +8727,293 @@ class OperationsWorkflowContractTests(TestCase):
             {"idempotency_key": "Idempotency-Key header is required."},
         )
 
-    @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 90})
+    def test_operations_allocation_payload_batch_lookup_error_does_not_poison_outer_transaction(self) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=292)
+        package_record = OperationsPackage.objects.create(
+            package_id=392,
+            package_no="PK00392",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsDispatch.objects.create(
+            package=package_record,
+            dispatch_no="D00392",
+            status_code=contract_services.DISPATCH_STATUS_READY,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package = self._package_stub(reliefpkg_id=392, reliefrqst_id=292, agency_id=501)
+
+        def broken_batch_lookup(*_args, **_kwargs):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM missing_itembatch_lookup_for_test")
+            return []
+
+        with patch("operations.contract_services.ItemBatch.objects.filter", side_effect=broken_batch_lookup):
+            with transaction.atomic():
+                payload = contract_services._operations_allocation_payload(package, package_record)
+                self.assertIsNone(payload["allocation_lines"][0]["batch_no"])
+                self.assertTrue(OperationsDispatch.objects.filter(package=package_record).exists())
+
+    def test_get_agency_scope_database_error_does_not_poison_outer_transaction(self) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=293)
+        original_cursor = operations_policy.connection.cursor
+        cursor_call_count = 0
+
+        class PoisonCursor:
+            def __enter__(self):
+                with original_cursor() as cursor:
+                    cursor.execute("SELECT * FROM missing_agency_scope_for_test")
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
+
+        def cursor_side_effect(*args, **kwargs):
+            nonlocal cursor_call_count
+            cursor_call_count += 1
+            if cursor_call_count == 2:
+                return PoisonCursor()
+            return original_cursor(*args, **kwargs)
+
+        with transaction.atomic():
+            with patch("operations.policy.connection.cursor", side_effect=cursor_side_effect):
+                self.assertIsNone(operations_policy.get_agency_scope(501))
+            self.assertTrue(
+                OperationsReliefRequest.objects.filter(
+                    relief_request_id=int(request_record.relief_request_id)
+                ).exists()
+            )
+
+    @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 390})
     @patch("operations.contract_services.legacy_service._load_package")
-    @patch("operations.contract_services.create_role_notifications")
-    @patch("operations.contract_services.assign_roles_to_queue")
-    @patch("operations.contract_services._update_package_workflow_fields")
-    @patch("operations.contract_services._package_leg_summary", return_value={"received_legs": 1, "total_legs": 2})
     @patch("operations.contract_services._package_context_by_package_id")
     def test_request_partial_release_reuses_cached_response_for_same_idempotency_key(
         self,
         package_context_mock,
-        _package_leg_summary_mock,
-        update_package_workflow_fields_mock,
-        assign_roles_mock,
-        create_notifications_mock,
         load_package_mock,
         package_summary_payload_mock,
     ) -> None:
-        request_record = SimpleNamespace(beneficiary_tenant_id=20)
-        package_record = SimpleNamespace(
-            package_id=90,
-            package_no="PK00090",
-            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
-            status_code=PACKAGE_STATUS_CONSOLIDATING,
+        request_record, package_record, _received_leg, _outstanding_leg = self._create_partial_release_fixture(
+            request_id=290,
+            package_id=390,
         )
+        package = self._package_stub(reliefpkg_id=390, reliefrqst_id=290, agency_id=501)
+        request = self._request_stub(reliefrqst_id=290, agency_id=501)
         package_context_mock.return_value = (
-            self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501),
-            self._request_stub(reliefrqst_id=70, agency_id=501),
+            package,
+            request,
             request_record,
             package_record,
         )
-        load_package_mock.return_value = self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501)
+        load_package_mock.return_value = package
 
         with self.captureOnCommitCallbacks(execute=True):
             first = contract_services.request_partial_release(
-                90,
+                390,
                 payload={"reason": "Release received legs now"},
                 actor_id="dispatcher-1",
                 actor_roles=["LOGISTICS_MANAGER"],
                 tenant_context=self.dispatch_ready_context,
-                idempotency_key="partial-request-90",
+                idempotency_key="partial-request-390",
             )
         second = contract_services.request_partial_release(
-            90,
+            390,
             payload={"reason": "Changed reason ignored by idempotency"},
             actor_id="dispatcher-1",
             actor_roles=["LOGISTICS_MANAGER"],
             tenant_context=self.dispatch_ready_context,
-            idempotency_key="partial-request-90",
+            idempotency_key="partial-request-390",
         )
 
         self.assertEqual(first, second)
         self.assertEqual(first["status"], "PARTIAL_RELEASE_REQUESTED")
         package_context_mock.assert_called_once()
-        update_package_workflow_fields_mock.assert_called_once()
-        assign_roles_mock.assert_called_once()
-        create_notifications_mock.assert_called_once()
-        load_package_mock.assert_called_once_with(90)
+        load_package_mock.assert_called_once_with(390)
         package_summary_payload_mock.assert_called_once()
+        package_record.refresh_from_db()
+        self.assertEqual(package_record.consolidation_status, CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED)
+        self.assertEqual(package_record.partial_release_requested_by_id, "dispatcher-1")
+        self.assertEqual(package_record.partial_release_request_reason, "Release received legs now")
+        self.assertEqual(OperationsPartialReleaseRequest.objects.filter(package=package_record).count(), 1)
+        workflow_request = OperationsPartialReleaseRequest.objects.get(package=package_record)
+        self.assertEqual(workflow_request.requested_by_user_id, "dispatcher-1")
+        self.assertEqual(workflow_request.request_reason, "Release received legs now")
+        self.assertEqual(workflow_request.approval_status_code, contract_services.PARTIAL_RELEASE_APPROVAL_PENDING)
+        self.assertEqual(workflow_request.artifact_json["package_id"], int(package_record.package_id))
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=int(package_record.package_id),
+                to_status_code=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+            ).count(),
+            1,
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            action_code=contract_services.ACTION_PARTIAL_RELEASE_REQUESTED,
+        )
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Release received legs now")
+        self.assertEqual(
+            action_audit.artifact_reference,
+            f"operations_partial_release_request:{workflow_request.partial_release_request_id}",
+        )
+
+    @patch("operations.contract_services.split_package")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_approve_partial_release_updates_workflow_children_and_replays_idempotently(
+        self,
+        package_context_mock,
+        split_package_mock,
+    ) -> None:
+        request_record, package_record, _received_leg, _outstanding_leg = self._create_partial_release_fixture(
+            request_id=291,
+            package_id=391,
+        )
+        requested_at = timezone.now()
+        package_record.consolidation_status = CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED
+        package_record.partial_release_requested_by_id = "dispatcher-1"
+        package_record.partial_release_requested_at = requested_at
+        package_record.partial_release_request_reason = "Release received legs now"
+        package_record.save(
+            update_fields=[
+                "consolidation_status",
+                "partial_release_requested_by_id",
+                "partial_release_requested_at",
+                "partial_release_request_reason",
+            ]
+        )
+        workflow_request = OperationsPartialReleaseRequest.objects.create(
+            package=package_record,
+            requested_by_user_id="dispatcher-1",
+            requested_at=requested_at,
+            request_reason="Release received legs now",
+            approval_status_code=contract_services.PARTIAL_RELEASE_APPROVAL_PENDING,
+            artifact_json={"package_id": int(package_record.package_id)},
+            create_by_id="dispatcher-1",
+            update_by_id="dispatcher-1",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package = self._package_stub(reliefpkg_id=391, reliefrqst_id=291, agency_id=501)
+        request = self._request_stub(reliefrqst_id=291, agency_id=501)
+        package_context_mock.return_value = (package, request, request_record, package_record)
+
+        def split_side_effect(**_kwargs):
+            released_child = OperationsPackage.objects.create(
+                package_id=491,
+                package_no="PK00491",
+                relief_request=request_record,
+                source_warehouse_id=55,
+                staging_warehouse_id=55,
+                fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
+                split_from_package=package_record,
+                split_reason="Release received legs now",
+                split_at=timezone.now(),
+                create_by_id="logistics-manager-1",
+                update_by_id="logistics-manager-1",
+            )
+            residual_child = OperationsPackage.objects.create(
+                package_id=492,
+                package_no="PK00492",
+                relief_request=request_record,
+                source_warehouse_id=5,
+                staging_warehouse_id=55,
+                fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                status_code=PACKAGE_STATUS_CONSOLIDATING,
+                split_from_package=package_record,
+                split_reason="Release received legs now",
+                split_at=timezone.now(),
+                create_by_id="logistics-manager-1",
+                update_by_id="logistics-manager-1",
+            )
+            return {
+                "parent": {"reliefpkg_id": int(package_record.package_id)},
+                "released_child": {"reliefpkg_id": int(released_child.package_id)},
+                "residual_child": {"reliefpkg_id": int(residual_child.package_id)},
+                "residual_consolidation_status": contract_services.CONSOLIDATION_STATUS_AWAITING_LEGS,
+            }
+
+        split_package_mock.side_effect = split_side_effect
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = contract_services.approve_partial_release(
+                391,
+                payload={"approval_reason": "Move received goods now"},
+                actor_id="logistics-manager-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="partial-approve-391",
+            )
+        second = contract_services.approve_partial_release(
+            391,
+            payload={"approval_reason": "Replay should be ignored"},
+            actor_id="logistics-manager-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="partial-approve-391",
+        )
+
+        self.assertEqual(first, second)
+        split_package_mock.assert_called_once()
+        package_context_mock.assert_called_once()
+        workflow_request.refresh_from_db()
+        self.assertEqual(workflow_request.approval_status_code, contract_services.PARTIAL_RELEASE_APPROVAL_APPROVED)
+        self.assertEqual(workflow_request.approved_by_user_id, "logistics-manager-1")
+        self.assertEqual(workflow_request.approval_reason, "Move received goods now")
+        self.assertEqual(workflow_request.released_child_package_id, 491)
+        self.assertEqual(workflow_request.residual_child_package_id, 492)
+        self.assertEqual(workflow_request.artifact_json["released_child_package_id"], 491)
+        self.assertEqual(workflow_request.artifact_json["residual_child_package_id"], 492)
+        self.assertEqual(OperationsPartialReleaseRequest.objects.filter(package=package_record).count(), 1)
+        self.assertEqual(OperationsPackage.objects.get(package_id=491).split_from_package_id, int(package_record.package_id))
+        self.assertEqual(OperationsPackage.objects.get(package_id=492).split_from_package_id, int(package_record.package_id))
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="PACKAGE",
+                entity_id=int(package_record.package_id),
+                to_status_code=PACKAGE_STATUS_SPLIT,
+            ).count(),
+            1,
+        )
+        action_audit = OperationsActionAudit.objects.get(
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            action_code=contract_services.ACTION_PARTIAL_RELEASE_APPROVED,
+        )
+        self.assertEqual(action_audit.package_id, int(package_record.package_id))
+        self.assertEqual(action_audit.tenant_id, 20)
+        self.assertEqual(action_audit.warehouse_id, 55)
+        self.assertEqual(action_audit.action_reason, "Move received goods now")
+        self.assertEqual(
+            action_audit.artifact_reference,
+            f"operations_partial_release_request:{workflow_request.partial_release_request_id}",
+        )
 
 
 class StagingReservationContractTests(TestCase):
