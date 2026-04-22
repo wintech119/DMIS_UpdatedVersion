@@ -1068,6 +1068,61 @@ button.ops-chip.ops-chip--active:focus-visible {
   color: var(--color-text-tertiary);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Queue primitives (reusable tile + row)
+// Generation-style building blocks for queue pages — Package Fulfillment,
+// Dispatch, Eligibility Review, Consolidation, etc. The pattern mirrors
+// the Supply Replenishment warehouse card: a flat solid bar anchored to
+// the left edge of the card (via ::before + overflow: hidden) telegraphs
+// status/stage without the curvy feel of a plain border-left.
+//
+// Callers set `--ops-queue-accent` (and optionally `--ops-queue-accent-width`
+// or `--ops-queue-surface`) on the tile/row or an ancestor to drive the
+// stage color and the subtle card fill. That keeps the primitive palette-
+// agnostic while each queue page controls its own tone tokens.
+// ─────────────────────────────────────────────────────────────────────────
+
+.ops-queue-tile,
+.ops-queue-row {
+  --ops-queue-accent: rgba(55, 53, 47, 0.18);
+  --ops-queue-accent-width: 6px;
+  --ops-queue-surface: var(--color-surface-container-lowest);
+  --ops-queue-border: rgba(55, 53, 47, 0.08);
+
+  position: relative;
+  overflow: hidden;
+  background: var(--ops-queue-surface);
+  border: 1px solid var(--ops-queue-border);
+  border-radius: 0.75rem;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--ops-queue-accent-width);
+    background: var(--ops-queue-accent);
+    border-top-left-radius: inherit;
+    border-bottom-left-radius: inherit;
+  }
+}
+
+.ops-queue-tile {
+  --ops-queue-accent-width: 6px;
+  padding: 0.95rem 1rem 0.95rem 1.25rem;
+  box-shadow: 0 6px 14px rgba(26, 28, 28, 0.03);
+}
+
+.ops-queue-row {
+  // Subtle neutral fill so rows differentiate from the white queue panel
+  // while staying quiet enough for a long list. Individual queue pages
+  // may override `--ops-queue-surface` to pick a warmer/cooler tone.
+  --ops-queue-accent-width: 5px;
+  --ops-queue-surface: #f6f5f1;
+  padding: 0.85rem 1rem 0.85rem 1.15rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ops-row {
     transition: none;

@@ -81,7 +81,7 @@
     @for (stat of queueStats(); track stat.id) {
       <button
         type="button"
-        class="pfq-metric"
+        class="ops-queue-tile pfq-metric"
         [class]="'pfq-metric--' + stat.id"
         [class.pfq-metric--active]="activeFilter() === stat.id"
         [attr.aria-pressed]="activeFilter() === stat.id"
@@ -200,7 +200,7 @@
           <div class="pfq-rows" role="list">
             @for (row of pagedItems(); track trackByRequestId($index, row)) {
               <article
-                class="pfq-row"
+                class="ops-queue-row pfq-row"
                 [class]="stageClass(row)"
                 tabindex="0"
                 role="listitem"

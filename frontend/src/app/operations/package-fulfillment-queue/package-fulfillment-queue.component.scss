@@ -357,19 +357,20 @@
   gap: 0.75rem;
 }
 
+// Composes with the shared `.ops-queue-tile` primitive in
+// `operations-shell.scss`, which supplies the flat left-edge bar via
+// ::before. Here we only layer on display/padding/interaction rules and
+// the per-stage accent color via `--ops-queue-accent`.
 .pfq-metric {
   display: grid;
   gap: 0.4rem;
-  padding: 0.95rem 1rem 0.95rem 1.1rem;
-  background: var(--pfq-surface);
-  border: 1px solid var(--pfq-border-soft);
-  border-left: 4px solid transparent;
-  border-radius: 0.9rem;
+  // Match the shared tile's left inset so the copy doesn't cram against
+  // the accent bar, while keeping right/top/bottom padding tight.
+  padding: 0.95rem 1rem 0.95rem 1.25rem;
   text-align: left;
   cursor: pointer;
   color: inherit;
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
-  box-shadow: 0 6px 14px rgba(26, 28, 28, 0.03);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
 
   &:hover {
     transform: translateY(-1px);
@@ -382,10 +383,10 @@
   }
 }
 
-.pfq-metric--awaiting { border-left-color: var(--pfq-awaiting); }
-.pfq-metric--drafts   { border-left-color: var(--pfq-drafts); }
-.pfq-metric--preparing { border-left-color: var(--pfq-preparing); }
-.pfq-metric--ready    { border-left-color: var(--pfq-ready); }
+.pfq-metric--awaiting  { --ops-queue-accent: var(--pfq-awaiting); }
+.pfq-metric--drafts    { --ops-queue-accent: var(--pfq-drafts); }
+.pfq-metric--preparing { --ops-queue-accent: var(--pfq-preparing); }
+.pfq-metric--ready     { --ops-queue-accent: var(--pfq-ready); }
 
 .pfq-metric--active {
   background: #fffdf9;
@@ -703,6 +704,11 @@
   gap: 0.6rem;
 }
 
+// Composes with the shared `.ops-queue-row` primitive (see
+// `operations-shell.scss`), which provides the flat ::before accent bar
+// and a subtle neutral fill so rows differentiate from the white queue
+// panel. The classes below add layout, per-stage accent color, and the
+// hover/focus treatment.
 .pfq-row {
   display: grid;
   // Keep the right cluster auto-sized so the action button + pills
@@ -712,17 +718,15 @@
   align-items: start;
   column-gap: 1rem;
   row-gap: 0.5rem;
-  padding: 0.85rem 1rem 0.85rem 1rem;
-  background: var(--pfq-surface);
-  border: 1px solid var(--pfq-border-soft);
-  border-left: 3px solid var(--pfq-border);
-  border-radius: 0.75rem;
   cursor: pointer;
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 
   &:hover {
     transform: translateY(-1px);
     box-shadow: 0 10px 20px rgba(26, 28, 28, 0.05);
+    // A touch lighter on hover so the row reads as interactive without
+    // flipping all the way to white.
+    --ops-queue-surface: #fbfaf6;
   }
 
   &:focus-visible {
@@ -731,10 +735,10 @@
   }
 }
 
-.ops-row--awaiting  { border-left-color: var(--pfq-awaiting); }
-.ops-row--drafts    { border-left-color: var(--pfq-drafts); }
-.ops-row--preparing { border-left-color: var(--pfq-preparing); }
-.ops-row--ready     { border-left-color: var(--pfq-ready); }
+.ops-row--awaiting  { --ops-queue-accent: var(--pfq-awaiting); }
+.ops-row--drafts    { --ops-queue-accent: var(--pfq-drafts); }
+.ops-row--preparing { --ops-queue-accent: var(--pfq-preparing); }
+.ops-row--ready     { --ops-queue-accent: var(--pfq-ready); }
 
 .pfq-row__lead {
   display: grid;
