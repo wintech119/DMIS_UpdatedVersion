@@ -28,10 +28,12 @@ import {
   getConsolidationStageFromLegs,
   getLegProgressTone,
   getOperationsConsolidationStatusTone,
+  getOperationsTimeInStageTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
   mapOperationsToneToChipTone,
   OperationsTone,
+  OperationsTimeInStageTone,
   type ConsolidationStage,
 } from '../operations-display.util';
 
@@ -285,6 +287,93 @@ export class ConsolidationQueueComponent implements OnInit {
 
   getConsolidationStage(row: PackageQueueItem): ConsolidationStage {
     return getConsolidationStageFromLegs(row.current_package?.leg_summary);
+  }
+
+  rowStageClass(row: PackageQueueItem): string {
+    switch (this.getConsolidationStage(row)) {
+      case 'awaiting':
+        return 'ops-row--awaiting';
+      case 'in_transit':
+        return 'ops-row--transit';
+      case 'partial':
+        return 'ops-row--preparing';
+      case 'ready':
+        return 'ops-row--ready';
+      default:
+        return 'ops-row--neutral';
+    }
+  }
+
+  stageLabel(row: PackageQueueItem): string {
+    switch (this.getConsolidationStage(row)) {
+      case 'awaiting':
+        return 'Awaiting Legs';
+      case 'in_transit':
+        return 'In Transit';
+      case 'partial':
+        return 'Partially Received';
+      case 'ready':
+        return 'Ready to Dispatch';
+      default:
+        return 'Open';
+    }
+  }
+
+  stagePillClass(row: PackageQueueItem): string {
+    switch (this.getConsolidationStage(row)) {
+      case 'awaiting':
+        return 'ops-stage-pill--awaiting';
+      case 'in_transit':
+        return 'ops-stage-pill--transit';
+      case 'partial':
+        return 'ops-stage-pill--preparing';
+      case 'ready':
+        return 'ops-stage-pill--ready';
+      default:
+        return 'ops-stage-pill--neutral';
+    }
+  }
+
+  timePillClass(row: PackageQueueItem): string {
+    return `ops-time-pill--${this.timePillTone(row)}`;
+  }
+
+  timePillTone(row: PackageQueueItem): OperationsTimeInStageTone {
+    return getOperationsTimeInStageTone(row.create_dtime ?? row.request_date ?? null);
+  }
+
+  actionClass(row: PackageQueueItem): string {
+    switch (this.getConsolidationStage(row)) {
+      case 'ready':
+        return 'ops-action--ready';
+      case 'partial':
+        return 'ops-action--preparing';
+      case 'in_transit':
+        return 'ops-action--transit';
+      case 'awaiting':
+        return 'ops-action--awaiting';
+      default:
+        return 'ops-action--neutral';
+    }
+  }
+
+  actionLabel(row: PackageQueueItem): string {
+    switch (this.getConsolidationStage(row)) {
+      case 'ready':
+        return 'Release to dispatch';
+      case 'partial':
+        return 'Review partial release';
+      case 'in_transit':
+        return 'Track legs';
+      case 'awaiting':
+        return 'Open consolidation';
+      default:
+        return 'Open consolidation';
+    }
+  }
+
+  partyLabel(row: PackageQueueItem): string {
+    return row.agency_name ?? `Agency ${row.agency_id}`;
   }
 
   private loadQueue(): void {

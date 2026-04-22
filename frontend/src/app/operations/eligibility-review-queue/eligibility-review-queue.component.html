@@ -22,7 +22,7 @@
 
   <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel">
       <div class="ops-panel__header">
         <div>
@@ -89,7 +89,8 @@
           <div class="ops-row-list">
             @for (request of filteredRequests(); track trackByRequestId($index, request)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(request)"
                 tabindex="0"
                 role="button"
                 (click)="openReview(request)"
@@ -101,20 +102,40 @@
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ request.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatOperationsLineCount(request.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(request) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>Created {{ formatOperationsDateTime(requestTimestamp(request)) }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(requestTimestamp(request))" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(request)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(request) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(request)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(requestTimestamp(request)) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(request)"
+                    [attr.aria-label]="actionLabel(request) + ' ' + (request.tracking_no ?? ('Request #' + request.reliefrqst_id))"
+                    (click)="openReview(request); $event.stopPropagation()">
+                    <span>{{ actionLabel(request) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -123,79 +144,67 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
+    <aside class="ops-queue-sidebar" aria-label="Queue context and guidance">
       <div class="ops-callout ops-callout--info" role="note">
         <mat-icon aria-hidden="true">visibility</mat-icon>
         <span>This queue is visible only to users with eligibility review permissions.</span>
       </div>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Context</p>
-            <h2 class="ops-section__title">Queue signals</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Context</p>
+          <h2 class="ops-queue-side-card__title">Queue signals</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Shown</span>
-              <p class="ops-summary-card__value">{{ summary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ summary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Newest</span>
+              <span class="ops-queue-glance__value">{{ summary().newest?.tracking_no ?? 'Pending' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Newest</span>
-              <p class="ops-summary-card__value">{{ summary().newest?.tracking_no ?? 'Pending' }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Oldest</span>
+              <span class="ops-queue-glance__value">{{ summary().oldest?.tracking_no ?? 'Pending' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Oldest</span>
-              <p class="ops-summary-card__value">{{ summary().oldest?.tracking_no ?? 'Pending' }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Route</span>
-              <p class="ops-summary-card__value">Eligibility lane</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Route</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--info">Eligibility lane</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Decision flow</p>
-            <h2 class="ops-section__title">How to work the queue</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Decision flow</p>
+          <h2 class="ops-queue-side-card__title">How to work the queue</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Open a request awaiting action</p>
-                <div class="ops-timeline__meta">
-                  <span>Use the detail screen to inspect the evidence and item list.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Open a request awaiting action</p>
+              <p class="ops-queue-tips__meta">Use the detail screen to inspect the evidence and item list.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Record an approve, reject, or ineligible decision</p>
-                <div class="ops-timeline__meta">
-                  <span>Rejected or ineligible decisions require a reason before submission.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Record an approve, reject, or ineligible decision</p>
+              <p class="ops-queue-tips__meta">Rejected or ineligible decisions require a reason before submission.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Decided requests leave this queue</p>
-                <div class="ops-timeline__meta">
-                  <span>Approved requests move to fulfillment; rejected or ineligible requests exit the workflow.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Decided requests leave this queue</p>
+              <p class="ops-queue-tips__meta">Approved requests move to fulfillment; rejected or ineligible requests exit the workflow.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

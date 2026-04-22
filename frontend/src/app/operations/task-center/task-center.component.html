@@ -21,7 +21,7 @@
 
   <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel">
       <div class="ops-panel__header">
         <div>
@@ -73,7 +73,8 @@
           <div class="ops-row-list">
             @for (task of filteredTasks(); track trackByTaskId($index, task)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(task)"
                 tabindex="0"
                 role="button"
                 (click)="openTask(task)"
@@ -88,14 +89,38 @@
                       <app-ops-status-chip [label]="formatOperationsUrgency(task.priority)" [tone]="chipTone(getOperationsUrgencyTone(task.priority))"></app-ops-status-chip>
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ task.description }}</span>
-                  </div>
+                  @if (assignmentLabel(task); as assignee) {
+                    <p class="ops-row__party">{{ assignee }}</p>
+                  }
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">description</mat-icon>
+                      <span>{{ task.description }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span>Created {{ formatOperationsAge(task.created_at) }} ago</span>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(task.created_at)" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(task)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(task) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(task)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(task.created_at) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(task)"
+                    [attr.aria-label]="actionLabel(task) + ' ' + task.title"
+                    (click)="openTask(task); $event.stopPropagation()">
+                    <span>{{ actionLabel(task) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -104,61 +129,47 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">About</p>
-            <h2 class="ops-section__title">Task Center</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Task Center context and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">About</p>
+          <h2 class="ops-queue-side-card__title">Task Center</h2>
         </div>
-        <div class="ops-card__body">
-          <p>
-            The Task Center aggregates live queue assignments alongside workflow notifications.
-            Each row links to the related entity so you can move from notification to action without rebuilding the
-            worklist in the browser.
-          </p>
-        </div>
+        <p class="ops-queue-tips__meta">
+          The Task Center aggregates live queue assignments alongside workflow notifications.
+          Each row links to the related entity so you can move from notification to action without rebuilding
+          the worklist in the browser.
+        </p>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workflow</p>
-            <h2 class="ops-section__title">Task types</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workflow</p>
+          <h2 class="ops-queue-side-card__title">Task types</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Request notifications</p>
-                <div class="ops-timeline__meta">
-                  <span>Submitted, approved, rejected, or ineligible request events.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Request notifications</p>
+              <p class="ops-queue-tips__meta">Submitted, approved, rejected, or ineligible request events.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Package notifications</p>
-                <div class="ops-timeline__meta">
-                  <span>Locked, committed, or override-requested package events.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Package notifications</p>
+              <p class="ops-queue-tips__meta">Locked, committed, or override-requested package events.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Dispatch and receipt</p>
-                <div class="ops-timeline__meta">
-                  <span>Dispatch completed and receipt confirmed events.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Dispatch and receipt</p>
+              <p class="ops-queue-tips__meta">Dispatch completed and receipt confirmed events.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

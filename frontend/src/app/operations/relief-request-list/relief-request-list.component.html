@@ -26,7 +26,7 @@
 
   <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel">
       <div class="ops-panel__header">
         <div>
@@ -89,7 +89,8 @@
           <div class="ops-row-list">
             @for (request of filteredRequests(); track trackByRequestId($index, request)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(request)"
                 tabindex="0"
                 role="button"
                 (click)="openRequest(request)"
@@ -104,20 +105,40 @@
                       <app-ops-status-chip [label]="formatRequestMode(request.request_mode)" tone="info"></app-ops-status-chip>
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ request.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatOperationsLineCount(request.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(request) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(request)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(request) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(request)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(request.create_dtime ?? request.request_date) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(request)"
+                    [attr.aria-label]="actionLabel(request) + ' ' + (request.tracking_no ?? ('Request #' + request.reliefrqst_id))"
+                    (click)="openRequest(request); $event.stopPropagation()">
+                    <span>{{ actionLabel(request) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -126,85 +147,69 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workload</p>
-            <h2 class="ops-section__title">Queue metrics</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Queue workload and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workload</p>
+          <h2 class="ops-queue-side-card__title">Queue at a glance</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Total shown</span>
-              <p class="ops-summary-card__value">{{ statusSummary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Total shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ statusSummary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Critical</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--critical">{{ statusSummary().critical }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Critical</span>
-              <p class="ops-summary-card__value">{{ statusSummary().critical }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">High</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--warning">{{ statusSummary().high }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">High</span>
-              <p class="ops-summary-card__value">{{ statusSummary().high }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Newest</span>
-              <p class="ops-summary-card__value">
-                {{ statusSummary().newest?.tracking_no ?? 'Pending' }}
-              </p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Newest</span>
+              <span class="ops-queue-glance__value">{{ statusSummary().newest?.tracking_no ?? 'Pending' }}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Guidance</p>
-            <h2 class="ops-section__title">What to do next</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Guidance</p>
+          <h2 class="ops-queue-side-card__title">What to do next</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Draft requests remain editable.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a draft to add or correct lines before submission.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Draft requests remain editable</p>
+              <p class="ops-queue-tips__meta">Open a draft to add or correct lines before submission.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Submitted requests move into review.</p>
-                <div class="ops-timeline__meta">
-                  <span>Eligibility decisions happen in the review queue.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Submitted requests move into review</p>
+              <p class="ops-queue-tips__meta">Eligibility decisions happen in the review queue.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Fulfillment starts after approval.</p>
-                <div class="ops-timeline__meta">
-                  <span>Package commitment and dispatch stay in the Operations module.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--accent" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Fulfillment starts after approval</p>
+              <p class="ops-queue-tips__meta">Package commitment and dispatch stay in the Operations module.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--accent"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Track dispatched packages.</p>
-                <div class="ops-timeline__meta">
-                  <span>Use the Dispatched filter to see what is on the road or awaiting receipt.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Track dispatched packages</p>
+              <p class="ops-queue-tips__meta">Use the Dispatched filter to see what is on the road or awaiting receipt.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

@@ -482,6 +482,41 @@ export function formatOperationsAge(value: string | null | undefined): string {
   return days === 1 ? '1 day' : `${days} days`;
 }
 
+export type OperationsTimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
+
+// Shared SLA thresholds (hours) — same placeholder values the Package
+// Fulfillment Queue uses so every ops queue rings the same time-in-stage
+// pill color language. Queue pages simply feed the row's "created" or
+// "updated" timestamp into `getOperationsTimeInStageTone`.
+const OPERATIONS_TIME_IN_STAGE_THRESHOLDS = {
+  fresh: 4,
+  normal: 24,
+  stale: 48,
+} as const;
+
+export function getOperationsTimeInStageTone(
+  value: string | null | undefined,
+): OperationsTimeInStageTone {
+  if (!value) {
+    return 'normal';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'normal';
+  }
+  const hours = Math.max(0, (Date.now() - parsed.getTime()) / (60 * 60 * 1000));
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.fresh) {
+    return 'fresh';
+  }
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.normal) {
+    return 'normal';
+  }
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.stale) {
+    return 'stale';
+  }
+  return 'breach';
+}
+
 export function extractOperationsErrorMessage(value: unknown): string | null {
   if (typeof value === 'string') {
     return value.trim() || null;

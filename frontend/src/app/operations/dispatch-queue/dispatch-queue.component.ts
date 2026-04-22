@@ -27,11 +27,13 @@ import {
   countOperationsUnreadIds,
   getOperationsDispatchStage,
   getOperationsPackageTone,
+  getOperationsTimeInStageTone,
   getLegProgressTone,
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  OperationsTimeInStageTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
@@ -228,6 +230,92 @@ export class DispatchQueueComponent implements OnInit {
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
     return mapOperationsToneToChipTone(tone);
+  }
+
+  rowStageClass(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-row--ready';
+      case 'in_transit':
+        return 'ops-row--transit';
+      case 'completed':
+        return 'ops-row--completed';
+      default:
+        return 'ops-row--neutral';
+    }
+  }
+
+  stageLabel(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'Ready';
+      case 'in_transit':
+        return 'In Transit';
+      case 'completed':
+        return 'Completed';
+      default:
+        return 'Open';
+    }
+  }
+
+  stagePillClass(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-stage-pill--ready';
+      case 'in_transit':
+        return 'ops-stage-pill--transit';
+      case 'completed':
+        return 'ops-stage-pill--completed';
+      default:
+        return 'ops-stage-pill--neutral';
+    }
+  }
+
+  timePillClass(row: DispatchQueueItem): string {
+    return `ops-time-pill--${this.timePillTone(row)}`;
+  }
+
+  timePillTone(row: DispatchQueueItem): OperationsTimeInStageTone {
+    if (this.getDispatchStage(row) === 'completed') {
+      return 'fresh';
+    }
+    return getOperationsTimeInStageTone(row.dispatch_dtime ?? null);
+  }
+
+  actionClass(row: DispatchQueueItem): string {
+    if (this.isPickupRelease(row)) {
+      return 'ops-action--ready';
+    }
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-action--ready';
+      case 'in_transit':
+        return 'ops-action--transit';
+      case 'completed':
+        return 'ops-action--completed';
+      default:
+        return 'ops-action--neutral';
+    }
+  }
+
+  actionLabel(row: DispatchQueueItem): string {
+    if (this.isPickupRelease(row)) {
+      return 'Open pickup release';
+    }
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'Handoff dispatch';
+      case 'in_transit':
+        return 'Monitor shipment';
+      case 'completed':
+        return 'View dispatch';
+      default:
+        return 'Open dispatch';
+    }
+  }
+
+  partyLabel(row: DispatchQueueItem): string {
+    return row.agency_name ?? `Agency ${row.agency_id}`;
   }
 
   private getDispatchStage(row: DispatchQueueItem): DispatchStage {

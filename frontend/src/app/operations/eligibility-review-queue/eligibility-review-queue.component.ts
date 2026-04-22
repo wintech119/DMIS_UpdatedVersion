@@ -23,12 +23,14 @@ import {
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
   getOperationsRequestTone,
+  getOperationsTimeInStageTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OPERATIONS_QUEUE_SEARCH_MAX_LENGTH,
   OperationsTone,
+  OperationsTimeInStageTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
@@ -269,6 +271,73 @@ export class EligibilityReviewQueueComponent implements OnInit {
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
     return mapOperationsToneToChipTone(tone);
+  }
+
+  rowStageClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-row--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-row--warning';
+    }
+    return 'ops-row--info';
+  }
+
+  stageLabel(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'Critical';
+    }
+    if (urgency === 'H') {
+      return 'High';
+    }
+    return 'Standard';
+  }
+
+  stagePillClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-stage-pill--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-stage-pill--warning';
+    }
+    return 'ops-stage-pill--info';
+  }
+
+  timePillClass(request: RequestSummary): string {
+    return `ops-time-pill--${this.timePillTone(request)}`;
+  }
+
+  timePillTone(request: RequestSummary): OperationsTimeInStageTone {
+    return getOperationsTimeInStageTone(requestTimestampValue(request));
+  }
+
+  actionClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-action--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-action--warning';
+    }
+    return 'ops-action--info';
+  }
+
+  actionLabel(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'Review critical';
+    }
+    if (urgency === 'H') {
+      return 'Review priority';
+    }
+    return 'Review request';
+  }
+
+  partyLabel(request: RequestSummary): string {
+    return request.agency_name ?? `Agency ${request.agency_id}`;
   }
 
   hasUnread(filter: ReviewFilter): boolean {

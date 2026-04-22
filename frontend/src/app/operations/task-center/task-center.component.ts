@@ -11,9 +11,11 @@ import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-ske
 import { OperationsTask, OperationsTaskListResponse } from '../models/operations.model';
 import {
   OperationsTone,
+  OperationsTimeInStageTone,
   formatOperationsAge,
   formatOperationsUrgency,
   formatTaskType,
+  getOperationsTimeInStageTone,
   handleRovingRadioKeydown,
   getOperationsUrgencyTone,
   getTaskEntityRoute,
@@ -173,6 +175,94 @@ export class TaskCenterComponent implements OnInit {
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
     return mapOperationsToneToChipTone(tone);
+  }
+
+  rowStageClass(task: OperationsTask): string {
+    switch (task.status) {
+      case 'PENDING':
+        return 'ops-row--warning';
+      case 'IN_PROGRESS':
+        return 'ops-row--info';
+      case 'COMPLETED':
+        return 'ops-row--completed';
+      default:
+        return 'ops-row--neutral';
+    }
+  }
+
+  stageLabel(task: OperationsTask): string {
+    switch (task.status) {
+      case 'PENDING':
+        return 'Pending';
+      case 'IN_PROGRESS':
+        return 'In Progress';
+      case 'COMPLETED':
+        return 'Completed';
+      default:
+        return 'Open';
+    }
+  }
+
+  stagePillClass(task: OperationsTask): string {
+    switch (task.status) {
+      case 'PENDING':
+        return 'ops-stage-pill--warning';
+      case 'IN_PROGRESS':
+        return 'ops-stage-pill--info';
+      case 'COMPLETED':
+        return 'ops-stage-pill--completed';
+      default:
+        return 'ops-stage-pill--neutral';
+    }
+  }
+
+  timePillClass(task: OperationsTask): string {
+    return `ops-time-pill--${this.timePillTone(task)}`;
+  }
+
+  timePillTone(task: OperationsTask): OperationsTimeInStageTone {
+    if (task.status === 'COMPLETED') {
+      return 'fresh';
+    }
+    return getOperationsTimeInStageTone(task.created_at);
+  }
+
+  actionClass(task: OperationsTask): string {
+    switch (task.status) {
+      case 'PENDING':
+        return 'ops-action--warning';
+      case 'IN_PROGRESS':
+        return 'ops-action--info';
+      case 'COMPLETED':
+        return 'ops-action--completed';
+      default:
+        return 'ops-action--neutral';
+    }
+  }
+
+  actionLabel(task: OperationsTask): string {
+    switch (task.status) {
+      case 'PENDING':
+        return 'Open task';
+      case 'IN_PROGRESS':
+        return 'Continue task';
+      case 'COMPLETED':
+        return 'View task';
+      default:
+        return 'Open task';
+    }
+  }
+
+  assignmentLabel(task: OperationsTask): string | null {
+    const assignee = task.assigned_to?.trim();
+    if (assignee) {
+      return assignee;
+    }
+    const queue = task.queue_code?.trim();
+    if (queue) {
+      return queue;
+    }
+    return null;
   }
 
   sourceLabel(task: OperationsTask): string {

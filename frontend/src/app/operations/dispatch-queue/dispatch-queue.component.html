@@ -26,7 +26,7 @@
 
   <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel">
       <div class="ops-panel__header">
         <div>
@@ -83,7 +83,8 @@
           <div class="ops-row-list">
             @for (row of filteredItems(); track trackByPackageId($index, row)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(row)"
                 tabindex="0"
                 role="button"
                 (click)="viewDispatch(row)"
@@ -108,20 +109,40 @@
                       <app-ops-status-chip [label]="row.transport_mode" tone="soft" />
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ row.request_tracking_no ?? ('Request ' + row.reliefrqst_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.event_name ?? 'No event' }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(row) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">assignment</mat-icon>
+                      <span>{{ row.request_tracking_no ?? ('Request ' + row.reliefrqst_id) }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ row.event_name ?? 'No event' }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>{{ row.dispatch_dtime ? 'Dispatched ' + formatDateTime(row.dispatch_dtime) : 'Pending handoff' }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatAge(row.dispatch_dtime)" tone="neutral" [showDot]="false" />
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(row)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(row) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(row)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatAge(row.dispatch_dtime) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(row)"
+                    [attr.aria-label]="actionLabel(row) + ' ' + (row.tracking_no ?? ('PKG-' + row.reliefpkg_id))"
+                    (click)="viewDispatch(row); $event.stopPropagation()">
+                    <span>{{ actionLabel(row) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -130,74 +151,62 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workload</p>
-            <h2 class="ops-section__title">Queue metrics</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Dispatch workload and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workload</p>
+          <h2 class="ops-queue-side-card__title">Queue metrics</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Total shown</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Total shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ sidebarSummary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Ready</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--warning">{{ sidebarSummary().ready }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Ready</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().ready }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">In Transit</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--info">{{ sidebarSummary().inTransit }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">In Transit</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().inTransit }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Completed</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().completed }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Completed</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--success">{{ sidebarSummary().completed }}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Guidance</p>
-            <h2 class="ops-section__title">What to do next</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Guidance</p>
+          <h2 class="ops-queue-side-card__title">What to do next</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--warning"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Ready packages need dispatch handoff.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a package to assign transport details and confirm departure.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Ready packages need dispatch handoff</p>
+              <p class="ops-queue-tips__meta">Open a package to assign transport details and confirm departure.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--info"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">In-transit packages are on the road.</p>
-                <div class="ops-timeline__meta">
-                  <span>Monitor dispatch status and follow up with the receiving agency.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">In-transit packages are on the road</p>
+              <p class="ops-queue-tips__meta">Monitor dispatch status and follow up with the receiving agency.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot ops-timeline__dot--success"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Completed packages have confirmed receipt.</p>
-                <div class="ops-timeline__meta">
-                  <span>These packages are fully delivered and no further action is needed.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Completed packages have confirmed receipt</p>
+              <p class="ops-queue-tips__meta">These packages are fully delivered and no further action is needed.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>
