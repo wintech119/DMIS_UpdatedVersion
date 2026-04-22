@@ -1139,6 +1139,58 @@ class AllocationDispatchApiTests(TestCase):
         self.assertIn("agency_id", response.json().get("errors", {}))
         self.assertIn("urgency_ind", response.json().get("errors", {}))
 
+    @patch("replenishment.views.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.commit_allocation")
+    @patch("replenishment.views._execution_link_for_record", return_value=None)
+    @patch("replenishment.views._execution_needs_list_pk", return_value=11)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_commit_blocks_odpem_replenishment_only_needs_list_before_legacy_allocation(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_needs_list_pk,
+        _mock_execution_link,
+        mock_commit_allocation,
+        mock_upsert_execution_link,
+        _resolve_warehouse_tenant_mock,
+        _resolve_odpem_tenant_mock,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-ODPEM-11",
+            "status": "APPROVED",
+            "warehouse_ids": [1],
+            "event_id": 7,
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/allocations/commit",
+            {
+                "agency_id": 501,
+                "urgency_ind": "H",
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "3",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["errors"]["source_needs_list_id"]["code"],
+            "odpem_replenishment_only_needs_list",
+        )
+        mock_commit_allocation.assert_not_called()
+        mock_upsert_execution_link.assert_not_called()
+
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
     @patch("replenishment.views._upsert_execution_link")
     @patch("replenishment.views._replace_execution_allocation_lines")

@@ -488,6 +488,7 @@ def operations_requests(request):
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
+                actor_roles=_roles(request),
             ),
             status=201,
         )
@@ -556,6 +557,7 @@ def operations_request_detail(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
+                actor_roles=_roles(request),
             )
         )
     except Exception as exc:

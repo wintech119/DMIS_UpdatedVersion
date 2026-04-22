@@ -1,7 +1,7 @@
 # Relief Management Freeze Before Coding Specification
 
-Last updated: 2026-04-17
-Status: Pre-implementation freeze baseline with approved consolidation and staged fulfillment additions from backlog v3.2
+Last updated: 2026-04-22
+Status: Pre-implementation freeze baseline with approved consolidation, staged fulfillment, and request-authority discipline additions from backlog v3.2
 Scope: Relief Request, Eligibility Review, Package Fulfillment, Consolidation and Staged Fulfillment, Dispatch, Receipt, Notifications, Tenancy, and target Operations data ownership
 
 ## Purpose
@@ -24,10 +24,12 @@ This freeze preserves the existing Relief Request and logistics model unless exp
 
 - the clarified rules captured during the March 26, 2026 product freeze session
 - the approved consolidation and staged fulfillment additions now captured in Product Backlog v3.2 EP05 FR05.22-FR05.65 / FR-CON-01 through FR-CON-44
+- the approved request-authority additions captured in Product Backlog v3.2 FR02.99, FR05.78, FR05.79, FR13.19, BR01.32, BR01.33, and the Request Authority Discipline guardrail
 
 Related planning notes:
 
 - `docs/attached_assets/DMIS_Product_Backlog_v3.2.xlsx` (EP05 FR05.22-FR05.65 / FR-CON-01 through FR-CON-44)
+- `docs/attached_assets/DMIS_Product_Backlog_v3.2.xlsx` (FR02.99, FR05.78, FR05.79, FR13.19, BR01.32, BR01.33, Request Authority Discipline)
 - `docs/requirements/sprint_08_allocation_dispatch_implementation_brief.md`
 - `docs/requirements/sprint_09_distribution_visibility_implementation_brief.md`
 - `docs/requirements/sprint_10_uat_hardening_implementation_brief.md`
@@ -78,15 +80,30 @@ The following rules override any earlier simplified assumptions:
   - itself
   - an entity or agency under its control
 - ODPEM on-behalf request creation remains a transitional bridge and not the permanent ownership model
+- ODPEM HQ / NATIONAL tenancy must not create Relief Requests for ODPEM HQ needs-list demand; ODPEM HQ / NATIONAL needs lists remain replenishment planning, sourcing, and stock-readiness records
+- when ODPEM HQ creates a Relief Request from phone, email, or other off-platform intake, the represented requester / beneficiary entity remains the request owner and ODPEM HQ is recorded only as the bridge actor
 
 ### Needs-list rules for lower-level tenants
 
 - lower-level tenants must be able to create needs lists
-- high-level and national ODPEM needs-list behavior must remain unchanged unless explicitly revised later
-- a needs list may only be used for:
+- lower-level / requester-tenant needs lists may be used for:
   - applying for a relief request from ODPEM
   - exporting for donation purposes
   - broadcasting as a request for donation to other tenants in the system
+- ODPEM HQ / NATIONAL needs lists may only be used for replenishment sourcing and stock-readiness actions:
+  - approved transfers
+  - donation allocation, export, or broadcast
+  - procurement recommendation / procurement record generation
+- ODPEM HQ / NATIONAL needs lists must not be converted into ODPEM-owned Relief Requests
+
+### Request authority decision table
+
+| Case | Allowed outcome | Relief Request ownership | Backend rule |
+| --- | --- | --- | --- |
+| ODPEM HQ / NATIONAL needs list for stock readiness | Replenishment sourcing only: transfers, donations, procurement | No Operations Relief Request owner | Block any apply / commit path that would create an ODPEM-owned Relief Request or package fulfillment link |
+| Parish, shelter, or approved requester needs list | May become a Relief Request if requester policy and permissions allow | Requester or represented beneficiary tenant owns demand | Allow `source_needs_list_id` only when the needs list belongs to the authorized requester / beneficiary context |
+| ODPEM HQ phone, email, or off-platform intake | ODPEM creates Relief Request on behalf of external requester | Represented requester / beneficiary remains owner; ODPEM is bridge actor | Require bridge permission, cross-tenant authority, valid external beneficiary, and auditable `ODPEM_BRIDGE` origin |
+| ODPEM HQ needs list trying to become ODPEM-owned Relief Request | Block | None | Reject server-side with stable authority / guardrail error; do not create `NeedsListExecutionLink`, Relief Request, or package |
 
 ### Workflow and notification rules
 
@@ -266,7 +283,7 @@ NATIONAL TENANT
 | Shelter/subordinate operating unit under Parish request authority | Yes | No | No | No | Must escalate through Parish |
 | Parish tenant designated as request authority | Yes | Yes | Yes | Yes, for entities under control | May request for self or subordinate entity it controls |
 | Independent operational tenant with no higher request-authority parent | Yes, if replenishment-enabled | Yes | Yes, only for entities under control | No | Self-service allowed |
-| ODPEM / national bridge actor | Existing ODPEM needs-list behavior unchanged | No, not through this lane as steady state | No, unless explicit control rule exists | Yes, transitional only | ODPEM on-behalf is policy-gated bridge behavior |
+| ODPEM / national bridge actor | Yes, for ODPEM replenishment sourcing and readiness planning only | No for ODPEM HQ needs-list demand | No, unless explicit control rule exists | Yes, transitional only for off-platform requester intake | ODPEM on-behalf is policy-gated bridge behavior; ODPEM HQ needs lists do not become ODPEM-owned Relief Requests |
 | Any tenant attempting to request for unrelated or out-of-scope entity | Possibly | No | No | No | Must be rejected by backend |
 
 ### Frozen request-authority rule
@@ -278,6 +295,11 @@ A tenant may create a Relief Request only for:
 
 If a lower-level tenant reports to a higher-level request-authority tenant,
 the lower-level tenant cannot create the Relief Request for itself.
+
+ODPEM HQ / NATIONAL tenancy may bridge Relief Request intake for an approved
+external requester that is not yet using the system. This does not transfer
+request ownership to ODPEM HQ. ODPEM HQ needs-list demand remains a
+replenishment concern and must not create an ODPEM-owned Relief Request.
 ```
 
 ## Personas and Tenant Context
@@ -350,11 +372,12 @@ Primary personas:
 Page must:
 
 - allow lower-level tenants to create needs lists
-- preserve existing ODPEM/high-level needs-list behavior
+- allow ODPEM HQ / NATIONAL users to create needs lists for replenishment sourcing and stock-readiness planning
 - remain a planning screen only
 
 Page must not:
 
+- create an ODPEM-owned Relief Request from an ODPEM HQ / NATIONAL needs list
 - allocate stock
 - dispatch stock
 - act as a fulfillment workspace
@@ -368,14 +391,14 @@ Route:
 Page must:
 
 - show planning artifact summary
-- support only these next actions:
-  - apply for relief request
-  - donation export
-  - donation broadcast
+- support only the next actions allowed by the needs-list owner and purpose:
+  - lower-level / requester needs list: apply for Relief Request, donation export, or donation broadcast
+  - ODPEM HQ / NATIONAL needs list: transfer sourcing, donation allocation / export / broadcast, or procurement record generation
 
 Page must not:
 
 - expose allocation or dispatch as active workflow ownership
+- offer "apply for relief request" for an ODPEM HQ / NATIONAL needs list representing ODPEM stock-readiness demand
 
 #### 3. Apply for Relief Request from Needs List
 
@@ -389,6 +412,8 @@ Page must:
 - determine who has request authority
 - launch Relief Request creation only when current tenant is authorized
 - otherwise show which higher-level tenant must create the request
+- be available only for requester-owned / lower-level needs lists, or ODPEM bridge intake on behalf of an approved external requester
+- be unavailable for ODPEM HQ / NATIONAL needs lists that represent ODPEM stock-readiness or replenishment demand
 
 ### Operations
 
@@ -431,12 +456,14 @@ Page must:
 - select event by name
 - show request date as backend-generated
 - clearly show request mode
+- preserve represented requester / beneficiary ownership when ODPEM HQ uses the transitional bridge for phone, email, or other off-platform intake
 - capture items, urgency, and justification
 
 Page must not:
 
 - require raw Agency ID or Event ID entry
 - allow unauthorized lower-level tenant request creation
+- allow ODPEM HQ / NATIONAL users to create ODPEM-owned Relief Requests from ODPEM needs-list demand
 
 #### 7. Relief Request Detail
 
@@ -1197,7 +1224,8 @@ Schema note:
   - self
   - for subordinate entity
   - ODPEM bridge
-- Needs-list UI must support lower-level tenant creation and constrained downstream actions
+- Needs-list UI must support lower-level tenant creation, requester-owned Relief Request application, and constrained ODPEM replenishment-only downstream actions
+- Needs List Review must hide or disable Apply Relief Request for ODPEM HQ / NATIONAL replenishment-only needs lists and show replenishment sourcing actions instead
 - Eligibility screens must reflect exact approver roles
 - Package screens must expose lock, override, fulfillment mode, staging selection, and consolidation state clearly
 - Consolidation screens must support staging recommendation, leg dispatch, leg receipt, partial release, pickup release, and staged-ready transitions
@@ -1208,6 +1236,10 @@ Schema note:
 
 - request authority must move from simple self vs ODPEM bridge into hierarchy-aware logic
 - request validation must support subordinate-control rules
+- request validation must reject ODPEM HQ / NATIONAL needs-list demand as ODPEM-owned Relief Request demand
+- ODPEM on-behalf request creation must preserve represented requester / beneficiary ownership and write auditable bridge-origin evidence
+- `NeedsListExecutionLink` usage must not bridge ODPEM HQ / NATIONAL replenishment demand into Operations package fulfillment
+- valid requester-owned package fulfillment requests must keep the modern ranked allocation contract, including warehouse cards, continuation metadata, recommended warehouse, and FEFO / FIFO rank context
 - internal notifications must become first-class workflow outputs
 - eligibility role enforcement must be explicit
 - staged fulfillment must create consolidation plans and legs from committed package allocations
@@ -1231,6 +1263,10 @@ Schema note:
 
 - hierarchy authority cases
 - lower-level needs-list creation and usage cases
+- ODPEM HQ / NATIONAL replenishment-only needs-list rejection for Relief Request creation and package fulfillment linkage
+- ODPEM bridge intake preserving represented requester / beneficiary ownership and audit origin
+- valid requester-owned execution-linked allocation options with ranked warehouse cards and continuation metadata
+- FEFO / FIFO commit-time override detection when the caller omits a better-ranked stocked warehouse
 - exact approver role gating
 - notification fan-out and queue assignment
 - staging recommendation and override behavior
@@ -1246,6 +1282,7 @@ Schema note:
 - `Deputy DG` is now part of eligibility approval and must be mapped to a formal role code if not already present
 - internal workflow notifications are now required, but external dispatch notification to receiving agency remains a distinct scope decision and must be separated clearly
 - earlier simplified non-ODPEM self-service logic is superseded by hierarchy-based request authority and must be removed from future implementation assumptions
+- earlier assumptions that ODPEM HQ / NATIONAL needs lists can become ODPEM-owned Relief Requests are superseded by FR02.99, FR05.78, FR05.79, FR13.19, BR01.32, BR01.33, and Request Authority Discipline
 - current hybrid use of legacy relief tables and bridge logic is acceptable only as transition; first-class Operations data ownership is now the target baseline
 - if a distinct staging-hub receiver role code does not already exist, it must be resolved through an Operations permission assignment pattern before implementation is treated as complete
 - final direct-dispatch and staged-dispatch queue behavior must stay separate from consolidation-only work queues
@@ -1254,6 +1291,7 @@ Schema note:
 
 - freeze tenant hierarchy and request-authority rules in product and technical docs
 - freeze lower-level needs-list behavior and allowed downstream actions
+- freeze ODPEM HQ / NATIONAL replenishment-only needs-list behavior and ODPEM bridge ownership / audit rules
 - freeze exact eligibility, fulfillment, and dispatch role matrix
 - freeze staged fulfillment mode and staging-hub selection rules
 - freeze consolidation leg lifecycle, package-level consolidation status model, and staged-ready transitions

@@ -22,7 +22,7 @@ from api.rbac import (
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
 )
-from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
+from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse, resolve_warehouse_tenant_id
 from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
@@ -33,6 +33,7 @@ from operations.constants import (
     ACTION_PARTIAL_RELEASE_APPROVED,
     ACTION_PARTIAL_RELEASE_REQUESTED,
     ACTION_PICKUP_RELEASE_COMPLETED,
+    ACTION_REQUEST_BRIDGE_CREATED,
     ACTION_STAGING_RECEIPT_RECORDED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
@@ -74,6 +75,7 @@ from operations.constants import (
     FULFILLMENT_MODE_DIRECT,
     FULFILLMENT_MODE_PICKUP_AT_STAGING,
     FULFILLMENT_ROLE_CODES,
+    ORIGIN_MODE_ODPEM_BRIDGE,
     ORIGIN_MODE_SELF,
     PACKAGE_STATUS_COMMITTED,
     PACKAGE_STATUS_CONSOLIDATING,
@@ -152,7 +154,7 @@ from operations.staging_selection import (
     get_staging_hub_details,
     recommend_staging_hub,
 )
-from replenishment.models import NeedsListExecutionLink
+from replenishment.models import NeedsList, NeedsListExecutionLink
 from replenishment.services import data_access
 from replenishment.services.allocation_dispatch import (
     DispatchError,
@@ -929,6 +931,169 @@ def _override_actor_role_code(actor_roles: Iterable[str] | None) -> str:
     return ROLE_SYSTEM_ADMINISTRATOR
 
 
+def _needs_list_owner_tenant_id(needs_list: NeedsList) -> int | None:
+    try:
+        warehouse_id = int(needs_list.warehouse_id)
+    except (TypeError, ValueError):
+        return None
+    return resolve_warehouse_tenant_id(warehouse_id)
+
+
+def _needs_list_is_odpem_replenishment_only(needs_list: NeedsList) -> bool:
+    owner_tenant_id = _needs_list_owner_tenant_id(needs_list)
+    return owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id)
+
+
+def _source_needs_list_payload(
+    needs_list: NeedsList,
+    *,
+    owner_tenant_id: int | None,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "source_needs_list_id": int(needs_list.needs_list_id),
+        "source_needs_list_no": needs_list.needs_list_no,
+        "source_warehouse_id": needs_list.warehouse_id,
+        "source_owner_tenant_id": owner_tenant_id,
+    }
+
+
+def _validate_source_needs_list_for_relief_request(
+    source_needs_list_id: int | None | object,
+    *,
+    decision: operations_policy.ReliefRequestWriteDecision,
+) -> int | None | object:
+    if source_needs_list_id is _UNSET:
+        return _UNSET
+    if source_needs_list_id is None:
+        return None
+
+    needs_list = NeedsList.objects.filter(needs_list_id=int(source_needs_list_id)).only(
+        "needs_list_id",
+        "needs_list_no",
+        "warehouse_id",
+    ).first()
+    if needs_list is None:
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": {
+                    "code": "source_needs_list_not_found",
+                    "message": "The source needs list does not exist.",
+                    "source_needs_list_id": int(source_needs_list_id),
+                }
+            }
+        )
+
+    owner_tenant_id = _needs_list_owner_tenant_id(needs_list)
+    if owner_tenant_id is None:
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": _source_needs_list_payload(
+                    needs_list,
+                    owner_tenant_id=owner_tenant_id,
+                    code="source_needs_list_owner_unresolved",
+                    message="The source needs list owner tenant could not be resolved.",
+                )
+            }
+        )
+
+    if operations_policy.is_odpem_tenant(owner_tenant_id):
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": _source_needs_list_payload(
+                    needs_list,
+                    owner_tenant_id=owner_tenant_id,
+                    code="odpem_replenishment_only_needs_list",
+                    message=(
+                        "ODPEM HQ/NATIONAL needs lists are replenishment sourcing records only "
+                        "and cannot become Operations relief request demand."
+                    ),
+                )
+            }
+        )
+
+    beneficiary_tenant_id = int(decision.beneficiary_tenant_id)
+    if owner_tenant_id != beneficiary_tenant_id:
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": _source_needs_list_payload(
+                    needs_list,
+                    owner_tenant_id=owner_tenant_id,
+                    code="source_needs_list_owner_mismatch",
+                    message="The source needs list must belong to the represented requester or beneficiary tenant.",
+                )
+            }
+        )
+
+    return int(source_needs_list_id)
+
+
+def _ensure_request_is_package_fulfillment_eligible(request_record: OperationsReliefRequest) -> None:
+    source_needs_list_id = getattr(request_record, "source_needs_list_id", None)
+    if source_needs_list_id:
+        needs_list = NeedsList.objects.filter(needs_list_id=int(source_needs_list_id)).only(
+            "needs_list_id",
+            "needs_list_no",
+            "warehouse_id",
+        ).first()
+        if needs_list is not None and _needs_list_is_odpem_replenishment_only(needs_list):
+            raise OperationValidationError(
+                {
+                    "source_needs_list_id": {
+                        "code": "odpem_replenishment_only_needs_list",
+                        "message": (
+                            "ODPEM HQ/NATIONAL needs lists are replenishment sourcing records only "
+                            "and are not eligible for Operations package fulfillment."
+                        ),
+                        "source_needs_list_id": int(source_needs_list_id),
+                    }
+                }
+            )
+
+    link = _execution_link_for_request(int(request_record.relief_request_id))
+    if link is not None and _needs_list_is_odpem_replenishment_only(link.needs_list):
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": {
+                    "code": "odpem_replenishment_only_execution_link",
+                    "message": (
+                        "This execution link belongs to an ODPEM HQ/NATIONAL replenishment-only needs list "
+                        "and cannot open Operations package fulfillment."
+                    ),
+                    "source_needs_list_id": int(link.needs_list_id),
+                }
+            }
+        )
+
+
+def _record_bridge_request_audit(
+    *,
+    request_record: OperationsReliefRequest,
+    decision: operations_policy.ReliefRequestWriteDecision,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+) -> None:
+    if decision.origin_mode != ORIGIN_MODE_ODPEM_BRIDGE:
+        return
+    record_action_audit(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(request_record.relief_request_id),
+        tenant_id=decision.beneficiary_tenant_id,
+        action_code=ACTION_REQUEST_BRIDGE_CREATED,
+        action_reason=(
+            "ODPEM bridge intake preserved represented requester ownership: "
+            f"requesting_tenant_id={decision.requesting_tenant_id}; "
+            f"beneficiary_tenant_id={decision.beneficiary_tenant_id}; "
+            f"beneficiary_agency_id={decision.beneficiary_agency_id}"
+        ),
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
+    )
+
+
 def _notify_override_originator(
     *,
     event_code: str,
@@ -1642,18 +1807,24 @@ def _ops_request_from_legacy(request: ReliefRqst, *, actor_id: str) -> Operation
 def _request_access_probe_from_legacy(request: ReliefRqst) -> OperationsReliefRequest:
     existing = OperationsReliefRequest.objects.filter(
         relief_request_id=int(request.reliefrqst_id)
-    ).only("requesting_tenant_id", "beneficiary_tenant_id").first()
+    ).only("requesting_tenant_id", "beneficiary_tenant_id", "origin_mode", "source_needs_list_id").first()
     if existing is not None:
         requesting_tenant_id = existing.requesting_tenant_id
         beneficiary_tenant_id = existing.beneficiary_tenant_id
+        origin_mode = existing.origin_mode
+        source_needs_list_id = existing.source_needs_list_id
     else:
         agency_scope = operations_policy.get_agency_scope(int(request.agency_id))
         beneficiary_tenant_id = agency_scope.tenant_id if agency_scope is not None else None
         requesting_tenant_id = beneficiary_tenant_id
+        origin_mode = ORIGIN_MODE_SELF
+        source_needs_list_id = None
     return OperationsReliefRequest(
         relief_request_id=int(request.reliefrqst_id),
         requesting_tenant_id=int(requesting_tenant_id or beneficiary_tenant_id or 0),
         beneficiary_tenant_id=beneficiary_tenant_id,
+        origin_mode=origin_mode,
+        source_needs_list_id=source_needs_list_id,
         status_code=_request_status_from_legacy(request),
     )
 
@@ -2242,6 +2413,7 @@ def _ensure_fulfillment_request_access(
     tenant_context: TenantContext,
     write: bool = False,
 ) -> None:
+    _ensure_request_is_package_fulfillment_eligible(request_record)
     normalized_roles = normalize_role_codes(actor_roles)
     if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
         return
@@ -2293,6 +2465,7 @@ def _ensure_package_access(
         request_record = OperationsReliefRequest.objects.get(relief_request_id=int(package_record.relief_request_id))
     except OperationsReliefRequest.DoesNotExist:
         raise OperationValidationError({"scope": "Associated relief request record not found for this package."}) from None
+    _ensure_request_is_package_fulfillment_eligible(request_record)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context, write=write)
 
 
@@ -5346,6 +5519,7 @@ def create_request(
     actor_id: str,
     tenant_context: TenantContext,
     permissions: Iterable[str] | None = None,
+    actor_roles: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     mutable_payload = dict(payload)
     if mutable_payload.get("beneficiary_agency_id") not in (None, "") and mutable_payload.get("agency_id") in (None, ""):
@@ -5361,10 +5535,19 @@ def create_request(
     )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     decision: operations_policy.ReliefRequestWriteDecision | None = None
-    if getattr(legacy_service, "create_request", None) is not _LEGACY_FACADE_DEFAULTS.get("create_request"):
+    if (
+        raw_source_needs_list_id is not _UNSET
+        or getattr(legacy_service, "create_request", None) is not _LEGACY_FACADE_DEFAULTS.get("create_request")
+    ):
         decision = operations_policy.validate_relief_request_agency_selection(
             agency_id=agency_id,
             tenant_context=tenant_context,
+        )
+    if raw_source_needs_list_id is not _UNSET:
+        assert decision is not None
+        source_needs_list_id = _validate_source_needs_list_for_relief_request(
+            source_needs_list_id,
+            decision=decision,
         )
     result = legacy_service.create_request(
         payload=mutable_payload,
@@ -5387,13 +5570,19 @@ def create_request(
                 agency_id=agency_id,
                 tenant_context=tenant_context,
             )
-        _sync_operations_request(
+        request_record = _sync_operations_request(
             request,
             actor_id=actor_id,
             decision=decision,
             status_code=REQUEST_STATUS_DRAFT,
             source_needs_list_id=source_needs_list_id,
             requesting_agency_id=requesting_agency_id,
+        )
+        _record_bridge_request_audit(
+            request_record=request_record,
+            decision=decision,
+            actor_id=actor_id,
+            actor_roles=actor_roles,
         )
     return _compat_request_response(
         int(result["reliefrqst_id"]),
@@ -5411,6 +5600,7 @@ def update_request(
     actor_id: str,
     tenant_context: TenantContext,
     permissions: Iterable[str] | None = None,
+    actor_roles: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     mutable_payload = dict(payload)
     if mutable_payload.get("beneficiary_agency_id") not in (None, "") and mutable_payload.get("agency_id") in (None, ""):
@@ -5432,6 +5622,16 @@ def update_request(
         decision = operations_policy.validate_relief_request_agency_selection(
             agency_id=agency_id,
             tenant_context=tenant_context,
+        )
+    if raw_source_needs_list_id is not _UNSET:
+        if decision is None:
+            decision = operations_policy.validate_relief_request_agency_selection(
+                agency_id=agency_id,
+                tenant_context=tenant_context,
+            )
+        source_needs_list_id = _validate_source_needs_list_for_relief_request(
+            source_needs_list_id,
+            decision=decision,
         )
     result = legacy_service.update_request(
         reliefrqst_id,

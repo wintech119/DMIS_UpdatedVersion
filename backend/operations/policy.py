@@ -46,7 +46,7 @@ class AgencyScope:
 
     @property
     def is_odpem_tenant(self) -> bool:
-        return _is_odpem_tenant(self.tenant_id, self.tenant_code)
+        return is_odpem_tenant(self.tenant_id, self.tenant_code)
 
 
 @dataclass(frozen=True)
@@ -123,6 +123,11 @@ def _is_odpem_tenant(tenant_id: object, tenant_code: object) -> bool:
     if parsed_tenant_id is not None and resolved_tenant_id is not None:
         return parsed_tenant_id == resolved_tenant_id
     return _is_odpem_tenant_code(tenant_code)
+
+
+def is_odpem_tenant(tenant_id: object, tenant_code: object | None = None) -> bool:
+    """Return whether a tenant identifier/code belongs to the ODPEM national tenant."""
+    return _is_odpem_tenant(tenant_id, tenant_code)
 
 
 def _permission_set(permissions: Iterable[str]) -> set[str]:
@@ -364,7 +369,7 @@ def get_agency_scope(agency_id: int) -> AgencyScope | None:
 
 
 def is_odpem_tenant_context(context: TenantContext) -> bool:
-    return _is_odpem_tenant(context.active_tenant_id, context.active_tenant_code)
+    return is_odpem_tenant(context.active_tenant_id, context.active_tenant_code)
 
 
 def get_relief_request_capabilities(

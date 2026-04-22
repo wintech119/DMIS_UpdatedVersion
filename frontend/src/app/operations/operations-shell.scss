@@ -453,6 +453,14 @@ button.ops-chip.ops-chip--active:focus-visible {
   align-items: start;
 }
 
+// Narrow the sidebar to a fixed 18rem column (matches Package Fulfillment
+// Queue's `.pfq-split`). Queue pages add this modifier so row meta has room
+// to breathe and every queue shares a single sidebar width.
+.ops-grid--split.ops-grid--narrow-sidebar {
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1.1rem;
+}
+
 .ops-panel,
 .ops-card {
   border-radius: 1rem;

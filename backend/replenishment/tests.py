@@ -2484,6 +2484,70 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch("replenishment.views.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
+    def test_odpem_replenishment_needs_list_can_still_generate_transfer_sourcing(
+        self,
+        _resolve_warehouse_tenant_mock,
+        _resolve_odpem_tenant_mock,
+    ) -> None:
+        record = {
+            "needs_list_id": "NL-ODPEM-A",
+            "needs_list_no": "NL-ODPEM-001",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "event_id": 1,
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "horizon": {"A": {"recommended_qty": 5}},
+                    }
+                ]
+            },
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ), patch(
+            "replenishment.views.data_access.get_warehouses_with_stock",
+            return_value=(
+                {
+                    101: [
+                        {
+                            "warehouse_id": 2,
+                            "warehouse_name": "Source",
+                            "available_qty": 10,
+                        }
+                    ]
+                },
+                [],
+            ),
+        ), patch(
+            "replenishment.views.data_access.create_draft_transfers_if_absent",
+            return_value=([{"transfer_id": 99}], 1, False, []),
+        ) as mock_create_transfers:
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-ODPEM-A/generate-transfers",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mock_create_transfers.assert_called_once()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     def test_generate_transfers_returns_existing_when_atomic_helper_detects_drafts(self) -> None:
         record = {
             "needs_list_id": "NL-A",

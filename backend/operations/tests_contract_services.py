@@ -17,6 +17,7 @@ from operations import contract_services
 from operations import policy as operations_policy
 from operations import services as operations_service
 from operations.constants import (
+    ACTION_REQUEST_BRIDGE_CREATED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -28,6 +29,7 @@ from operations.constants import (
     ELIGIBILITY_ROLE_CODES,
     FULFILLMENT_MODE_DELIVER_FROM_STAGING,
     ORIGIN_MODE_FOR_SUBORDINATE,
+    ORIGIN_MODE_ODPEM_BRIDGE,
     ORIGIN_MODE_SELF,
     PACKAGE_STATUS_CANCELLED,
     PACKAGE_STATUS_COMMITTED,
@@ -87,10 +89,12 @@ from api.rbac import (
     PERM_NATIONAL_ACT_CROSS_TENANT,
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
+    PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
 )
 from replenishment.legacy_models import Inventory, ItemBatch, ReliefRqst
+from replenishment.models import NeedsList
 
 
 def _tenant_context(
@@ -259,6 +263,22 @@ class OperationsWorkflowContractTests(TestCase):
 
     def tearDown(self) -> None:
         cache.clear()
+
+    def _create_needs_list(self, *, needs_list_id: int = 17, warehouse_id: int = 1) -> NeedsList:
+        return NeedsList.objects.create(
+            needs_list_id=needs_list_id,
+            needs_list_no=f"NL-{needs_list_id}",
+            event_id=7,
+            warehouse_id=warehouse_id,
+            event_phase="SURGE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            status_code="APPROVED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
 
     def _request_stub(self, *, reliefrqst_id: int, agency_id: int, status_code: int = 3) -> SimpleNamespace:
         return SimpleNamespace(
@@ -645,6 +665,7 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.requesting_agency_id, 777)
         self.assertEqual(record.beneficiary_agency_id, 501)
 
+    @patch("operations.contract_services.resolve_warehouse_tenant_id", return_value=20)
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services._sync_operations_request")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -657,7 +678,9 @@ class OperationsWorkflowContractTests(TestCase):
         load_request_mock,
         sync_request_mock,
         get_request_mock,
+        _resolve_warehouse_tenant_mock,
     ) -> None:
+        self._create_needs_list(needs_list_id=17, warehouse_id=1)
         validate_selection_mock.return_value = operations_policy.ReliefRequestWriteDecision(
             agency_scope=self.agency_scope,
             origin_mode=ORIGIN_MODE_SELF,
@@ -692,6 +715,84 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_context=self.dispatch_ready_context,
             actor_roles=(),
         )
+
+    @patch("operations.contract_services.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch("operations.contract_services.resolve_warehouse_tenant_id", return_value=27)
+    @patch("operations.contract_services.legacy_service.create_request")
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_rejects_odpem_replenishment_source_before_legacy_write(
+        self,
+        validate_selection_mock,
+        create_request_mock,
+        _resolve_warehouse_tenant_mock,
+        _resolve_odpem_tenant_mock,
+    ) -> None:
+        self._create_needs_list(needs_list_id=27, warehouse_id=1)
+        validate_selection_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=self.agency_scope,
+            origin_mode=ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.create_request(
+                payload={"agency_id": "501", "source_needs_list_id": "27"},
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors["source_needs_list_id"]["code"],
+            "odpem_replenishment_only_needs_list",
+        )
+        create_request_mock.assert_not_called()
+
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.create_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_records_odpem_bridge_origin_audit(
+        self,
+        validate_selection_mock,
+        _create_request_mock,
+        load_request_mock,
+        _get_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        bridge_decision = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=self.agency_scope,
+            origin_mode=ORIGIN_MODE_ODPEM_BRIDGE,
+            requesting_tenant_id=27,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+        )
+        validate_selection_mock.return_value = bridge_decision
+
+        contract_services.create_request(
+            payload={"beneficiary_agency_id": "501"},
+            actor_id="odpem-bridge-1",
+            tenant_context=self.odpem_context,
+            permissions=[PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE],
+            actor_roles=["ODPEM_LOGISTICS_MANAGER"],
+        )
+
+        request_record = OperationsReliefRequest.objects.get(relief_request_id=70)
+        self.assertEqual(request_record.requesting_tenant_id, 27)
+        self.assertEqual(request_record.beneficiary_tenant_id, 20)
+        self.assertEqual(request_record.beneficiary_agency_id, 501)
+        self.assertEqual(request_record.origin_mode, ORIGIN_MODE_ODPEM_BRIDGE)
+        audit = OperationsActionAudit.objects.get(
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            action_code=ACTION_REQUEST_BRIDGE_CREATED,
+        )
+        self.assertEqual(audit.tenant_id, 20)
+        self.assertEqual(audit.acted_by_user_id, "odpem-bridge-1")
+        self.assertIn("beneficiary_tenant_id=20", audit.action_reason)
 
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
     def test_create_request_rejects_invalid_agency_id_before_policy_validation(
@@ -9774,6 +9875,63 @@ class ItemAllocationOptionsTests(TestCase):
             source_warehouse_id=None,
             tenant_context=self.tenant_ctx,
         )
+
+    @patch("operations.contract_services.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch("operations.contract_services.resolve_warehouse_tenant_id", return_value=27)
+    @patch("operations.contract_services.legacy_service.get_package_allocation_options")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_package_options_reject_odpem_replenishment_only_source(
+        self,
+        load_request_mock,
+        get_package_options_mock,
+        _resolve_warehouse_tenant_mock,
+        _resolve_odpem_tenant_mock,
+    ) -> None:
+        NeedsList.objects.create(
+            needs_list_id=81,
+            needs_list_no="NL-ODPEM-81",
+            event_id=7,
+            warehouse_id=1,
+            event_phase="SURGE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            status_code="APPROVED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsReliefRequest.objects.create(
+            relief_request_id=80,
+            request_no="RQ00080",
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode=ORIGIN_MODE_SELF,
+            source_needs_list_id=81,
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        load_request_mock.return_value = self.request_stub
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.get_package_allocation_options(
+                80,
+                source_warehouse_id=None,
+                actor_id="fulfiller-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                tenant_context=self.tenant_ctx,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["source_needs_list_id"]["code"],
+            "odpem_replenishment_only_needs_list",
+        )
+        get_package_options_mock.assert_not_called()
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse")

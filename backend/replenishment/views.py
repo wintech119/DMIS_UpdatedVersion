@@ -67,6 +67,7 @@ from api.tenancy import (
     tenant_context_to_dict,
 )
 from api.task_engine import TaskRule, resolve_available_tasks
+from operations import policy as operations_policy
 from replenishment import rules, workflow_store_db
 from replenishment.models import (
     NeedsList,
@@ -815,6 +816,46 @@ def _record_tenant_id(record: Dict[str, Any], snapshot: Dict[str, Any] | None = 
     if warehouse_id is None:
         return None
     return resolve_warehouse_tenant_id(warehouse_id)
+
+
+def _is_odpem_replenishment_only_record(record: Mapping[str, Any]) -> bool:
+    warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+    warehouse_ids: list[int] = []
+    if warehouse_id is not None:
+        warehouse_ids.append(warehouse_id)
+    raw_warehouse_ids = record.get("warehouse_ids")
+    if isinstance(raw_warehouse_ids, (list, tuple, set)):
+        for raw_warehouse_id in raw_warehouse_ids:
+            parsed_warehouse_id = _to_int_or_none(raw_warehouse_id)
+            if parsed_warehouse_id is not None:
+                warehouse_ids.append(parsed_warehouse_id)
+
+    for candidate_warehouse_id in dict.fromkeys(warehouse_ids):
+        owner_tenant_id = resolve_warehouse_tenant_id(candidate_warehouse_id)
+        if owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id):
+            return True
+    return False
+
+
+def _odpem_replenishment_only_response(record: Mapping[str, Any], *, action: str) -> Response:
+    return Response(
+        {
+            "errors": {
+                "source_needs_list_id": {
+                    "code": "odpem_replenishment_only_needs_list",
+                    "message": (
+                        "ODPEM HQ/NATIONAL needs lists are replenishment sourcing records only "
+                        "and cannot become ODPEM-owned Operations relief request demand."
+                    ),
+                    "action": action,
+                    "needs_list_id": record.get("needs_list_id"),
+                    "needs_list_no": record.get("needs_list_no"),
+                    "warehouse_id": record.get("warehouse_id"),
+                }
+            }
+        },
+        status=409,
+    )
 
 
 def _audit_username(request) -> str | None:
@@ -5036,6 +5077,8 @@ def needs_list_start_preparation(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="start_preparation")
 
     if record.get("status") != "APPROVED":
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
@@ -5095,6 +5138,8 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="mark_dispatched")
 
     if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
@@ -5182,6 +5227,8 @@ def needs_list_mark_received(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="mark_received")
 
     if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
@@ -5388,6 +5435,11 @@ def _allocation_commit_response(
     if error_response is not None:
         return error_response
     assert record is not None
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(
+            record,
+            action="approve_allocation_override" if approval_required else "commit_allocation",
+        )
 
     payload = dict(payload_override or request.data or {})
     actor_user_id = _actor_id(request) or "SYSTEM"
