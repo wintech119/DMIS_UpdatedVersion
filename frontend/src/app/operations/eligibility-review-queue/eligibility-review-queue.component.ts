@@ -18,6 +18,7 @@ import {
   formatOperationsAge,
   formatOperationsDateTime,
   formatOperationsLineCount,
+  formatOperationsRefreshedLabel,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   buildOperationsQueueSeenStorageKey,
@@ -134,6 +135,9 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<ReviewFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: ReviewFilter }[] = [
     { label: 'Critical', value: 'critical' },
@@ -150,6 +154,8 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly actionableRequests = computed(() =>
     this.requests().filter((request) => request.status_code === AWAITING_ACTION_STATUS),
   );
+
+  readonly activeQueueCount = computed(() => this.actionableRequests().length);
 
   readonly filteredRequests = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
@@ -384,6 +390,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
         );
         this.requests.set(rows);
         this.syncSeenFilterForActiveView();
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

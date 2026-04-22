@@ -482,6 +482,29 @@ export function formatOperationsAge(value: string | null | undefined): string {
   return days === 1 ? '1 day' : `${days} days`;
 }
 
+// Relative "Updated" label for the ops queue hero meta pill. Takes an epoch
+// milliseconds timestamp (typically Date.now() captured when the queue
+// successfully refreshed) and returns a human-friendly freshness phrase.
+export function formatOperationsRefreshedLabel(timestampMs: number | null | undefined): string {
+  if (timestampMs == null || !Number.isFinite(timestampMs)) {
+    return 'just now';
+  }
+  const diffMs = Date.now() - timestampMs;
+  if (diffMs < 60_000) {
+    return 'just now';
+  }
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) {
+    return minutes === 1 ? '1 min ago' : `${minutes} mins ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return hours === 1 ? '1 hr ago' : `${hours} hrs ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
 export type OperationsTimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 
 // Shared SLA thresholds (hours) — same placeholder values the Package

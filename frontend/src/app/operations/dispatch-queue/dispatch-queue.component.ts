@@ -22,6 +22,7 @@ import {
   formatOperationsPackageStatus,
   formatOperationsAge,
   formatOperationsDateTime,
+  formatOperationsRefreshedLabel,
   formatLegProgressLabel,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
@@ -67,6 +68,10 @@ export class DispatchQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<DispatchFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly activeQueueCount = computed(() => this.items().length);
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: DispatchFilter }[] = [
     { label: 'Ready', value: 'ready' },
@@ -357,6 +362,7 @@ export class DispatchQueueComponent implements OnInit {
       next: (response) => {
         this.items.set(response.results);
         this.syncSeenFilterForActiveView();
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

@@ -13,6 +13,7 @@ import {
   OperationsTone,
   OperationsTimeInStageTone,
   formatOperationsAge,
+  formatOperationsRefreshedLabel,
   formatOperationsUrgency,
   formatTaskType,
   getOperationsTimeInStageTone,
@@ -68,6 +69,9 @@ export class TaskCenterComponent implements OnInit {
   readonly taskFeed = signal<OperationsTaskListResponse>(EMPTY_TASK_FEED);
   readonly activeFilter = signal<TaskFilter>('all');
   readonly searchTerm = signal('');
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: TaskFilter }[] = [
     { label: 'All', value: 'all' },
@@ -77,6 +81,8 @@ export class TaskCenterComponent implements OnInit {
   ];
 
   readonly tasks = computed(() => this.taskFeed().results);
+
+  readonly activeQueueCount = computed(() => this.tasks().length);
 
   readonly filteredTasks = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
@@ -284,6 +290,7 @@ export class TaskCenterComponent implements OnInit {
     this.operationsService.getTasks().subscribe({
       next: (response) => {
         this.taskFeed.set(response);
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: (err) => {

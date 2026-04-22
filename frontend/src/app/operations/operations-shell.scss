@@ -240,6 +240,281 @@
   }
 }
 
+// ── Shared queue hero (Package Fulfillment parity) ─────────────────────
+// Boxed white hero panel used on every operations queue page. Mirrors
+// `.pfq-hero` so Relief Requests, Eligibility, Consolidation, Dispatch and
+// Task Center render the same hero surface as Package Fulfillment.
+//
+// Tokens: the queue hero primary tone is hoisted into these custom
+// properties so every ops queue page (and the panel/search primitives
+// below) share a single source of truth for the primary/focus color —
+// keeping PFQ + the five adopters in lockstep if the brand tone shifts.
+.ops-queue-hero,
+.ops-panel--queue {
+  --ops-queue-primary: #1f2a5a;
+  --ops-queue-primary-hover: #162046;
+  --ops-queue-focus-ring: rgba(31, 42, 90, 0.12);
+}
+
+.ops-queue-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.25rem;
+  padding: 1.25rem 1.35rem 1.1rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 1rem;
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+}
+
+.ops-queue-hero__lead {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ops-queue-hero__eyebrow {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.ops-queue-hero__eyebrow mat-icon {
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  line-height: 0.95rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__sep {
+  color: rgba(55, 53, 47, 0.35);
+}
+
+.ops-queue-hero__title {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__copy {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__context {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.ops-queue-hero__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: #f5f1e8;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  font-size: 0.78rem;
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__pill strong {
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-queue-hero__pill mat-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #b7833f;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.ops-queue-hero__pill-sep {
+  color: rgba(55, 53, 47, 0.3);
+}
+
+.ops-queue-hero__pill--status {
+  background: #fbf3e5;
+  border-color: rgba(183, 131, 63, 0.24);
+}
+
+.ops-queue-hero__pill--meta {
+  background: #f5f1e8;
+}
+
+.ops-queue-hero__meta {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__meta strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.ops-queue-hero__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  align-self: start;
+}
+
+.ops-queue-hero__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.ops-queue-hero__btn strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-queue-hero__btn mat-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+}
+
+.ops-queue-hero__btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(26, 28, 28, 0.08);
+}
+
+.ops-queue-hero__btn:focus-visible {
+  outline: 2px solid var(--ops-queue-primary);
+  outline-offset: 2px;
+}
+
+.ops-queue-hero__btn--ghost {
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__btn--primary {
+  background: var(--ops-queue-primary);
+  border-color: var(--ops-queue-primary);
+  color: #fff;
+}
+
+.ops-queue-hero__btn--primary:hover {
+  background: var(--ops-queue-primary-hover);
+}
+
+@media (max-width: 720px) {
+  .ops-queue-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-queue-hero__actions {
+    justify-content: flex-start;
+  }
+}
+
+// ── Queue panel modifier: tightens the gap between the panel title/copy
+// and the search input. Matches PFQ's `.pfq-panel__body { gap: 0.85rem }`
+// rhythm so the search does not float far from the "Queue" heading.
+.ops-panel--queue .ops-panel__header {
+  padding: 1.1rem 1.2rem 0;
+}
+
+.ops-panel--queue .ops-panel__body {
+  padding: 0.65rem 1.2rem 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+// Search input used inside `.ops-panel--queue`. Bare pill input (no extra
+// `.ops-toolbar` padding wrapper around it) so the field sits directly
+// below the panel heading text.
+.ops-queue-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 10px;
+}
+
+.ops-queue-search mat-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.88rem;
+  color: var(--color-text-primary);
+  min-width: 0;
+}
+
+.ops-queue-search input:focus {
+  outline: none;
+}
+
+.ops-queue-search input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-search:focus-within {
+  border-color: var(--ops-queue-primary);
+  box-shadow: 0 0 0 3px var(--ops-queue-focus-ring);
+}
+
+// Filter chip row inside `.ops-panel--queue`. Plain inline flex — the
+// chips themselves still use `.ops-chip` from this file.
+.ops-queue-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .ops-toolbar {
   display: flex;
   flex-wrap: wrap;

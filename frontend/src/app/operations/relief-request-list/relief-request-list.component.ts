@@ -17,6 +17,7 @@ import {
   formatOperationsAge,
   formatOperationsDateTime,
   formatOperationsLineCount,
+  formatOperationsRefreshedLabel,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   formatRequestMode,
@@ -73,6 +74,10 @@ export class ReliefRequestListComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<RequestFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly activeQueueCount = computed(() => this.requests().length);
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: RequestFilter }[] = [
     { label: 'Draft', value: 'draft' },
@@ -327,6 +332,7 @@ export class ReliefRequestListComponent implements OnInit {
         );
         this.requests.set(rows);
         this.syncSeenFilterForActiveView();
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

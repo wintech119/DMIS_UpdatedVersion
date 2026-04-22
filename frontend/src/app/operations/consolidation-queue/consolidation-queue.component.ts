@@ -23,6 +23,7 @@ import {
   formatOperationsConsolidationStatus,
   formatOperationsDateTime,
   formatOperationsFulfillmentMode,
+  formatOperationsRefreshedLabel,
   formatOperationsUrgency,
   formatLegProgressLabel,
   getConsolidationStageFromLegs,
@@ -64,6 +65,9 @@ export class ConsolidationQueueComponent implements OnInit {
   readonly items = signal<PackageQueueItem[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<ConsolidationFilter>('all');
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: ConsolidationFilter }[] = [
     { label: 'Awaiting legs', value: 'awaiting' },
@@ -92,6 +96,8 @@ export class ConsolidationQueueComponent implements OnInit {
       return total > 0;
     }),
   );
+
+  readonly activeQueueCount = computed(() => this.stagedItems().length);
 
   readonly filteredItems = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
@@ -381,6 +387,7 @@ export class ConsolidationQueueComponent implements OnInit {
     this.operationsService.getPackagesQueue().subscribe({
       next: (response) => {
         this.items.set(response.results);
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

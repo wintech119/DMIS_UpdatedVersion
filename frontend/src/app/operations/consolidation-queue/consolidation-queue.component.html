@@ -1,26 +1,47 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">warehouse</mat-icon>
-        Operations / Consolidation
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Consolidation</span>
       </p>
-      <h1 class="ops-hero__title">Consolidation Queue</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Consolidation Queue</h1>
+      <p class="ops-queue-hero__copy">
         Staged packages arriving at your hubs. Track shadow-transfer legs from source warehouses and release
         packages once every leg has landed.
       </p>
-      <app-ops-status-chip label="Hub Monitor" tone="info" />
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>Active consolidations</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('ready')">
-        <mat-icon>check_circle</mat-icon>
-        Show Ready
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--ghost"
+        (click)="setFilter('ready')"
+        aria-label="Show ready packages">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+        <span>Show Ready</span>
       </button>
-      <button mat-stroked-button type="button" (click)="refreshQueue()">
-        <mat-icon>refresh</mat-icon>
-        Refresh Queue
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="refreshQueue()"
+        aria-label="Refresh consolidation queue">
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        <span>Refresh Queue</span>
       </button>
     </div>
   </header>
@@ -28,7 +49,7 @@
   <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
-    <section class="ops-panel">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
@@ -44,33 +65,31 @@
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search consolidation queue">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by tracking number, agency, event, or hub"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter consolidation queue by stage">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.aria-label]="filter.label"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                <span>{{ filter.label }}</span>
-              </button>
-            }
-          </div>
+        <label class="ops-queue-search" aria-label="Search consolidation queue">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by tracking number, agency, event, or hub"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter consolidation queue by stage">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.aria-label]="filter.label"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+            </button>
+          }
         </div>
 
         @if (loading()) {

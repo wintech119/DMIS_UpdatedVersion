@@ -1,20 +1,38 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">task_alt</mat-icon>
-        Operations / Task Center
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Task Center</span>
       </p>
-      <h1 class="ops-hero__title">Task Center</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Task Center</h1>
+      <p class="ops-queue-hero__copy">
         Live queue assignments and workflow notifications across the operations module.
       </p>
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>Action items</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-stroked-button type="button" (click)="loadTasks()">
-        <mat-icon>refresh</mat-icon>
-        Refresh
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="loadTasks()"
+        aria-label="Refresh task center">
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        <span>Refresh</span>
       </button>
     </div>
   </header>
