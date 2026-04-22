@@ -720,6 +720,8 @@
   row-gap: 0.5rem;
   cursor: pointer;
   transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  // Positioning context for the stretched activator button overlay.
+  position: relative;
 
   &:hover {
     transform: translateY(-1px);
@@ -729,9 +731,40 @@
     --ops-queue-surface: #fbfaf6;
   }
 
-  &:focus-visible {
+  // Route keyboard focus styling through the overlay button: when it is
+  // focus-visible, show the outline on the whole card so the previous
+  // keyboard-affordance is preserved exactly.
+  &:has(> .pfq-row__activator:focus-visible) {
     outline: 2px solid var(--pfq-primary);
     outline-offset: 2px;
+  }
+}
+
+// Stretched activator button — invisible by design, covers the full card so
+// a single tabbable control opens the request. Keeps the article layout a
+// pure listitem container (no nested interactive element on the <article>).
+.pfq-row__activator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  // Keep it above the card surface but below the inner action button so the
+  // stage CTA remains independently clickable without propagating into the
+  // card-level handler.
+  z-index: 1;
+  border-radius: inherit;
+
+  // The outline is rendered on the parent via :has() so the focus ring wraps
+  // the whole card rather than just the hit-target rectangle.
+  &:focus {
+    outline: none;
   }
 }
 
@@ -1055,6 +1088,10 @@
   cursor: pointer;
   white-space: nowrap;
   transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  // Keep the stage CTA above the full-card activator overlay so clicks on
+  // the button stay independent from the row-level "open request" action.
+  position: relative;
+  z-index: 2;
 
   &:hover {
     transform: translateY(-1px);

@@ -332,4 +332,56 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(getOperationsPackageTone('DRAFT')).toBe('muted');
     expect(getOperationsPackageTone('A')).toBe('muted');
   });
+
+  it('renders each row as a non-interactive listitem with a real <button> activator for a11y', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [buildQueueItem({ reliefrqst_id: 51, tracking_no: 'RQ-51' })],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const article = host.querySelector('article.pfq-row') as HTMLElement;
+    expect(article).not.toBeNull();
+    // The article is the listitem container — it must not be the focusable
+    // activator (no tabindex, no button/link role, no click/keydown handlers).
+    expect(article.getAttribute('role')).toBe('listitem');
+    expect(article.hasAttribute('tabindex')).toBeFalse();
+
+    const activator = article.querySelector(
+      'button.pfq-row__activator',
+    ) as HTMLButtonElement;
+    expect(activator).not.toBeNull();
+    expect(activator.type).toBe('button');
+    expect(activator.getAttribute('aria-label') ?? '').toContain('Open request');
+    expect(activator.getAttribute('aria-label') ?? '').toContain('RQ-51');
+  });
+
+  it('activates fulfillRequest when the full-row activator button is clicked', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [buildQueueItem({ reliefrqst_id: 52, tracking_no: 'RQ-52' })],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    router.navigate.calls.reset();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const activator = host.querySelector(
+      'button.pfq-row__activator',
+    ) as HTMLButtonElement;
+    expect(activator).not.toBeNull();
+    activator.click();
+
+    expect(router.navigate).toHaveBeenCalledWith([
+      '/operations/package-fulfillment',
+      52,
+    ]);
+  });
 });

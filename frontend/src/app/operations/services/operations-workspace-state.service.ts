@@ -1439,13 +1439,19 @@ export class OperationsWorkspaceStateService {
    * (FEFO/FIFO order as delivered by the backend), honoring the card-level
    * `allocatable_available_qty` cap when present and each batch's per-row cap.
    *
-   * Rejects non-finite, non-integer, or negative inputs without mutating state.
+   * Rejects non-finite, negative, or sub-0.0001-precision inputs without
+   * mutating state. Valid decimal quantities are normalized to the
+   * backend-supported 4-decimal precision before distribution.
    * Zeros any prior selections on tail batches when the new target is smaller
    * than the previously-distributed total so reducing qty actually releases
    * stock.
    */
   setItemWarehouseQty(itemId: number, warehouseId: number, qty: number): void {
-    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty < 0) {
+    if (
+      !Number.isFinite(qty) ||
+      qty < 0 ||
+      !this.hasAllowedQuantityPrecision(qty)
+    ) {
       // Reject silently with a dev-mode warning — do not truncate.
       // Gated behind isDevMode() so production bundles stay quiet when
       // legitimate transient form state briefly passes through this path.
@@ -1461,6 +1467,9 @@ export class OperationsWorkspaceStateService {
       }
       return;
     }
+    // Normalize to the 4-decimal precision the backend stores so greedy
+    // distribution operates on stable, representable values.
+    const normalizedQty = this.toFixedQuantity(qty);
     const item = this.getItemGroup(itemId);
     if (!item) {
       return;
@@ -1474,7 +1483,7 @@ export class OperationsWorkspaceStateService {
       : card?.total_available != null
         ? this.toNumber(card.total_available)
         : Number.POSITIVE_INFINITY;
-    let remaining = Math.min(qty, cardCap);
+    let remaining = Math.min(normalizedQty, cardCap);
 
     for (const batch of batches) {
       const perBatchCap = this.toNumber(batch.usable_qty ?? batch.available_qty);
@@ -2119,6 +2128,21 @@ export class OperationsWorkspaceStateService {
 
   private formatQuantity(value: number): string {
     return this.toFixedQuantity(value).toFixed(4);
+  }
+
+  /**
+   * Returns true when `value` can be represented with at most 4 decimal
+   * places, the precision the backend allocation contract supports. Callers
+   * must guard `Number.isFinite(value)` before invoking this helper.
+   */
+  private hasAllowedQuantityPrecision(value: number): boolean {
+    if (Number.isInteger(value)) {
+      return true;
+    }
+    // Scale by 10,000 and check whether the result is within epsilon of an
+    // integer. Handles floating-point drift on values like 1.2345.
+    const scaled = value * 10_000;
+    return Math.abs(scaled - Math.round(scaled)) < 1e-6;
   }
 
   private sanitizeInteger(value: unknown): string {

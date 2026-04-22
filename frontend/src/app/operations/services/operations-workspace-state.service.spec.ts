@@ -2702,12 +2702,27 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('rejects non-integer qty without mutating state', () => {
+  it('accepts decimal qty up to 4 decimal places and normalizes precision', () => {
     const service = makeService();
     const warnSpy = spyOn(console, 'warn');
     service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 12.5);
 
-    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(12.5);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 1.2345);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(1.2345);
+  });
+
+  it('rejects qty with more than 4 decimal places without mutating state', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 10);
+    const before = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+
+    const warnSpy = spyOn(console, 'warn');
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 1.23456);
+
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(before);
     expect(warnSpy).toHaveBeenCalled();
   });
 
@@ -2718,6 +2733,9 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
 
     expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
     expect(warnSpy).toHaveBeenCalled();
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, Number.POSITIVE_INFINITY);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
   });
 
   it('zeroes all allocations for a warehouse when called with qty=0', () => {

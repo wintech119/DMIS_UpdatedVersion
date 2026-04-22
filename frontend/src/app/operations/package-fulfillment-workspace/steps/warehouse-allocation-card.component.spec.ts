@@ -258,18 +258,71 @@ describe('WarehouseAllocationCardComponent', () => {
       expect(fixture.componentInstance.qtyInvalid()).toBeTrue();
     });
 
-    it('rejects non-integer / decimal values without emitting', async () => {
+    it('accepts valid decimal values up to 4 decimal places', async () => {
+      const fixture = await render({
+        warehouse: buildCard({ total_available: '300' }),
+        remainingQtyForItem: 300,
+      });
+      const emitted: number[] = [];
+      fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
+
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
+
+      input.value = '1.5';
+      input.dispatchEvent(new Event('input'));
+      input.value = '0.25';
+      input.dispatchEvent(new Event('input'));
+      input.value = '1.2345';
+      input.dispatchEvent(new Event('input'));
+      input.value = '12.5';
+      input.dispatchEvent(new Event('input'));
+
+      expect(emitted).toEqual([1.5, 0.25, 1.2345, 12.5]);
+      expect(fixture.componentInstance.qtyInvalid()).toBeFalse();
+    });
+
+    it('rejects decimals with more than 4 fractional digits', async () => {
       const fixture = await render({ warehouse: buildCard() });
       const emitted: number[] = [];
       fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
 
       const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
-      input.value = '12.5';
+      input.value = '1.23456';
       input.dispatchEvent(new Event('input'));
 
       expect(emitted).toEqual([]);
       expect(fixture.componentInstance.qtyInvalid()).toBeTrue();
-      expect(fixture.componentInstance.qtyErrorMessage()).toContain('whole number');
+      expect(fixture.componentInstance.qtyErrorMessage()).toContain('4 decimal');
+    });
+
+    it('rejects scientific-notation entries (reserved UX is plain decimal)', async () => {
+      const fixture = await render({ warehouse: buildCard() });
+      const emitted: number[] = [];
+      fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
+
+      // The `type="number"` input sanitizes pasted text before dispatching,
+      // so to verify the handler's own guard we call it directly with a
+      // synthetic target carrying the would-be raw string.
+      const fakeEvent = {
+        target: { value: '1e5' } as unknown as HTMLInputElement,
+      } as unknown as Event;
+      fixture.componentInstance.onQtyInput(fakeEvent);
+
+      expect(emitted).toEqual([]);
+      expect(fixture.componentInstance.qtyInvalid()).toBeTrue();
+    });
+
+    it('rejects negative values explicitly', async () => {
+      const fixture = await render({ warehouse: buildCard() });
+      const emitted: number[] = [];
+      fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
+
+      const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
+      input.value = '-1';
+      input.dispatchEvent(new Event('input'));
+
+      expect(emitted).toEqual([]);
+      expect(fixture.componentInstance.qtyInvalid()).toBeTrue();
     });
 
     it('rejects values over the cap without emitting', async () => {
@@ -288,16 +341,16 @@ describe('WarehouseAllocationCardComponent', () => {
       expect(fixture.componentInstance.qtyInvalid()).toBeTrue();
     });
 
-    it('uses integer step for numeric input', async () => {
+    it('uses decimal-compatible step and inputmode', async () => {
       const fixture = await render({ warehouse: buildCard() });
       const input = fixture.nativeElement.querySelector('input.wh-card__qty-input') as HTMLInputElement;
-      expect(input.getAttribute('step')).toBe('1');
-      expect(input.getAttribute('inputmode')).toBe('numeric');
+      expect(input.getAttribute('step')).toBe('0.0001');
+      expect(input.getAttribute('inputmode')).toBe('decimal');
     });
   });
 
   describe('Use max and Clear buttons', () => {
-    it('Use max emits min(allocatable cap, remainingQtyForItem) floored', async () => {
+    it('Use max emits min(allocatable cap, remainingQtyForItem) for integer caps', async () => {
       const fixture = await render({
         warehouse: buildCard({ total_available: '300' }),
         remainingQtyForItem: 120,
@@ -332,6 +385,23 @@ describe('WarehouseAllocationCardComponent', () => {
       useMaxBtn!.click();
 
       expect(emitted).toEqual([0]);
+    });
+
+    it('Use max preserves decimal precision (no floor) normalized to 4 decimals', async () => {
+      const fixture = await render({
+        warehouse: buildCard({ total_available: '300' }),
+        remainingQtyForItem: 12.3456,
+      });
+      const emitted: number[] = [];
+      fixture.componentInstance.qtyChange.subscribe((v) => emitted.push(v));
+
+      const useMaxBtn = Array.from(
+        fixture.nativeElement.querySelectorAll('.wh-card__qty-btn') as NodeListOf<HTMLButtonElement>,
+      ).find((b) => (b.textContent ?? '').trim().startsWith('Use max'));
+      expect(useMaxBtn).toBeTruthy();
+      useMaxBtn!.click();
+
+      expect(emitted).toEqual([12.3456]);
     });
 
     it('Clear emits 0 regardless of current allocation', async () => {
@@ -586,7 +656,9 @@ describe('WarehouseAllocationCardComponent', () => {
       });
       const host: HTMLElement = fixture.nativeElement;
       const input = host.querySelector('input.wh-card__qty-input') as HTMLInputElement;
-      input.value = '1.5';
+      // 5 decimal places exceeds the backend-supported precision, so this
+      // input must surface the validation error.
+      input.value = '1.23456';
       input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
 

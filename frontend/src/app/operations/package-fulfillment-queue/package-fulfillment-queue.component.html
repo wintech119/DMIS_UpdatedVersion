@@ -202,12 +202,22 @@
               <article
                 class="ops-queue-row pfq-row"
                 [class]="stageClass(row)"
-                tabindex="0"
-                role="listitem"
-                [attr.aria-label]="'Request ' + (row.tracking_no ?? ('REQ-' + row.reliefrqst_id)) + ', stage ' + stageLabel(row)"
-                (click)="fulfillRequest(row)"
-                (keydown.enter)="fulfillRequest(row)"
-                (keydown.space)="fulfillRequest(row); $event.preventDefault()">
+                role="listitem">
+                <!--
+                  Full-row activator: a real <button> that covers the entire
+                  card and provides the primary click/Enter/Space semantics.
+                  It sits visually behind the inner content so the row's
+                  existing layout is unchanged, and above the card surface so
+                  pointer + keyboard users can always activate "open this
+                  request". The stage CTA button below is layered above with
+                  its own handler for a discoverable secondary affordance.
+                -->
+                <button
+                  type="button"
+                  class="pfq-row__activator"
+                  [attr.aria-label]="'Open request ' + (row.tracking_no ?? ('REQ-' + row.reliefrqst_id)) + ', stage ' + stageLabel(row)"
+                  (click)="fulfillRequest(row)">
+                </button>
                 <div class="pfq-row__lead">
                   <div class="pfq-row__title">
                     <span class="pfq-row__id">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>

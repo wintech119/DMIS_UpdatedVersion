@@ -155,10 +155,10 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
               #qtyInput
               type="number"
               class="wh-card__qty-input"
-              inputmode="numeric"
+              inputmode="decimal"
               min="0"
               [attr.max]="maxQty()"
-              step="1"
+              step="0.0001"
               maxlength="12"
               [value]="allocatedQty()"
               [disabled]="readOnly()"
@@ -1084,9 +1084,12 @@ export class WarehouseAllocationCardComponent {
   );
 
   /**
-   * Validate and emit on every input event. Rejects negative, non-integer, or
-   * > cap values without emitting; the DOM reflects the rejected value so the
-   * operator sees the error, but parent state stays clean.
+   * Validate and emit on every input event. Accepts non-negative plain
+   * decimal values up to 4 decimal places (matching the backend allocation
+   * contract). Rejects negative, NaN/Infinity, scientific notation, more than
+   * 4 decimal places, or > cap values without emitting; the DOM reflects the
+   * rejected value so the operator sees the error, but parent state stays
+   * clean.
    */
   onQtyInput(event: Event): void {
     const target = event.target as HTMLInputElement | null;
@@ -1094,19 +1097,26 @@ export class WarehouseAllocationCardComponent {
       return;
     }
     const rawText = String(target.value ?? '');
-    if (rawText.trim() === '') {
+    const trimmed = rawText.trim();
+    if (trimmed === '') {
       this.lastError.set(null);
       this.qtyChange.emit(0);
       return;
     }
-    // Integer-only — reject decimals and scientific notation up front.
-    if (!/^-?\d+$/.test(rawText.trim())) {
-      this.lastError.set('Enter a whole number.');
+    // Plain decimal, non-negative, up to 4 decimal places — reject scientific
+    // notation, signs, and anything with more precision than the backend
+    // supports.
+    if (!/^\d+(?:\.\d{1,4})?$/.test(trimmed)) {
+      if (/^\d+\.\d{5,}$/.test(trimmed)) {
+        this.lastError.set('Use up to 4 decimal places.');
+      } else {
+        this.lastError.set('Enter a valid quantity.');
+      }
       return;
     }
-    const raw = Number(rawText);
-    if (!Number.isFinite(raw) || !Number.isInteger(raw)) {
-      this.lastError.set('Enter a whole number.');
+    const raw = Number(trimmed);
+    if (!Number.isFinite(raw)) {
+      this.lastError.set('Enter a valid quantity.');
       return;
     }
     if (raw < 0) {
@@ -1136,11 +1146,16 @@ export class WarehouseAllocationCardComponent {
     this.qtyChange.emit(next);
   }
 
-  /** Emits min(maxQty, remainingQtyForItem). */
+  /**
+   * Emits min(maxQty, remainingQtyForItem) normalized to the backend-supported
+   * 4-decimal precision (no floor — preserve fractional accuracy).
+   */
   onUseMax(): void {
-    const floored = Math.max(0, Math.floor(this.maxQty()));
+    const target = Math.min(this.maxQty(), this.remainingQtyForItem() || this.maxQty());
+    const clamped = Math.max(0, target);
+    const normalized = Math.round(clamped * 10_000) / 10_000;
     this.lastError.set(null);
-    this.qtyChange.emit(floored);
+    this.qtyChange.emit(normalized);
   }
 
   onClear(): void {
