@@ -6782,6 +6782,20 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(prep.status_code, 200)
+                dispatch_without_key = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(dispatch_without_key.status_code, 400)
+                self.assertEqual(
+                    dispatch_without_key.json().get("errors", {}).get("idempotency_key"),
+                    "Idempotency-Key header is required.",
+                )
+                self.assertEqual(
+                    str(workflow_store.get_record(needs_list_id).get("status") or "").upper(),
+                    "IN_PROGRESS",
+                )
                 dispatched = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
                     {},
@@ -6789,12 +6803,20 @@ class NeedsListWorkflowApiTests(TestCase):
                     HTTP_IDEMPOTENCY_KEY=f"dispatch-{needs_list_id}",
                 )
                 self.assertEqual(dispatched.status_code, 200)
-                dispatch_without_key = self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                self.assertEqual(
+                    str(workflow_store.get_record(needs_list_id).get("status") or "").upper(),
+                    "DISPATCHED",
+                )
+                receive_without_key = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
                     {},
                     format="json",
                 )
-                self.assertNotEqual(dispatch_without_key.status_code, 200)
+                self.assertEqual(receive_without_key.status_code, 400)
+                self.assertEqual(
+                    receive_without_key.json().get("errors", {}).get("idempotency_key"),
+                    "Idempotency-Key header is required.",
+                )
                 self.assertEqual(
                     str(workflow_store.get_record(needs_list_id).get("status") or "").upper(),
                     "DISPATCHED",
@@ -6806,12 +6828,6 @@ class NeedsListWorkflowApiTests(TestCase):
                     HTTP_IDEMPOTENCY_KEY=f"receive-{needs_list_id}",
                 )
                 self.assertEqual(received.status_code, 200)
-                receive_without_key = self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
-                    {},
-                    format="json",
-                )
-                self.assertNotEqual(receive_without_key.status_code, 200)
                 self.assertEqual(
                     str(workflow_store.get_record(needs_list_id).get("status") or "").upper(),
                     "RECEIVED",
