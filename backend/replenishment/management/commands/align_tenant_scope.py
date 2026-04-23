@@ -364,9 +364,18 @@ class Command(BaseCommand):
             actor_ref=actor_ref,
             now=now,
         )
+        expected_warehouse_ids = sorted(set(int(warehouse_id) for warehouse_id in warehouse_ids))
+        resolved_updated_ids = sorted(set(int(warehouse_id) for warehouse_id in updated_warehouse_ids))
+        if resolved_updated_ids != expected_warehouse_ids:
+            missing_ids = sorted(set(expected_warehouse_ids) - set(resolved_updated_ids))
+            missing_text = ", ".join(str(warehouse_id) for warehouse_id in missing_ids) or "unknown"
+            raise CommandError(
+                "Warehouse reassignment failed because ownership changed during update "
+                f"for warehouses {missing_text}. Transaction rolled back."
+            )
         self._upsert_tenant_warehouse_rows(
             tenant_id=to_tenant_id,
-            warehouse_ids=updated_warehouse_ids,
+            warehouse_ids=resolved_updated_ids,
             actor_ref=actor_ref,
             now=now,
         )

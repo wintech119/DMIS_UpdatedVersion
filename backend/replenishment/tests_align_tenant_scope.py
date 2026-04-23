@@ -170,7 +170,7 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
 
     @patch("replenishment.management.commands.align_tenant_scope.timezone.localdate", return_value=datetime(2026, 4, 18).date())
     @patch("replenishment.management.commands.align_tenant_scope.connection")
-    def test_reassign_owned_warehouses_upserts_only_updated_warehouses(
+    def test_reassign_owned_warehouses_raises_when_any_requested_warehouse_update_drops_out(
         self,
         mock_connection,
         _localdate_mock,
@@ -179,22 +179,19 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
         cursor.fetchall.return_value = [(2,)]
         now = datetime(2026, 4, 18, 9, 30, 0)
 
-        Command()._reassign_owned_warehouses(
-            from_tenant_id=27,
-            to_tenant_id=1,
-            warehouse_ids=[1, 2],
-            actor_ref="SYSTEM",
-            now=now,
-        )
+        with self.assertRaisesMessage(
+            CommandError,
+            "Warehouse reassignment failed because ownership changed during update for warehouses 1. Transaction rolled back.",
+        ):
+            Command()._reassign_owned_warehouses(
+                from_tenant_id=27,
+                to_tenant_id=1,
+                warehouse_ids=[1, 2],
+                actor_ref="SYSTEM",
+                now=now,
+            )
 
-        upsert_rows = cursor.executemany.call_args.args[1]
-        self.assertEqual(
-            upsert_rows,
-            [[1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now]],
-        )
-        upsert_sql = cursor.executemany.call_args.args[0]
-        self.assertNotIn("create_by_id = EXCLUDED.create_by_id", upsert_sql)
-        self.assertNotIn("create_dtime = EXCLUDED.create_dtime", upsert_sql)
+        self.assertFalse(cursor.executemany.called)
 
     def test_parse_positive_int_list_requires_json_array(self) -> None:
         with self.assertRaisesMessage(
