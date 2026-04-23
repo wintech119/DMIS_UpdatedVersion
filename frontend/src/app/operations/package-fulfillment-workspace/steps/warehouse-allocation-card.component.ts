@@ -1151,7 +1151,11 @@ export class WarehouseAllocationCardComponent {
    * 4-decimal precision (no floor — preserve fractional accuracy).
    */
   onUseMax(): void {
-    const target = Math.min(this.maxQty(), this.remainingQtyForItem() || this.maxQty());
+    const remaining = this.remainingQtyForItem();
+    const target = Math.min(
+      this.maxQty(),
+      remaining ?? this.maxQty(),
+    );
     const clamped = Math.max(0, target);
     const normalized = Math.round(clamped * 10_000) / 10_000;
     this.lastError.set(null);
