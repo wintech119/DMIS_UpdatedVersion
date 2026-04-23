@@ -2547,3 +2547,659 @@ describe('OperationsWorkspaceStateService.getItemValidationMessage (fully_issued
     expect(message).toContain('Reconcile warehouse inventory');
   });
 });
+
+describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)', () => {
+  const ITEM_ID = 101;
+  const WAREHOUSE_ID = 9001;
+
+  function buildItem(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
+    return {
+      item_id: ITEM_ID,
+      item_code: 'WATER-101',
+      item_name: 'Water Container',
+      request_qty: '50',
+      issue_qty: '0',
+      remaining_qty: '50',
+      urgency_ind: 'H',
+      candidates: [
+        {
+          batch_id: 1,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '30',
+          reserved_qty: '0',
+          available_qty: '30',
+          source_type: 'ON_HAND',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-1',
+        },
+        {
+          batch_id: 2,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '40',
+          reserved_qty: '0',
+          available_qty: '40',
+          source_type: 'ON_HAND',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-2',
+        },
+      ],
+      suggested_allocations: [],
+      remaining_after_suggestion: '50',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      compliance_markers: [],
+      override_required: false,
+      remaining_shortfall_qty: '50',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      warehouse_cards: [
+        {
+          warehouse_id: WAREHOUSE_ID,
+          warehouse_name: 'Kingston',
+          rank: 0,
+          issuance_order: 'FIFO',
+          total_available: '70',
+          allocatable_available_qty: '70',
+          suggested_qty: '50',
+          batches: [
+            {
+              batch_id: 1,
+              inventory_id: WAREHOUSE_ID,
+              batch_no: 'BT-1',
+              batch_date: null,
+              expiry_date: null,
+              available_qty: '30',
+              usable_qty: '30',
+              reserved_qty: '0',
+              uom_code: 'EA',
+              source_type: 'ON_HAND',
+              source_record_id: null,
+            },
+            {
+              batch_id: 2,
+              inventory_id: WAREHOUSE_ID,
+              batch_no: 'BT-2',
+              batch_date: null,
+              expiry_date: null,
+              available_qty: '40',
+              usable_qty: '40',
+              reserved_qty: '0',
+              uom_code: 'EA',
+              source_type: 'ON_HAND',
+              source_record_id: null,
+            },
+          ],
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  function makeService(): OperationsWorkspaceStateService {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: jasmine
+              .createSpy('previewItemAllocationOptions')
+              .and.returnValue(of(buildItem())),
+          } as Partial<OperationsService>,
+        },
+      ],
+    });
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(7001);
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [buildItem()],
+    });
+    return service;
+  }
+
+  it('greedily distributes qty across ranked batches in FEFO/FIFO order', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+
+    const rows = service.selectedRowsByItem()[ITEM_ID] ?? [];
+    // First batch takes 30 (its full per-batch cap), second batch takes 15.
+    expect(rows.length).toBe(2);
+    const row1 = rows.find((r) => r.batch_id === 1);
+    const row2 = rows.find((r) => r.batch_id === 2);
+    expect(Number(row1?.quantity)).toBe(30);
+    expect(Number(row2?.quantity)).toBe(15);
+  });
+
+  it('clamps qty to the card-level allocatable_available_qty cap', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 200);
+
+    const total = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+    // Cap is 70 (allocatable_available_qty); 200 clamps down.
+    expect(total).toBe(70);
+  });
+
+  it('tail-releases prior batch allocations when qty shrinks', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(45);
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 10);
+    const rows = service.selectedRowsByItem()[ITEM_ID] ?? [];
+    const row2 = rows.find((r) => r.batch_id === 2);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(10);
+    // Tail batch must be zero now, not lingering.
+    expect(row2 ? Number(row2.quantity) : 0).toBe(0);
+  });
+
+  it('rejects negative qty without mutating state', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 30);
+    const before = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+
+    const warnSpy = spyOn(console, 'warn');
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, -5);
+
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(before);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('accepts decimal qty up to 4 decimal places and normalizes precision', () => {
+    const service = makeService();
+    const warnSpy = spyOn(console, 'warn');
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 12.5);
+
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(12.5);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 1.2345);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(1.2345);
+  });
+
+  it('rejects qty with more than 4 decimal places without mutating state', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 10);
+    const before = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+
+    const warnSpy = spyOn(console, 'warn');
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 1.23456);
+
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(before);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('rejects non-finite qty without mutating state', () => {
+    const service = makeService();
+    const warnSpy = spyOn(console, 'warn');
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, Number.NaN);
+
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
+    expect(warnSpy).toHaveBeenCalled();
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, Number.POSITIVE_INFINITY);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
+  });
+
+  it('zeroes all allocations for a warehouse when called with qty=0', () => {
+    const service = makeService();
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(45);
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 0);
+    expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
+  });
+
+  it('refreshes continuation preview once after batch distribution', () => {
+    const previewSpy = jasmine
+      .createSpy('previewItemAllocationOptions')
+      .and.returnValue(of(buildItem({ continuation_recommended: true })));
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: previewSpy,
+          } as Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(7001);
+    service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [buildItem({ continuation_recommended: true })],
+    });
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+
+    expect(previewSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the full source identity when a batch key collides across sources', () => {
+    const service = makeService();
+    const item = buildItem({
+      candidates: [
+        {
+          batch_id: 1,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '30',
+          reserved_qty: '0',
+          available_qty: '30',
+          source_type: 'TRANSFER',
+          source_record_id: 77,
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-1-XFER',
+        },
+        {
+          batch_id: 1,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '30',
+          reserved_qty: '0',
+          available_qty: '30',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-1',
+        },
+      ],
+    });
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [item],
+    });
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 10);
+
+    const rows = service.selectedRowsByItem()[ITEM_ID] ?? [];
+    expect(rows.length).toBe(1);
+    expect(rows[0].source_type).toBe('ON_HAND');
+    expect(rows[0].source_record_id).toBeNull();
+  });
+
+  describe('removeItemWarehouse (FR05.06 kebab-menu redesign)', () => {
+    it('removes draft selections, drops the loaded tracker entry, strips the rank card, and clears stale preview fields', () => {
+      const service = makeService();
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.addingWarehouseByItem.set({ [ITEM_ID]: true });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [
+          buildItem({
+            continuation_recommended: true,
+            remaining_shortfall_qty: '5',
+            alternate_warehouses: [{
+              warehouse_id: 9999,
+              warehouse_name: 'Spanish Town',
+              available_qty: '5',
+              suggested_qty: '5',
+              can_fully_cover: false,
+            }],
+            draft_selected_qty: '45.0000',
+            effective_remaining_qty: '5.0000',
+            stock_integrity_issue:
+              'Warehouse stock totals are out of sync for item 101 at inventory 9001.',
+          }),
+        ],
+      });
+      service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+      expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(45);
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      // Draft selections cleared
+      expect(service.selectedRowsByItem()[ITEM_ID]).toEqual([]);
+      // Loaded tracker no longer lists the removed warehouse
+      expect(service.loadedWarehousesByItem()[ITEM_ID] ?? []).toEqual([]);
+      expect(service.addingWarehouseByItem()[ITEM_ID]).toBeFalse();
+      // warehouse_cards + candidates filtered in the cached options
+      const item = service
+        .options()
+        ?.items.find((entry) => entry.item_id === ITEM_ID);
+      expect(item?.warehouse_cards ?? []).toEqual([]);
+      expect(item?.candidates.filter((c) => c.inventory_id === WAREHOUSE_ID)).toEqual([]);
+      expect(item?.continuation_recommended).toBeFalse();
+      expect(item?.alternate_warehouses ?? []).toEqual([]);
+      expect(item?.draft_selected_qty).toBe('0.0000');
+      expect(item?.effective_remaining_qty).toBe('50');
+      expect(item?.remaining_shortfall_qty).toBe('50');
+      expect(item?.stock_integrity_issue).toBeNull();
+    });
+
+    it('is a no-op when warehouseId is 0 / negative / missing', () => {
+      const service = makeService();
+      service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 20);
+      const before = service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID);
+
+      service.removeItemWarehouse(ITEM_ID, 0);
+      service.removeItemWarehouse(ITEM_ID, -5);
+
+      expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(before);
+      expect(service.selectedRowsByItem()[ITEM_ID]?.length).toBeGreaterThan(0);
+    });
+
+    it('clears the per-item override when the removed warehouse matches the override', () => {
+      const service = makeService();
+      service.itemWarehouseOverrides.set({ [ITEM_ID]: String(WAREHOUSE_ID) });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(service.itemWarehouseOverrides()[ITEM_ID]).toBeUndefined();
+    });
+
+    it('preserves the per-item override when a different warehouse is removed', () => {
+      const service = makeService();
+      service.itemWarehouseOverrides.set({ [ITEM_ID]: '9999' });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(service.itemWarehouseOverrides()[ITEM_ID]).toBe('9999');
+    });
+
+    it('invalidates an in-flight preview so stale warehouse cards do not merge back in', () => {
+      const preview$ = new Subject<AllocationItemGroup>();
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          OperationsWorkspaceStateService,
+          {
+            provide: OperationsService,
+            useValue: {
+              previewItemAllocationOptions: jasmine
+                .createSpy('previewItemAllocationOptions')
+                .and.returnValue(preview$.asObservable()),
+            } as Partial<OperationsService>,
+          },
+        ],
+      });
+
+      const service = TestBed.inject(OperationsWorkspaceStateService);
+      service.reliefrqstId.set(7001);
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [buildItem()],
+      });
+
+      service.previewItemAllocations(ITEM_ID, WAREHOUSE_ID);
+      expect(service.previewLoadingByItem()[ITEM_ID]).toBeTrue();
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+      expect(service.previewLoadingByItem()[ITEM_ID]).toBeFalse();
+
+      preview$.next(buildItem());
+
+      const item = service.options()?.items.find((entry) => entry.item_id === ITEM_ID);
+      expect(item?.warehouse_cards ?? []).toEqual([]);
+      expect(item?.candidates.filter((candidate) => candidate.inventory_id === WAREHOUSE_ID)).toEqual([]);
+    });
+
+    it('requests a fresh preview against the remaining warehouse after removal', () => {
+      const secondaryWarehouseId = 9002;
+      const previewSpy = jasmine
+        .createSpy('previewItemAllocationOptions')
+        .and.returnValue(of(buildItem({
+          source_warehouse_id: secondaryWarehouseId,
+          candidates: [
+            {
+              batch_id: 3,
+              inventory_id: secondaryWarehouseId,
+              item_id: ITEM_ID,
+              usable_qty: '20',
+              reserved_qty: '0',
+              available_qty: '20',
+              source_type: 'ON_HAND',
+              source_record_id: null,
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+            },
+          ],
+          warehouse_cards: [
+            {
+              warehouse_id: secondaryWarehouseId,
+              warehouse_name: 'Montego Bay',
+              rank: 0,
+              issuance_order: 'FIFO',
+              total_available: '20',
+              allocatable_available_qty: '20',
+              suggested_qty: '20',
+              batches: [
+                {
+                  batch_id: 3,
+                  inventory_id: secondaryWarehouseId,
+                  batch_no: 'BT-3',
+                  batch_date: null,
+                  expiry_date: null,
+                  available_qty: '20',
+                  usable_qty: '20',
+                  reserved_qty: '0',
+                  uom_code: 'EA',
+                  source_type: 'ON_HAND',
+                  source_record_id: null,
+                },
+              ],
+            },
+          ],
+        })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          OperationsWorkspaceStateService,
+          {
+            provide: OperationsService,
+            useValue: {
+              previewItemAllocationOptions: previewSpy,
+            } as Partial<OperationsService>,
+          },
+        ],
+      });
+
+      const service = TestBed.inject(OperationsWorkspaceStateService);
+      service.reliefrqstId.set(7001);
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID, secondaryWarehouseId] });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [
+          buildItem({
+            source_warehouse_id: WAREHOUSE_ID,
+            selected_warehouse_ids: [WAREHOUSE_ID, secondaryWarehouseId],
+            candidates: [
+              ...buildItem().candidates,
+              {
+                batch_id: 3,
+                inventory_id: secondaryWarehouseId,
+                item_id: ITEM_ID,
+                usable_qty: '20',
+                reserved_qty: '0',
+                available_qty: '20',
+                source_type: 'ON_HAND',
+                source_record_id: null,
+                can_expire_flag: false,
+                issuance_order: 'FIFO',
+              },
+            ],
+            warehouse_cards: [
+              ...buildItem().warehouse_cards,
+              {
+                warehouse_id: secondaryWarehouseId,
+                warehouse_name: 'Montego Bay',
+                rank: 1,
+                issuance_order: 'FIFO',
+                total_available: '20',
+                allocatable_available_qty: '20',
+                suggested_qty: '20',
+                batches: [
+                  {
+                    batch_id: 3,
+                    inventory_id: secondaryWarehouseId,
+                    batch_no: 'BT-3',
+                    batch_date: null,
+                    expiry_date: null,
+                    available_qty: '20',
+                    usable_qty: '20',
+                    reserved_qty: '0',
+                    uom_code: 'EA',
+                    source_type: 'ON_HAND',
+                    source_record_id: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        ],
+      });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(previewSpy).toHaveBeenCalledOnceWith(
+        7001,
+        ITEM_ID,
+        jasmine.objectContaining({ source_warehouse_id: secondaryWarehouseId }),
+      );
+    });
+  });
+});
+
+describe('OperationsWorkspaceStateService.getItemFillStatus (FR05.06 redesign)', () => {
+  const ITEM_ID = 101;
+
+  function buildItem(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
+    return {
+      item_id: ITEM_ID,
+      item_code: 'WATER-101',
+      item_name: 'Water Container',
+      request_qty: '50',
+      issue_qty: '0',
+      remaining_qty: '50',
+      urgency_ind: 'H',
+      candidates: [
+        {
+          batch_id: 1,
+          inventory_id: 9001,
+          item_id: ITEM_ID,
+          usable_qty: '100',
+          reserved_qty: '0',
+          available_qty: '100',
+          source_type: 'ON_HAND',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+        },
+      ],
+      suggested_allocations: [],
+      remaining_after_suggestion: '50',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      compliance_markers: [],
+      override_required: false,
+      remaining_shortfall_qty: '50',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      warehouse_cards: [],
+      ...overrides,
+    };
+  }
+
+  function makeService(item: AllocationItemGroup): OperationsWorkspaceStateService {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        { provide: OperationsService, useValue: {} as Partial<OperationsService> },
+      ],
+    });
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(7001);
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [item],
+    });
+    return service;
+  }
+
+  it('returns draft when reserving qty is zero', () => {
+    const service = makeService(buildItem());
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('draft');
+  });
+
+  it('returns filled when reserving >= remaining', () => {
+    const item = buildItem();
+    const service = makeService(item);
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 50);
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('filled');
+  });
+
+  it('returns non_compliant when reserving exists against a zero remaining quantity', () => {
+    const item = buildItem({ remaining_qty: '0' });
+    const service = makeService(item);
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 1);
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('non_compliant');
+  });
+
+  it('returns compliant_partial when reserving > 0 and < remaining with no override flags', () => {
+    const item = buildItem();
+    const service = makeService(item);
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 20);
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('compliant_partial');
+  });
+
+  it('returns non_compliant (precedence) when item.override_required is true, even with full allocation', () => {
+    const item = buildItem({ override_required: true });
+    const service = makeService(item);
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 50);
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('non_compliant');
+  });
+
+  it('returns non_compliant when rule is bypassed via skipping the greedy recommendation', () => {
+    // Two candidates: greedy would fill from candidate[0] (50 available)
+    // but the operator skips directly to candidate[1] — that counts as bypass.
+    const item = buildItem({
+      request_qty: '20',
+      remaining_qty: '20',
+      candidates: [
+        {
+          batch_id: 1,
+          inventory_id: 9001,
+          item_id: ITEM_ID,
+          usable_qty: '100',
+          reserved_qty: '0',
+          available_qty: '100',
+          source_type: 'ON_HAND',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+        },
+        {
+          batch_id: 2,
+          inventory_id: 9001,
+          item_id: ITEM_ID,
+          usable_qty: '100',
+          reserved_qty: '0',
+          available_qty: '100',
+          source_type: 'ON_HAND',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+        },
+      ],
+    });
+    const service = makeService(item);
+    // Allocate from the second candidate only — greedy would have picked the first.
+    service.setCandidateQuantity(ITEM_ID, item.candidates[1], 20);
+    expect(service.isRuleBypassedForItem(ITEM_ID)).toBeTrue();
+    expect(service.getItemFillStatus(ITEM_ID)).toBe('non_compliant');
+  });
+});

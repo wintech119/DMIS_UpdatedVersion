@@ -59,6 +59,7 @@ from replenishment.services.allocation_dispatch import (
     ReservationError,
 )
 from replenishment.services import data_access
+from replenishment.views import _parse_positive_int
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
@@ -70,6 +71,7 @@ _RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _RATE_LIMIT_LOCK_ATTEMPTS = 20
 _SURGE_PHASES = {"SURGE", "STABILIZED"}
+_MAX_ID_LIST_ITEMS = 100
 _MAX_ITEM_PREVIEW_DRAFT_ALLOCATIONS = 200
 _SURGE_ROLE_CODES = {
     ROLE_LOGISTICS_OFFICER,
@@ -306,6 +308,31 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
+def _positive_int_query_param_list(raw_values: object, field_name: str) -> list[int]:
+    if not isinstance(raw_values, list):
+        raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    if len(raw_values) > _MAX_ID_LIST_ITEMS:
+        raise OperationValidationError(
+            {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
+        )
+    return _normalize_positive_int_list_core(raw_values, field_name)
+
+
+def _normalize_positive_int_list_core(values: list[object], field_name: str) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for index, raw_value in enumerate(values):
+        errors: dict[str, str] = {}
+        parsed = _parse_positive_int(raw_value, f"{field_name}[{index}]", errors)
+        if errors or parsed is None:
+            raise OperationValidationError(errors or {field_name: "Invalid value."})
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
+
+
 def _required_positive_int_payload_value(raw_value: object, field_name: str) -> int:
     if raw_value in (None, ""):
         raise OperationValidationError({field_name: f"{field_name} is required."})
@@ -393,6 +420,18 @@ def _validated_item_preview_draft_allocations(raw_value: object) -> list[dict[st
     return normalized_rows
 
 
+def _validated_positive_int_payload_list(raw_value: object, field_name: str) -> list[int]:
+    if raw_value in (None, ""):
+        return []
+    if not isinstance(raw_value, list):
+        raise OperationValidationError({field_name: f"{field_name} must be provided as an array."})
+    if len(raw_value) > _MAX_ID_LIST_ITEMS:
+        raise OperationValidationError(
+            {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
+        )
+    return _normalize_positive_int_list_core(raw_value, field_name)
+
+
 def _payload_object(payload: object) -> dict[str, Any]:
     if payload is None:
         return {}
@@ -442,6 +481,7 @@ def operations_requests(request):
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
+                actor_roles=_roles(request),
             ),
             status=201,
         )
@@ -510,6 +550,7 @@ def operations_request_detail(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
+                actor_roles=_roles(request),
             )
         )
     except Exception as exc:
@@ -630,6 +671,7 @@ def operations_eligibility_decision(request, reliefrqst_id: int):
                 payload=_payload_object(request.data),
                 actor_id=actor_id,
                 actor_roles=_roles(request),
+                actor_permissions=_permissions(request),
                 tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
@@ -788,8 +830,10 @@ operations_package_allocation_options.required_permission = PERM_OPERATIONS_PACK
 def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int):
     try:
         source_warehouse_id = request.query_params.get("source_warehouse_id")
-        if source_warehouse_id in (None, ""):
-            raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        additional_warehouse_ids = _positive_int_query_param_list(
+            request.query_params.getlist("additional_warehouse_ids"),
+            "additional_warehouse_ids",
+        )
         if request.query_params.get("draft_allocations") not in (None, ""):
             raise OperationValidationError(
                 {"draft_allocations": "Use the preview endpoint for draft-aware allocation guidance."}
@@ -800,6 +844,7 @@ def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int
                 item_id,
                 source_warehouse_id=_optional_positive_int_query_param(source_warehouse_id, "source_warehouse_id"),
                 draft_allocations=None,
+                additional_warehouse_ids=additional_warehouse_ids,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -818,16 +863,22 @@ operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE
 def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int):
     try:
         payload = _payload_object(request.data)
-        source_warehouse_id = _required_positive_int_payload_value(
-            payload.get("source_warehouse_id"),
-            "source_warehouse_id",
-        )
+        source_warehouse_id = None
+        if payload.get("source_warehouse_id") not in (None, ""):
+            source_warehouse_id = _required_positive_int_payload_value(
+                payload.get("source_warehouse_id"),
+                "source_warehouse_id",
+            )
         draft_allocations = _validated_item_preview_draft_allocations(payload.get("draft_allocations", []))
-        normalized_payload = {
-            **payload,
-            "source_warehouse_id": source_warehouse_id,
-            "draft_allocations": draft_allocations,
-        }
+        additional_warehouse_ids = _validated_positive_int_payload_list(
+            payload.get("additional_warehouse_ids", []),
+            "additional_warehouse_ids",
+        )
+        normalized_payload = {key: value for key, value in payload.items() if key != "source_warehouse_id"}
+        normalized_payload["draft_allocations"] = draft_allocations
+        normalized_payload["additional_warehouse_ids"] = additional_warehouse_ids
+        if source_warehouse_id is not None:
+            normalized_payload["source_warehouse_id"] = source_warehouse_id
         return Response(
             operations_service.get_item_allocation_preview(
                 reliefrqst_id,
@@ -835,6 +886,7 @@ def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int
                 payload=normalized_payload,
                 source_warehouse_id=source_warehouse_id,
                 draft_allocations=draft_allocations,
+                additional_warehouse_ids=additional_warehouse_ids,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -919,6 +971,7 @@ def operations_package_override_approve(request, reliefrqst_id: int):
                 payload=_payload_object(request.data),
                 actor_id=actor_id,
                 actor_roles=_roles(request),
+                actor_permissions=_permissions(request),
                 tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )

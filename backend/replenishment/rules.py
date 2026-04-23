@@ -4,15 +4,6 @@ from typing import Dict, List, Tuple
 
 SAFETY_STOCK_FACTOR = 1.25
 
-
-def _get_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name, str(default))
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return default
-
-
 def _get_str_env(name: str, default: str) -> str:
     raw = os.getenv(name)
     if raw is None:
@@ -23,21 +14,16 @@ def _get_str_env(name: str, default: str) -> str:
 
 PHASES = ("SURGE", "STABILIZED", "BASELINE")
 
-WINDOWS_V40_LEGACY: Dict[str, Dict[str, int]] = {
-    "SURGE": {"demand_hours": 6, "planning_hours": 24},
-    "STABILIZED": {"demand_hours": 24, "planning_hours": 72},
-    "BASELINE": {"demand_hours": 72, "planning_hours": 168},
-}
-
 WINDOWS_DEFAULT: Dict[str, Dict[str, int]] = {
-    "SURGE": {"demand_hours": 6, "planning_hours": 72},
-    "STABILIZED": {"demand_hours": 72, "planning_hours": 168},
-    "BASELINE": {"demand_hours": 720, "planning_hours": 720},
+    "SURGE": {"demand_hours": 6, "planning_hours": 24},
+    "STABILIZED": {"demand_hours": 72, "planning_hours": 72},
+    "BASELINE": {"demand_hours": 720, "planning_hours": 168},
 }
 
-WINDOWS_BY_VERSION: Dict[str, Dict[str, Dict[str, int]]] = {
-    "v41": WINDOWS_DEFAULT,
-    "v40": WINDOWS_V40_LEGACY,
+DEFAULT_HORIZON_LEAD_TIMES_HOURS: Dict[str, int] = {
+    "A": 8,
+    "B": 72,
+    "C": 336,
 }
 
 FRESHNESS_THRESHOLDS: Dict[str, Dict[str, int]] = {
@@ -45,9 +31,6 @@ FRESHNESS_THRESHOLDS: Dict[str, Dict[str, int]] = {
     "STABILIZED": {"fresh_max_hours": 6, "warn_max_hours": 12},
     "BASELINE": {"fresh_max_hours": 24, "warn_max_hours": 48},
 }
-
-DONATION_LEAD_TIME_HOURS = _get_int_env("NEEDS_DONATION_LEAD_TIME_HOURS", 24)
-PROCUREMENT_LEAD_TIME_HOURS = _get_int_env("NEEDS_PROCUREMENT_LEAD_TIME_HOURS", 336)
 
 SAFETY_BUFFER_MULTIPLIERS: Dict[str, float] = {
     "SURGE": 0.5,
@@ -151,19 +134,15 @@ PROCUREMENT_APPROVAL_RULES: Dict[str, List[Dict[str, object]]] = {
 
 DEFAULT_PROCUREMENT_CATEGORY = "goods_services"
 
-DEFAULT_WINDOWS_VERSION = "v41"
-
-
-def get_windows_version() -> str:
-    return os.getenv("NEEDS_WINDOWS_VERSION", DEFAULT_WINDOWS_VERSION).lower()
-
-
 def get_phase_windows(phase: str) -> Dict[str, int]:
-    version = get_windows_version()
-    windows = WINDOWS_BY_VERSION.get(version, WINDOWS_DEFAULT)
-    if phase not in windows:
-        raise ValueError(f"invalid phase, expected one of: {list(windows.keys())}")
-    return windows[phase]
+    normalized_phase = str(phase or "").strip().upper()
+    if normalized_phase not in WINDOWS_DEFAULT:
+        raise ValueError(f"invalid phase, expected one of: {list(WINDOWS_DEFAULT.keys())}")
+    return dict(WINDOWS_DEFAULT[normalized_phase])
+
+
+def get_default_horizon_lead_times() -> Dict[str, int]:
+    return dict(DEFAULT_HORIZON_LEAD_TIMES_HOURS)
 
 
 def get_procurement_approval(

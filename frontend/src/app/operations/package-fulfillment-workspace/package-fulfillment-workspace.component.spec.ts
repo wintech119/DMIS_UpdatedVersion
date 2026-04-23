@@ -564,6 +564,56 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       expect(component.commitActionDisabled()).toBeTrue();
       expect(operationsService.commitAllocations).toHaveBeenCalledTimes(1);
     });
+
+    it('submits the flat AllocationCommitPayload shape under the FR05.06 redesign (no grouped-per-item payload)', () => {
+      populateCommitReadySelection();
+      // Seed two item-warehouse rows (summing to the item's remaining_qty of 2) so we can
+      // see them as flat siblings in the payload. Over-allocating would trip validation
+      // before commit and cause the spy to never be invoked.
+      component.store.selectedRowsByItem.set({
+        44: [
+          {
+            item_id: 44,
+            inventory_id: 9001,
+            batch_id: 1001,
+            quantity: '1',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+            uom_code: 'EA',
+          },
+          {
+            item_id: 44,
+            inventory_id: 9002,
+            batch_id: 1002,
+            quantity: '1',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+            uom_code: 'EA',
+          },
+        ],
+      });
+      operationsService.commitAllocations.and.returnValue(
+        of({ status: 'COMMITTED' } as unknown as AllocationCommitResponse),
+      );
+
+      component.submitReservation();
+
+      expect(operationsService.commitAllocations).toHaveBeenCalledTimes(1);
+      const [, payload] = operationsService.commitAllocations.calls.mostRecent().args;
+      // The redesign keeps a single flat `allocations[]` list — no per-item nesting.
+      expect(payload).not.toBeNull();
+      expect(Array.isArray(payload!.allocations)).toBeTrue();
+      expect(payload!.allocations.length).toBe(2);
+      payload!.allocations.forEach((row) => {
+        expect(row.item_id).toBe(44);
+        expect(row.inventory_id).toBeDefined();
+        expect(row.batch_id).toBeDefined();
+        expect(typeof row.quantity === 'string' || typeof row.quantity === 'number').toBeTrue();
+      });
+      // The payload shape must not have grown an `items` or `groups` key.
+      expect((payload as unknown as Record<string, unknown>)['items']).toBeUndefined();
+      expect((payload as unknown as Record<string, unknown>)['groups']).toBeUndefined();
+    });
   });
 
   describe('cancelFulfillment (non-terminal abandon)', () => {

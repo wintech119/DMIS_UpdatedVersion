@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+from datetime import datetime
+from io import StringIO
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import SimpleTestCase, override_settings
 
 from replenishment.management.commands.align_tenant_scope import Command
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class AlignTenantScopeCommandTests(SimpleTestCase):
     @patch("replenishment.management.commands.align_tenant_scope.lock_primary_tenant_membership")
     @patch("replenishment.management.commands.align_tenant_scope.connection")
@@ -33,3 +39,222 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
         self.assertEqual(first_reset_params, [101])
         self.assertIn("SET is_primary_tenant = TRUE", first_set_sql)
         self.assertEqual(first_set_params, [101, 19])
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[1, 2])
+    def test_handle_supports_warehouse_reassignment_without_source_memberships(
+        self,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            reassign_owned_warehouses=True,
+            warehouse_ids="[1, 2]",
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("owned warehouses to reassign: 2", text)
+        self.assertIn("warehouse scope: 1, 2", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._planned_backfill_rows", return_value=[])
+    def test_handle_reports_specific_no_work_message(
+        self,
+        _planned_backfill_rows_mock,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            stdout=output,
+        )
+
+        self.assertIn(
+            "No work to do: no source memberships, no owned warehouses to reassign, and no backfill rows.",
+            output.getvalue(),
+        )
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch(
+        "replenishment.management.commands.align_tenant_scope.Command._active_memberships",
+        return_value=[object(), object()],
+    )
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[1, 2])
+    def test_handle_can_skip_membership_copy_for_warehouse_only_repairs(
+        self,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            skip_membership_copy=True,
+            reassign_owned_warehouses=True,
+            warehouse_ids="[1, 2]",
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("copy source memberships: False", text)
+        self.assertIn("source active memberships: 0", text)
+        self.assertIn("new memberships to create: 0", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_owned_warehouse_ids_rejects_requested_ids_outside_source_tenant(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(1,), (2,)]
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Warehouses 3 are not currently owned by tenant 27.",
+        ):
+            Command()._owned_warehouse_ids(27, warehouse_ids=[1, 2, 3])
+
+    @patch("replenishment.management.commands.align_tenant_scope.timezone.localdate", return_value=datetime(2026, 4, 18).date())
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_reassign_owned_warehouses_replaces_source_scope_and_updates_owner(
+        self,
+        mock_connection,
+        _localdate_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(1,), (2,)]
+        now = datetime(2026, 4, 18, 9, 30, 0)
+
+        Command()._reassign_owned_warehouses(
+            from_tenant_id=27,
+            to_tenant_id=1,
+            warehouse_ids=[1, 2],
+            actor_ref="SYSTEM",
+            now=now,
+        )
+
+        delete_sql, delete_params = cursor.execute.call_args_list[0].args
+        update_sql, update_params = cursor.execute.call_args_list[1].args
+        upsert_sql = cursor.executemany.call_args.args[0]
+        upsert_rows = cursor.executemany.call_args.args[1]
+
+        self.assertIn("DELETE FROM tenant_warehouse", delete_sql)
+        self.assertEqual(delete_params, [27, 1, 2])
+        self.assertIn("UPDATE warehouse", update_sql)
+        self.assertEqual(update_params, [1, "SYSTEM", now, 27, 1, 2])
+        self.assertIn("ON CONFLICT (tenant_id, warehouse_id) DO UPDATE", upsert_sql)
+        self.assertEqual(
+            upsert_rows,
+            [
+                [1, 1, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now],
+                [1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now],
+            ],
+        )
+
+    @patch("replenishment.management.commands.align_tenant_scope.timezone.localdate", return_value=datetime(2026, 4, 18).date())
+    @patch("replenishment.management.commands.align_tenant_scope.connection")
+    def test_reassign_owned_warehouses_raises_when_any_requested_warehouse_update_drops_out(
+        self,
+        mock_connection,
+        _localdate_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(2,)]
+        now = datetime(2026, 4, 18, 9, 30, 0)
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Warehouse reassignment failed because ownership changed during update for warehouses 1. Transaction rolled back.",
+        ):
+            Command()._reassign_owned_warehouses(
+                from_tenant_id=27,
+                to_tenant_id=1,
+                warehouse_ids=[1, 2],
+                actor_ref="SYSTEM",
+                now=now,
+            )
+
+        self.assertFalse(cursor.executemany.called)
+
+    def test_parse_positive_int_list_requires_json_array(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids must be a JSON array of positive integers.",
+        ):
+            Command()._parse_positive_int_list("1,2")
+
+    def test_parse_positive_int_list_enforces_max_length(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids must not contain more than 100 items.",
+        ):
+            Command()._parse_positive_int_list(list(range(1, 102)))
+
+    def test_parse_positive_int_list_rejects_boolean_entries(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids entries must be positive integers. --warehouse-ids[0]: Must be a positive integer.",
+        ):
+            Command()._parse_positive_int_list([True])
+
+    @patch("replenishment.management.commands.align_tenant_scope.transaction.atomic", return_value=nullcontext())
+    @patch("replenishment.management.commands.align_tenant_scope.Command._insert_tenant_warehouse_rows")
+    @patch(
+        "replenishment.management.commands.align_tenant_scope.Command._planned_backfill_rows",
+        return_value=[(27, 1)],
+    )
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    def test_handle_reuses_precomputed_backfill_rows_when_applying(
+        self,
+        _validate_tenant_exists_mock,
+        _active_memberships_mock,
+        planned_backfill_rows_mock,
+        insert_tenant_warehouse_rows_mock,
+        _atomic_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            backfill_tenant_warehouse=True,
+            apply=True,
+            stdout=output,
+        )
+
+        planned_backfill_rows_mock.assert_called_once()
+        insert_tenant_warehouse_rows_mock.assert_called_once_with(
+            [(27, 1)],
+            actor_ref="SYSTEM",
+            now=insert_tenant_warehouse_rows_mock.call_args.kwargs["now"],
+            tenant_ids=[1, 27],
+        )
+
+    def test_handle_rejects_actor_values_that_exceed_audit_column_width(self) -> None:
+        with self.assertRaisesMessage(CommandError, "actor value too long"):
+            call_command(
+                "align_tenant_scope",
+                from_tenant_id=27,
+                to_tenant_id=1,
+                actor="THIS-ACTOR-VALUE-IS-TOO-LONG",
+                stdout=StringIO(),
+            )

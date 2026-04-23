@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, isDevMode, signal } from '@angular/core';
 import { EMPTY, Observable, of, throwError } from 'rxjs';
 import { catchError, finalize, mergeMap, tap } from 'rxjs/operators';
 
@@ -1195,6 +1195,118 @@ export class OperationsWorkspaceStateService {
   }
 
   /**
+   * Remove a warehouse from an item's allocation, clearing its draft selections,
+   * dropping it from the loaded-warehouses tracker (so it re-surfaces in the
+   * add-warehouse menu), and filtering its candidates + rank card out of the
+   * cached options. Frontend-only mutation — no backend call; the commit payload
+   * naturally excludes the removed rows.
+   *
+   * The caller is responsible for gating removal of the primary (rank 0) card;
+   * this helper is a pure state operation and does not enforce rank policy.
+   *
+   * Race-safety: bumps the latest add-request id for this item so any in-flight
+   * {@link addItemWarehouse} response cannot re-insert the just-removed warehouse.
+   */
+  removeItemWarehouse(itemId: number, warehouseId: number): void {
+    if (!warehouseId || warehouseId <= 0) {
+      return;
+    }
+    const remainingLoadedWarehouses = (this.loadedWarehousesByItem()[itemId] ?? [])
+      .filter((id) => id !== warehouseId);
+
+    // 0. Invalidate any in-flight addItemWarehouse response for this item so it
+    //    cannot re-insert the warehouse we're about to remove.
+    this.latestItemAddRequestIds[itemId] =
+      (this.latestItemAddRequestIds[itemId] ?? 0) + 1;
+    this.latestItemPreviewRequestIds[itemId] =
+      (this.latestItemPreviewRequestIds[itemId] ?? 0) + 1;
+    this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
+    this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: false }));
+
+    // 1. Drop any draft selections for this warehouse.
+    this.selectedRowsByItem.update((map) => {
+      const rows = map[itemId] ?? [];
+      const filtered = rows.filter((row) => row.inventory_id !== warehouseId);
+      if (filtered.length === rows.length) {
+        return map;
+      }
+      return { ...map, [itemId]: filtered };
+    });
+
+    // 2. Remove from the loaded-warehouses tracker so the add-menu can offer it again.
+    this.loadedWarehousesByItem.update((map) => {
+      if (!(map[itemId] ?? []).includes(warehouseId)) {
+        return map;
+      }
+      return { ...map, [itemId]: remainingLoadedWarehouses };
+    });
+
+    // 3. Clear the per-item warehouse override if it pointed at the removed
+    //    warehouse — otherwise `effectiveWarehouseForItem` would keep returning
+    //    the stale id and the next preview would target a now-missing card.
+    this.itemWarehouseOverrides.update((overrides) => {
+      const current = overrides[itemId];
+      if (current == null || Number(current) !== warehouseId) {
+        return overrides;
+      }
+      const next = { ...overrides };
+      delete next[itemId];
+      return next;
+    });
+
+    // 4. Filter out this warehouse's candidates + rank card from the cached options
+    //    so the stack no longer renders it and the alternate-warehouse menu can
+    //    re-surface it on demand.
+    const currentOptions = this.options();
+    if (!currentOptions) {
+      return;
+    }
+    const hasItem = currentOptions.items.some((entry) => entry.item_id === itemId);
+    if (!hasItem) {
+      return;
+    }
+    this.options.set({
+      ...currentOptions,
+      items: currentOptions.items.map((entry) => {
+        if (entry.item_id !== itemId) {
+          return entry;
+        }
+        const warehouseCards = (entry.warehouse_cards ?? []).filter(
+          (card) => card.warehouse_id !== warehouseId,
+        );
+        const nextSourceWarehouseId =
+          Number(entry.source_warehouse_id ?? 0) === warehouseId
+            ? (remainingLoadedWarehouses[0] ?? null)
+            : entry.source_warehouse_id ?? null;
+        const nextRecommendedWarehouseId =
+          Number(entry.recommended_warehouse_id ?? 0) === warehouseId
+            ? (
+              warehouseCards.find((card) => card.recommended)?.warehouse_id
+              ?? warehouseCards[0]?.warehouse_id
+              ?? null
+            )
+            : entry.recommended_warehouse_id ?? null;
+        const nextEntry: AllocationItemGroup = {
+          ...entry,
+          candidates: entry.candidates.filter(
+            (candidate) => candidate.inventory_id !== warehouseId,
+          ),
+          warehouse_cards: warehouseCards,
+          selected_warehouse_ids: remainingLoadedWarehouses,
+          source_warehouse_id: nextSourceWarehouseId,
+          recommended_warehouse_id: nextRecommendedWarehouseId,
+        };
+        return remainingLoadedWarehouses.length > 0
+          ? nextEntry
+          : this.resetPreviewStateForItem(itemId, nextEntry);
+      }),
+    });
+    if (remainingLoadedWarehouses.length > 0) {
+      this.refreshPreviewForItem(itemId);
+    }
+  }
+
+  /**
    * Recompute the draft-aware continuation metrics for a single item against the
    * currently-selected draft allocations. Only continuation fields are merged into
    * the cached item group — candidates and selections are user-driven and untouched.
@@ -1316,37 +1428,216 @@ export class OperationsWorkspaceStateService {
     this.maybeRefreshContinuationPreview(itemId);
   }
 
-  setCandidateQuantity(itemId: number, candidate: AllocationCandidate, quantity: number): void {
+  setCandidateQuantity(
+    itemId: number,
+    candidate: AllocationCandidate,
+    quantity: number,
+    suppressPreview = false,
+  ): void {
     const normalizedQty = this.toFixedQuantity(Math.max(0, quantity));
-    const rows = [...(this.selectedRowsByItem()[itemId] ?? [])];
-    const existingIndex = rows.findIndex(
-      (row) => this.selectionKey(row) === this.selectionKey(candidate),
+    const rows = this.applyCandidateQuantity(
+      itemId,
+      [...(this.selectedRowsByItem()[itemId] ?? [])],
+      candidate,
+      normalizedQty,
     );
-    if (normalizedQty <= 0) {
-      if (existingIndex >= 0) {
-        rows.splice(existingIndex, 1);
+    this.selectedRowsByItem.set({
+      ...this.selectedRowsByItem(),
+      [itemId]: this.sortSelections(itemId, rows),
+    });
+    if (!suppressPreview) {
+      this.maybeRefreshContinuationPreview(itemId);
+    }
+  }
+
+  /**
+   * Greedy-distribute a target quantity across one warehouse's ranked batches
+   * (FEFO/FIFO order as delivered by the backend), honoring the card-level
+   * `allocatable_available_qty` cap when present and each batch's per-row cap.
+   *
+   * Rejects non-finite, negative, or sub-0.0001-precision inputs without
+   * mutating state. Valid decimal quantities are normalized to the
+   * backend-supported 4-decimal precision before distribution.
+   * Zeros any prior selections on tail batches when the new target is smaller
+   * than the previously-distributed total so reducing qty actually releases
+   * stock.
+   */
+  setItemWarehouseQty(itemId: number, warehouseId: number, qty: number): void {
+    if (
+      !Number.isFinite(qty) ||
+      qty < 0 ||
+      !this.hasAllowedQuantityPrecision(qty)
+    ) {
+      // Reject silently with a dev-mode warning — do not truncate.
+      // Gated behind isDevMode() so production bundles stay quiet when
+      // legitimate transient form state briefly passes through this path.
+      if (
+        isDevMode() &&
+        typeof console !== 'undefined' &&
+        typeof console.warn === 'function'
+      ) {
+        console.warn(
+          `[operations-workspace] setItemWarehouseQty ignored invalid qty for item ${itemId} warehouse ${warehouseId}:`,
+          qty,
+        );
       }
-    } else {
-      const nextRow: AllocationSelectionPayload = {
-        item_id: itemId,
-        inventory_id: candidate.inventory_id,
-        batch_id: candidate.batch_id,
-        quantity: this.formatQuantity(normalizedQty),
-        source_type: candidate.source_type,
-        source_record_id: candidate.source_record_id ?? null,
-        uom_code: candidate.uom_code ?? null,
+      return;
+    }
+    // Normalize to the 4-decimal precision the backend stores so greedy
+    // distribution operates on stable, representable values.
+    const normalizedQty = this.toFixedQuantity(qty);
+    const item = this.getItemGroup(itemId);
+    if (!item) {
+      return;
+    }
+    const card = (item.warehouse_cards ?? []).find(
+      (entry) => entry.warehouse_id === warehouseId,
+    );
+    const batches = card?.batches ?? [];
+    const cardCap = card?.allocatable_available_qty != null
+      ? this.toNumber(card.allocatable_available_qty)
+      : card?.total_available != null
+        ? this.toNumber(card.total_available)
+        : Number.POSITIVE_INFINITY;
+    let remaining = Math.min(normalizedQty, cardCap);
+    let rows = [...(this.selectedRowsByItem()[itemId] ?? [])];
+
+    for (const batch of batches) {
+      const perBatchCap = this.toNumber(batch.usable_qty ?? batch.available_qty);
+      const take = Math.max(0, Math.min(remaining, perBatchCap));
+      // Find a matching AllocationCandidate if one still exists (preferred)
+      // so we preserve its source_type/source_record_id. Otherwise synthesize
+      // a minimal candidate from the batch.
+      const batchSelectionIdentity = {
+        inventory_id: warehouseId,
+        batch_id: batch.batch_id,
+        source_type: (batch.source_type ?? 'ON_HAND') as AllocationCandidate['source_type'],
+        source_record_id: batch.source_record_id ?? null,
       };
-      if (existingIndex >= 0) {
-        rows[existingIndex] = nextRow;
-      } else {
-        rows.push(nextRow);
-      }
+      const fallbackCandidate: AllocationCandidate = (item.candidates ?? []).find(
+        (candidate) => this.selectionKey(candidate) === this.selectionKey(batchSelectionIdentity),
+      ) ?? {
+        batch_id: batch.batch_id,
+        inventory_id: warehouseId,
+        item_id: itemId,
+        usable_qty: batch.usable_qty ?? batch.available_qty ?? '0',
+        reserved_qty: batch.reserved_qty ?? '0',
+        available_qty: batch.available_qty ?? batch.usable_qty ?? '0',
+        source_type: (batch.source_type ?? 'ON_HAND') as AllocationCandidate['source_type'],
+        source_record_id: batch.source_record_id ?? null,
+        can_expire_flag: false,
+        issuance_order: card?.issuance_order ?? 'FIFO',
+        warehouse_name: card?.warehouse_name ?? null,
+        batch_no: batch.batch_no ?? null,
+        batch_date: batch.batch_date ?? null,
+        expiry_date: batch.expiry_date ?? null,
+        uom_code: batch.uom_code ?? null,
+      };
+      rows = this.applyCandidateQuantity(itemId, rows, fallbackCandidate, take);
+      remaining = this.toFixedQuantity(remaining - take);
+    }
+
+    // Zero any remaining selections for this warehouse whose batches were
+    // not covered above (tail release when qty shrinks).
+    const processedBatchIds = new Set(batches.map((b) => b.batch_id));
+    const leftoverRows = rows
+      .filter(
+        (row) =>
+          row.inventory_id === warehouseId &&
+          !processedBatchIds.has(row.batch_id) &&
+          this.toNumber(row.quantity) > 0,
+      );
+    for (const row of leftoverRows) {
+      const fallbackCandidate: AllocationCandidate = (item.candidates ?? []).find(
+        (c) =>
+          c.inventory_id === row.inventory_id &&
+          c.batch_id === row.batch_id &&
+          String(c.source_type ?? 'ON_HAND').toUpperCase() ===
+            String(row.source_type ?? 'ON_HAND').toUpperCase() &&
+          (c.source_record_id ?? null) === (row.source_record_id ?? null),
+      ) ?? {
+        batch_id: row.batch_id,
+        inventory_id: row.inventory_id,
+        item_id: itemId,
+        usable_qty: '0',
+        reserved_qty: '0',
+        available_qty: '0',
+        source_type: (row.source_type ?? 'ON_HAND') as AllocationCandidate['source_type'],
+        source_record_id: row.source_record_id ?? null,
+        can_expire_flag: false,
+        issuance_order: card?.issuance_order ?? 'FIFO',
+        warehouse_name: card?.warehouse_name ?? null,
+        batch_no: null,
+        batch_date: null,
+        expiry_date: null,
+        uom_code: row.uom_code ?? null,
+      };
+      rows = this.applyCandidateQuantity(itemId, rows, fallbackCandidate, 0);
     }
     this.selectedRowsByItem.set({
       ...this.selectedRowsByItem(),
       [itemId]: this.sortSelections(itemId, rows),
     });
     this.maybeRefreshContinuationPreview(itemId);
+  }
+
+  /**
+   * Sum of the draft-selected qty for a given item at a specific warehouse.
+   * Derives from {@link selectedRowsByItem}; no parallel state.
+   */
+  getItemWarehouseAllocatedQty(itemId: number, warehouseId: number): number {
+    const rows = this.selectedRowsByItem()[itemId] ?? [];
+    return rows
+      .filter((row) => row.inventory_id === warehouseId)
+      .reduce((sum, row) => sum + this.toNumber(row.quantity), 0);
+  }
+
+  /**
+   * Single source of truth for the per-item fill state shown in the summary bar
+   * and item rail badge. Precedence: non_compliant > filled > compliant_partial
+   * > draft.
+   *
+   * IMPORTANT — fill-state denominator:
+   * The "filled" / "compliant_partial" check is scoped to `item.remaining_qty`
+   * (the residual need the backend computes from
+   * `request_qty - already_issued_qty - reserving_elsewhere`), NOT the original
+   * `request_qty`. Once prior package legs have issued or reserved against an
+   * item, the remaining need is what the workspace can still cover in this
+   * draft, and the backend's `remaining_qty` already reflects that. Using
+   * `request_qty` here would incorrectly flag items with prior issuances as
+   * perpetually short. If the data contract ever switches `remaining_qty` off
+   * this semantic, update the aggregate summary copy in
+   * FulfillmentItemDetailComponent accordingly.
+   */
+  getItemFillStatus(
+    itemId: number,
+  ): 'draft' | 'filled' | 'compliant_partial' | 'non_compliant' {
+    const item = this.getItemGroup(itemId);
+    // `remaining_qty` is the residual need after prior issuances and reservations
+    // against other draft packages; do not substitute request_qty here.
+    const requested = item ? this.toNumber(item.remaining_qty) : 0;
+    const reserving = this.getSelectedTotalForItem(itemId);
+    const shortfall = Math.max(0, requested - reserving);
+
+    // Non-compliant precedence: backend flag OR local rule bypass.
+    const overrideRequired = !!item?.override_required;
+    const ruleBypassed = this.isRuleBypassedForItem(itemId);
+    if (overrideRequired || ruleBypassed) {
+      return 'non_compliant';
+    }
+    if (reserving <= 0) {
+      return 'draft';
+    }
+    if (requested <= 0 && reserving > 0) {
+      return 'non_compliant';
+    }
+    if (reserving + 0.0001 >= requested) {
+      return 'filled';
+    }
+    if (shortfall > 0) {
+      return 'compliant_partial';
+    }
+    return 'draft';
   }
 
   /**
@@ -1368,11 +1659,7 @@ export class OperationsWorkspaceStateService {
     if (!continuationActive) {
       return;
     }
-    const previewWarehouseId = loaded[loaded.length - 1];
-    if (!previewWarehouseId) {
-      return;
-    }
-    this.previewItemAllocations(itemId, previewWarehouseId);
+    this.refreshPreviewForItem(itemId);
   }
 
   private mergePreviewState(
@@ -1776,6 +2063,68 @@ export class OperationsWorkspaceStateService {
     );
   }
 
+  private applyCandidateQuantity(
+    itemId: number,
+    rows: AllocationSelectionPayload[],
+    candidate: AllocationCandidate,
+    normalizedQty: number,
+  ): AllocationSelectionPayload[] {
+    const existingIndex = rows.findIndex(
+      (row) => this.selectionKey(row) === this.selectionKey(candidate),
+    );
+    if (normalizedQty <= 0) {
+      if (existingIndex >= 0) {
+        rows.splice(existingIndex, 1);
+      }
+      return rows;
+    }
+    const nextRow: AllocationSelectionPayload = {
+      item_id: itemId,
+      inventory_id: candidate.inventory_id,
+      batch_id: candidate.batch_id,
+      quantity: this.formatQuantity(normalizedQty),
+      source_type: candidate.source_type,
+      source_record_id: candidate.source_record_id ?? null,
+      uom_code: candidate.uom_code ?? null,
+    };
+    if (existingIndex >= 0) {
+      rows[existingIndex] = nextRow;
+    } else {
+      rows.push(nextRow);
+    }
+    return rows;
+  }
+
+  private refreshPreviewForItem(itemId: number): void {
+    const loaded = this.loadedWarehousesByItem()[itemId] ?? [];
+    if (loaded.length === 0) {
+      return;
+    }
+    const effectiveWarehouseId = Number(this.sanitizeInteger(this.effectiveWarehouseForItem(itemId)));
+    const previewWarehouseId = loaded.includes(effectiveWarehouseId)
+      ? effectiveWarehouseId
+      : loaded[loaded.length - 1];
+    if (!previewWarehouseId) {
+      return;
+    }
+    this.previewItemAllocations(itemId, previewWarehouseId);
+  }
+
+  private resetPreviewStateForItem(
+    itemId: number,
+    item: AllocationItemGroup,
+  ): AllocationItemGroup {
+    return {
+      ...item,
+      stock_integrity_issue: null,
+      remaining_shortfall_qty: item.remaining_qty,
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      draft_selected_qty: this.formatQuantity(this.getSelectedTotalForItem(itemId)),
+      effective_remaining_qty: item.remaining_qty,
+    };
+  }
+
   private selectionKey(
     value: Pick<AllocationSelectionPayload, 'inventory_id' | 'batch_id' | 'source_type' | 'source_record_id'>,
   ): string {
@@ -1865,6 +2214,21 @@ export class OperationsWorkspaceStateService {
 
   private formatQuantity(value: number): string {
     return this.toFixedQuantity(value).toFixed(4);
+  }
+
+  /**
+   * Returns true when `value` can be represented with at most 4 decimal
+   * places, the precision the backend allocation contract supports. Callers
+   * must guard `Number.isFinite(value)` before invoking this helper.
+   */
+  private hasAllowedQuantityPrecision(value: number): boolean {
+    if (Number.isInteger(value)) {
+      return true;
+    }
+    // Scale by 10,000 and check whether the result is within epsilon of an
+    // integer. Handles floating-point drift on values like 1.2345.
+    const scaled = value * 10_000;
+    return Math.abs(scaled - Math.round(scaled)) < 1e-6;
   }
 
   private sanitizeInteger(value: unknown): string {

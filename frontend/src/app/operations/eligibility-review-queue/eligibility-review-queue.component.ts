@@ -10,6 +10,7 @@ import { AuthRbacService } from '../../replenishment/services/auth-rbac.service'
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestSummary } from '../models/operations.model';
@@ -17,17 +18,20 @@ import {
   formatOperationsAge,
   formatOperationsDateTime,
   formatOperationsLineCount,
+  formatOperationsRefreshedLabel,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
   getOperationsRequestTone,
+  getOperationsTimeInStageTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OPERATIONS_QUEUE_SEARCH_MAX_LENGTH,
   OperationsTone,
+  OperationsTimeInStageTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
@@ -39,6 +43,12 @@ interface ReviewMetric {
   value: number;
   note: string;
   route: string;
+  /** Drives left-accent bar + pill badge on the strip tile (PFQ palette). */
+  tileTone: OpsMetricTileTone;
+  /** Short ALL-CAPS text shown inside the top-right badge pill. */
+  badgeLabel: string;
+  /** Urgency filter to activate when the tile is clicked (null = no-op). */
+  filter: ReviewFilter | null;
 }
 
 interface ReviewSummary {
@@ -109,6 +119,7 @@ function oldestAgeHours(rows: readonly RequestSummary[]): number {
     MatInputModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    OpsMetricStripComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './eligibility-review-queue.component.html',
@@ -129,6 +140,9 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<ReviewFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: ReviewFilter }[] = [
     { label: 'Critical', value: 'critical' },
@@ -145,6 +159,8 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly actionableRequests = computed(() =>
     this.requests().filter((request) => request.status_code === AWAITING_ACTION_STATUS),
   );
+
+  readonly activeQueueCount = computed(() => this.actionableRequests().length);
 
   readonly filteredRequests = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
@@ -178,11 +194,59 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly metrics = computed<ReviewMetric[]>(() => {
     const rows = this.actionableRequests();
     return [
-      { label: 'Awaiting action', value: rows.length, note: 'Needs an eligibility decision', route: '/operations/eligibility-review' },
-      { label: 'Critical', value: rows.filter((row) => urgencyCode(row) === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
-      { label: 'High', value: rows.filter((row) => urgencyCode(row) === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
-      { label: 'Oldest waiting (h)', value: oldestAgeHours(rows), note: 'Hours since oldest submission', route: '/operations/eligibility-review' },
+      {
+        label: 'Awaiting Action',
+        value: rows.length,
+        note: 'Needs an eligibility decision',
+        route: '/operations/eligibility-review',
+        tileTone: 'awaiting',
+        badgeLabel: 'AWAITING',
+        filter: 'all',
+      },
+      {
+        label: 'Critical',
+        value: rows.filter((row) => urgencyCode(row) === 'C').length,
+        note: 'Immediate attention',
+        route: '/operations/eligibility-review',
+        tileTone: 'drafts',
+        badgeLabel: 'CRITICAL',
+        filter: 'critical',
+      },
+      {
+        label: 'High',
+        value: rows.filter((row) => urgencyCode(row) === 'H').length,
+        note: 'Priority review lane',
+        route: '/operations/eligibility-review',
+        tileTone: 'preparing',
+        badgeLabel: 'HIGH',
+        filter: 'high',
+      },
+      {
+        label: 'Oldest Waiting (h)',
+        value: oldestAgeHours(rows),
+        note: 'Hours since oldest submission',
+        route: '/operations/eligibility-review',
+        tileTone: 'ready',
+        badgeLabel: 'OLDEST',
+        filter: null,
+      },
     ];
+  });
+
+  readonly metricStrip = computed<readonly OpsMetricStripItem[]>(() => {
+    const activeFilter = this.activeFilter();
+    return this.metrics().map((metric) => {
+      const interactive = metric.filter !== null;
+      return {
+        label: metric.label,
+        value: String(metric.value),
+        hint: metric.note,
+        interactive,
+        active: interactive && metric.filter === activeFilter,
+        token: metric.tileTone,
+        badge: { label: metric.badgeLabel, tone: metric.tileTone },
+      };
+    });
   });
 
   readonly summary = computed<ReviewSummary>(() => {
@@ -237,12 +301,96 @@ export class EligibilityReviewQueueComponent implements OnInit {
     this.router.navigateByUrl(metric.route);
   }
 
+  openMetricTile(item: OpsMetricStripItem): void {
+    const filter = this.tileToneToFilter(item.token);
+    if (filter === null) {
+      return;
+    }
+    this.setFilter(filter);
+  }
+
+  private tileToneToFilter(tone: string | undefined): ReviewFilter | null {
+    switch (tone) {
+      case 'awaiting': return 'all';
+      case 'drafts': return 'critical';
+      case 'preparing': return 'high';
+      default: return null;
+    }
+  }
+
   openReview(request: RequestSummary): void {
     this.router.navigate(['/operations/eligibility-review', request.reliefrqst_id]);
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
     return mapOperationsToneToChipTone(tone);
+  }
+
+  rowStageClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-row--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-row--warning';
+    }
+    return 'ops-row--info';
+  }
+
+  stageLabel(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'Critical';
+    }
+    if (urgency === 'H') {
+      return 'High';
+    }
+    return 'Standard';
+  }
+
+  stagePillClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-stage-pill--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-stage-pill--warning';
+    }
+    return 'ops-stage-pill--info';
+  }
+
+  timePillClass(request: RequestSummary): string {
+    return `ops-time-pill--${this.timePillTone(request)}`;
+  }
+
+  timePillTone(request: RequestSummary): OperationsTimeInStageTone {
+    return getOperationsTimeInStageTone(requestTimestampValue(request));
+  }
+
+  actionClass(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'ops-action--critical';
+    }
+    if (urgency === 'H') {
+      return 'ops-action--warning';
+    }
+    return 'ops-action--info';
+  }
+
+  actionLabel(request: RequestSummary): string {
+    const urgency = urgencyCode(request);
+    if (urgency === 'C') {
+      return 'Review critical';
+    }
+    if (urgency === 'H') {
+      return 'Review priority';
+    }
+    return 'Review request';
+  }
+
+  partyLabel(request: RequestSummary): string {
+    return request.agency_name ?? `Agency ${request.agency_id}`;
   }
 
   hasUnread(filter: ReviewFilter): boolean {
@@ -289,6 +437,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
         );
         this.requests.set(rows);
         this.syncSeenFilterForActiveView();
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

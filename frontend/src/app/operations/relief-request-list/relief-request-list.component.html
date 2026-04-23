@@ -1,39 +1,63 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">assignment</mat-icon>
-        Operations / Relief Requests
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Relief Requests</span>
       </p>
-      <h1 class="ops-hero__title">Relief Requests</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Relief Requests</h1>
+      <p class="ops-queue-hero__copy">
         Queue, create, and follow each operational request from draft through eligibility and fulfillment.
       </p>
-      <app-ops-status-chip label="Operational Demand Queue" tone="info" />
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>Operational demand</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="newRequest()">
-        <mat-icon>add</mat-icon>
-        New Request
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--ghost"
+        (click)="setFilter('review')"
+        aria-label="Show in-review requests">
+        <mat-icon aria-hidden="true">rule</mat-icon>
+        <span>In Review</span>
       </button>
-      <button mat-stroked-button type="button" (click)="setFilter('review')">
-        <mat-icon>rule</mat-icon>
-        In Review
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="newRequest()"
+        aria-label="Create new relief request">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        <span>New Request</span>
       </button>
     </div>
   </header>
 
   <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
-    <section class="ops-panel">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
           <h2 class="ops-section__title">Live request list</h2>
           <p class="ops-section__copy">Search and filter the current operational demand.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredRequests().length }} request{{ filteredRequests().length === 1 ? '' : 's' }}
+        </span>
         <button mat-stroked-button type="button" (click)="newRequest()">
           <mat-icon>edit_note</mat-icon>
           Create Request
@@ -41,37 +65,35 @@
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search requests">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by tracking number, agency, event, or notes"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter requests by state">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                [class.ops-chip--unread]="hasUnread(filter.value)"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                <span>{{ filter.label }}</span>
-                @if (hasUnread(filter.value)) {
-                  <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
-                }
-              </button>
-            }
-          </div>
+        <label class="ops-queue-search" aria-label="Search requests">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by tracking number, agency, event, or notes"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter requests by state">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              [class.ops-chip--unread]="hasUnread(filter.value)"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+              @if (hasUnread(filter.value)) {
+                <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+              }
+            </button>
+          }
         </div>
 
         @if (loading()) {
@@ -89,7 +111,8 @@
           <div class="ops-row-list">
             @for (request of filteredRequests(); track trackByRequestId($index, request)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(request)"
                 tabindex="0"
                 role="button"
                 (click)="openRequest(request)"
@@ -97,27 +120,47 @@
                 (keydown.space)="openRequest(request); $event.preventDefault()">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                    <p class="ops-row__title ops-row__id">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                     @if (request.request_mode) {
                       <app-ops-status-chip [label]="formatRequestMode(request.request_mode)" tone="info"></app-ops-status-chip>
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ request.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatOperationsLineCount(request.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(request) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(request)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(request) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(request)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(request.create_dtime ?? request.request_date) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(request)"
+                    [attr.aria-label]="actionLabel(request) + ' ' + (request.tracking_no ?? ('Request #' + request.reliefrqst_id))"
+                    (click)="openRequest(request); $event.stopPropagation()">
+                    <span>{{ actionLabel(request) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -126,85 +169,69 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workload</p>
-            <h2 class="ops-section__title">Queue metrics</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Queue workload and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workload</p>
+          <h2 class="ops-queue-side-card__title">Queue at a glance</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Total shown</span>
-              <p class="ops-summary-card__value">{{ statusSummary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Total shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ statusSummary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Critical</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--critical">{{ statusSummary().critical }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Critical</span>
-              <p class="ops-summary-card__value">{{ statusSummary().critical }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">High</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--warning">{{ statusSummary().high }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">High</span>
-              <p class="ops-summary-card__value">{{ statusSummary().high }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Newest</span>
-              <p class="ops-summary-card__value">
-                {{ statusSummary().newest?.tracking_no ?? 'Pending' }}
-              </p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Newest</span>
+              <span class="ops-queue-glance__value">{{ statusSummary().newest?.tracking_no ?? 'Pending' }}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Guidance</p>
-            <h2 class="ops-section__title">What to do next</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Guidance</p>
+          <h2 class="ops-queue-side-card__title">What to do next</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Draft requests remain editable.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a draft to add or correct lines before submission.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Draft requests remain editable</p>
+              <p class="ops-queue-tips__meta">Open a draft to add or correct lines before submission.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Submitted requests move into review.</p>
-                <div class="ops-timeline__meta">
-                  <span>Eligibility decisions happen in the review queue.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Submitted requests move into review</p>
+              <p class="ops-queue-tips__meta">Eligibility decisions happen in the review queue.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Fulfillment starts after approval.</p>
-                <div class="ops-timeline__meta">
-                  <span>Package commitment and dispatch stay in the Operations module.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--accent" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Fulfillment starts after approval</p>
+              <p class="ops-queue-tips__meta">Package commitment and dispatch stay in the Operations module.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #7c3aed;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Track dispatched packages.</p>
-                <div class="ops-timeline__meta">
-                  <span>Use the Dispatched filter to see what is on the road or awaiting receipt.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Track dispatched packages</p>
+              <p class="ops-queue-tips__meta">Use the Dispatched filter to see what is on the road or awaiting receipt.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

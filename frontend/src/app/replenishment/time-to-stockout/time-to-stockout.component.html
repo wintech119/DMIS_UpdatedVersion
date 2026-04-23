@@ -8,16 +8,6 @@
   >
   <!-- Main Display -->
   <div class="stockout-main">
-    <!-- Action Icon -->
-    <mat-icon
-      class="action-icon"
-      [ngClass]="{'pulse-animation': shouldPulse()}"
-      inline="true"
-      aria-hidden="true"
-      >
-      {{ getActionIcon() }}
-    </mat-icon>
-
     <!-- Countdown Text -->
     <div class="stockout-text" [ngClass]="{'pulse-text': shouldPulse()}">
       <span class="countdown">{{ getDisplayText() }}</span>

@@ -828,6 +828,126 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         stock_delta_mock.assert_not_called()
         _header_updates_mock.assert_not_called()
 
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 1,
+                    "inventory_id": 10,
+                    "batch_id": 100,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": "EA",
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_prefetches_candidates_only_for_selected_items(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_item_filter,
+        mock_fetch_candidates,
+        _mock_sort_candidates,
+        _mock_allocation_plan,
+        _upsert_rows_mock,
+        _stock_delta_mock,
+        _log_audit_mock,
+        _header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
+        mock_load_needs_items.return_value = [
+            SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0"),
+            SimpleNamespace(item_id=2, required_qty="4", fulfilled_qty="0"),
+        ]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=1,
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+
+        commit_allocation(
+            LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+            [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+            actor_user_id="tester",
+            override_reason_code="FEFO_BYPASS",
+            override_note="Supervisor review required.",
+            allow_pending_override=True,
+        )
+
+        mock_item_filter.assert_called_once_with(item_id=1)
+        mock_fetch_candidates.assert_called_once()
+
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_rejects_manager_direct_commit_without_supervisor_authority(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(
+            needs_list_id=11,
+            warehouse_id=1,
+            needs_list_no="NL-11",
+            submitted_by="planner-1",
+        )
+        mock_load_needs_items.return_value = [
+            SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")
+        ]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+
+        with self.assertRaises(OverrideApprovalError) as raised:
+            commit_allocation(
+                LegacyWorkflowContext(
+                    needs_list_id=11,
+                    reliefrqst_id=70,
+                    reliefpkg_id=90,
+                    submitted_by="planner-1",
+                ),
+                [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+                actor_user_id="manager-1",
+                override_reason_code="FEFO_BYPASS",
+                override_note="Manager direct commit.",
+                allow_pending_override=True,
+                override_markers=["allocation_order_override"],
+                manager_direct_commit=True,
+            )
+
+        self.assertEqual(raised.exception.code, "override_supervisor_missing")
+        mock_ensure_package.assert_not_called()
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        header_updates_mock.assert_not_called()
+
     def test_validate_override_approval_rejects_self_approval_and_bad_roles(self) -> None:
         with self.assertRaises(OverrideApprovalError):
             validate_override_approval(
@@ -1082,11 +1202,65 @@ class AllocationDispatchApiTests(TestCase):
                 ]
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11-required-fields",
         )
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("agency_id", response.json().get("errors", {}))
         self.assertIn("urgency_ind", response.json().get("errors", {}))
+
+    @patch("replenishment.views.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.commit_allocation")
+    @patch("replenishment.views._execution_link_for_record", return_value=None)
+    @patch("replenishment.views._execution_needs_list_pk", return_value=11)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_commit_blocks_odpem_replenishment_only_needs_list_before_legacy_allocation(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_needs_list_pk,
+        _mock_execution_link,
+        mock_commit_allocation,
+        mock_upsert_execution_link,
+        _resolve_warehouse_tenant_mock,
+        _resolve_odpem_tenant_mock,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-ODPEM-11",
+            "status": "APPROVED",
+            "warehouse_id": 1,
+            "event_id": 7,
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/allocations/commit",
+            {
+                "agency_id": 501,
+                "urgency_ind": "H",
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "3",
+                    }
+                ],
+            },
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11-odpem-block",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["errors"]["source_needs_list_id"]["code"],
+            "odpem_replenishment_only_needs_list",
+        )
+        mock_commit_allocation.assert_not_called()
+        mock_upsert_execution_link.assert_not_called()
 
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
     @patch("replenishment.views._upsert_execution_link")
@@ -1169,9 +1343,11 @@ class AllocationDispatchApiTests(TestCase):
                 ],
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="override-approve-11",
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_approve_override.call_args.kwargs["idempotency_key"], "override-approve-11")
         self.assertEqual(mock_approve_override.call_args.kwargs["submitter_user_id"], "planner-1")
         self.assertEqual(mock_approve_override.call_args.kwargs["supervisor_user_id"], "dev-user")
         self.assertEqual(mock_approve_override.call_args.args[1][0]["quantity"], "3.0000")
@@ -1208,6 +1384,7 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/allocations/override-approve",
             {"override_reason_code": "FEFO_BYPASS", "override_note": "Supervisor approved."},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="override-approve-not-pending-11",
         )
 
         self.assertEqual(response.status_code, 409)
@@ -1260,10 +1437,12 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/mark-dispatched",
             {"transport_mode": "TRUCK"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-11",
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_dispatch_package.called)
+        self.assertEqual(mock_dispatch_package.call_args.kwargs["idempotency_key"], "dispatch-11")
         self.assertEqual(response.json().get("waybill_no"), "WB-PK00090")
 
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
@@ -1312,6 +1491,7 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/mark-dispatched",
             {"transport_mode": "TRUCK"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-missing-identifiers-11",
         )
 
         self.assertEqual(response.status_code, 409)

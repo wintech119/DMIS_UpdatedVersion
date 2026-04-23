@@ -120,7 +120,7 @@ describe('FulfillmentDetailsStepComponent', () => {
     expect(host.textContent).toContain('Override Reason');
     expect(host.textContent).not.toContain('Approval Request Note');
     expect(host.textContent).not.toContain('Override Note');
-    expect(host.querySelector('textarea[placeholder=\"Operational reason for the bypass\"]')).toBeNull();
+    expect(host.querySelector('textarea[placeholder="Operational reason for the bypass"]')).toBeNull();
   });
 
   it('shows the override note field when the selected plan still needs override approval evidence', () => {
@@ -134,7 +134,7 @@ describe('FulfillmentDetailsStepComponent', () => {
     expect(host.textContent).toContain('Override Approval');
     expect(host.textContent).toContain('Override Reason');
     expect(host.textContent).toContain('Override Note');
-    expect(host.querySelector('textarea[placeholder=\"Operational reason for the bypass\"]')).not.toBeNull();
+    expect(host.querySelector('textarea[placeholder="Operational reason for the bypass"]')).not.toBeNull();
   });
 
   it('shows the override note field once approval is pending', () => {
@@ -149,7 +149,7 @@ describe('FulfillmentDetailsStepComponent', () => {
     expect(host.textContent).toContain('Override Approval');
     expect(host.textContent).toContain('Override Reason');
     expect(host.textContent).toContain('Override Note');
-    expect(host.querySelector('textarea[placeholder=\"Operational reason for the bypass\"]')).not.toBeNull();
+    expect(host.querySelector('textarea[placeholder="Operational reason for the bypass"]')).not.toBeNull();
   });
 
   it('keeps helper descriptions visible for the editable operational fields', () => {

@@ -1077,7 +1077,10 @@ def get_category_burn_fallback_rates(
         "window_start": start_dt.isoformat(),
         "window_end": end_dt.isoformat(),
         "row_count": 0,
-        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+        "filter": (
+            "reliefpkg_item.fr_inventory_id warehouse scope, "
+            "reliefpkg.status_code IN ('D','R'), dispatch_dtime window"
+        ),
     }
 
     try:
@@ -1089,7 +1092,7 @@ def get_category_burn_fallback_rates(
                 JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
                 JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
                 JOIN {schema}.item i ON i.item_id = rpi.item_id
-                WHERE rp.to_inventory_id = %s
+                WHERE rpi.fr_inventory_id = %s
                   AND rp.status_code IN ('D','R')
                   AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
                   AND rp.dispatch_dtime BETWEEN %s AND %s
@@ -1125,7 +1128,10 @@ def get_burn_by_item(
         "window_end": end_dt.isoformat(),
         "row_count": 0,
         # Legacy analytics mapping: dispatched/received packages are status_code IN ('D','R').
-        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+        "filter": (
+            "reliefpkg_item.fr_inventory_id warehouse scope, "
+            "reliefpkg.status_code IN ('D','R'), dispatch_dtime window"
+        ),
     }
     if _is_sqlite():
         return {}, ["db_unavailable_preview_stub"], "none", debug
@@ -1137,14 +1143,15 @@ def get_burn_by_item(
     try:
         with connection.cursor() as cursor:
             # Doc concept "validated/submitted fulfillment" mapped to legacy analytics filter:
-            # relief packages with status_code IN ('D','R') and dispatch_dtime in window.
+            # relief package items sourced from this warehouse, with packages
+            # status_code IN ('D','R') and dispatch_dtime in window.
             cursor.execute(
                 f"""
                 SELECT rpi.item_id, SUM(rpi.item_qty) AS qty
                 FROM {schema}.reliefpkg_item rpi
                 JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
                 JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
-                WHERE rp.to_inventory_id = %s
+                WHERE rpi.fr_inventory_id = %s
                   AND rp.status_code IN ('D','R')
                   AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
                   AND rp.dispatch_dtime BETWEEN %s AND %s
@@ -1376,9 +1383,12 @@ def get_all_warehouses() -> List[Dict[str, object]]:
     if _is_sqlite():
         # Return mock data for SQLite development - Default warehouses for Event ID 1
         return [
-            {"warehouse_id": 1, "warehouse_name": "Kingston Central Depot"},
-            {"warehouse_id": 2, "warehouse_name": "Montego Bay Hub"},
-            {"warehouse_id": 3, "warehouse_name": "Mandeville Storage"},
+            {"warehouse_id": 1, "warehouse_name": "Kingston Central Depot",
+             "parish_code": "KGN", "parish_name": "Kingston"},
+            {"warehouse_id": 2, "warehouse_name": "Montego Bay Hub",
+             "parish_code": "STJ", "parish_name": "St. James"},
+            {"warehouse_id": 3, "warehouse_name": "Mandeville Storage",
+             "parish_code": "MAN", "parish_name": "Manchester"},
         ]
 
     schema = _schema_name()
@@ -1387,10 +1397,11 @@ def get_all_warehouses() -> List[Dict[str, object]]:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT warehouse_id, warehouse_name
-                FROM {schema}.warehouse
-                WHERE status_code = %s
-                ORDER BY warehouse_name
+                SELECT w.warehouse_id, w.warehouse_name, w.parish_code, p.parish_name
+                FROM {schema}.warehouse w
+                LEFT JOIN {schema}.parish p ON p.parish_code = w.parish_code
+                WHERE w.status_code = %s
+                ORDER BY w.warehouse_name
                 """,
                 ["A"],
             )
@@ -1398,6 +1409,8 @@ def get_all_warehouses() -> List[Dict[str, object]]:
                 warehouses.append({
                     "warehouse_id": int(row[0]),
                     "warehouse_name": str(row[1]) if row[1] else f"Warehouse {row[0]}",
+                    "parish_code": str(row[2]) if row[2] else None,
+                    "parish_name": str(row[3]) if row[3] else None,
                 })
     except DatabaseError as exc:
         logger.warning("Warehouses query failed: %s", exc)

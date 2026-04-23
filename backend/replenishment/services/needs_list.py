@@ -76,14 +76,29 @@ def allocate_horizons(
     )
 
 
+_CONFIDENCE_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+
+
+def _degrade_confidence_level(current: str, target: str) -> str:
+    normalized_current = str(current or "HIGH").strip().upper() or "HIGH"
+    normalized_target = str(target or "LOW").strip().upper() or "LOW"
+    if _CONFIDENCE_ORDER.get(normalized_target, 0) < _CONFIDENCE_ORDER.get(normalized_current, 2):
+        return normalized_target
+    return normalized_current
+
+
 def compute_confidence_and_warnings(
     burn_source: str,
     warnings: Iterable[str],
     procurement_available: bool,
     mapping_best_effort: bool,
+    freshness_level: str,
 ) -> Tuple[str, List[str], List[str]]:
     warnings_out = list(dict.fromkeys(warnings))
     reasons: List[str] = []
+    normalized_freshness = str(freshness_level or "LOW").strip().upper() or "LOW"
+    if normalized_freshness not in _CONFIDENCE_ORDER:
+        normalized_freshness = "LOW"
 
     if mapping_best_effort and "strict_inbound_mapping_best_effort" not in warnings_out:
         warnings_out.append("strict_inbound_mapping_best_effort")
@@ -91,29 +106,36 @@ def compute_confidence_and_warnings(
     if not procurement_available and "procurement_unavailable_in_schema" not in warnings_out:
         warnings_out.append("procurement_unavailable_in_schema")
 
-    level = "high"
+    level = "HIGH"
+    if normalized_freshness == "MEDIUM":
+        level = _degrade_confidence_level(level, "MEDIUM")
+        reasons.append("data_freshness_warning")
+    elif normalized_freshness == "LOW":
+        level = "LOW"
+        reasons.append("data_freshness_low")
+
     if "burn_rate_estimated" in warnings_out:
-        level = "low"
+        level = "LOW"
         reasons.append("burn_rate_estimated")
     elif "db_unavailable_preview_stub" in warnings_out:
-        level = "low"
+        level = "LOW"
         reasons.append("db_unavailable_preview_stub")
     elif burn_source == "none":
-        level = "low"
+        level = "LOW"
         reasons.append("burn_data_missing")
     elif mapping_best_effort:
-        level = "medium"
+        level = _degrade_confidence_level(level, "MEDIUM")
         reasons.append("strict_inbound_mapping_best_effort")
     elif not procurement_available:
-        level = "medium"
+        level = _degrade_confidence_level(level, "MEDIUM")
         reasons.append("procurement_unavailable_in_schema")
     elif burn_source == "reliefrqst":
-        level = "medium"
+        level = _degrade_confidence_level(level, "MEDIUM")
         reasons.append("burn_proxy_reliefrqst")
     else:
         reasons.append("burn_proxy_reliefpkg")
 
-    return level, reasons, warnings_out
+    return level, list(dict.fromkeys(reasons)), warnings_out
 
 
 def merge_warnings(base: Iterable[str], extra: Iterable[str]) -> List[str]:
@@ -276,12 +298,12 @@ def compute_freshness_state(
     phase: str, inventory_as_of, as_of_dt
 ) -> Tuple[str, List[str], float | None]:
     if not inventory_as_of:
-        return "unknown", ["inventory_timestamp_unavailable"], None
+        return "LOW", ["inventory_timestamp_unavailable"], None
 
     if hasattr(inventory_as_of, "isoformat"):
         inventory_dt = inventory_as_of
     else:
-        return "unknown", ["inventory_timestamp_unavailable"], None
+        return "LOW", ["inventory_timestamp_unavailable"], None
 
     if timezone.is_naive(inventory_dt):
         inventory_dt = timezone.make_aware(
@@ -295,10 +317,10 @@ def compute_freshness_state(
     warn_max = thresholds.get("warn_max_hours", 0)
 
     if age_hours <= fresh_max:
-        return "fresh", [], age_hours
+        return "HIGH", [], age_hours
     if age_hours <= warn_max:
-        return "warn", [], age_hours
-    return "stale", [], age_hours
+        return "MEDIUM", [], age_hours
+    return "LOW", [], age_hours
 
 
 def _resolve_effective_criticality(
@@ -340,6 +362,7 @@ def build_preview_items(
     safety_factor: float,
     horizon_a_hours: int,
     horizon_b_hours: int,
+    horizon_c_hours: int,
     burn_source: str,
     as_of_dt,
     phase: str,
@@ -373,7 +396,7 @@ def build_preview_items(
         burn_rate_estimated = False
 
         if burn_total <= 0:
-            if freshness_state in ("fresh", "warn", "unknown"):
+            if freshness_state in {"HIGH", "MEDIUM"}:
                 item_base_warnings = merge_warnings(
                     item_base_warnings, ["burn_no_rows_in_window"]
                 )
@@ -416,8 +439,8 @@ def build_preview_items(
         remaining_after_a = max(gap - horizon_a_qty, 0.0)
         gap_positive = gap > 0
 
-        lead_time_b = float(rules.DONATION_LEAD_TIME_HOURS)
-        lead_time_c = float(rules.PROCUREMENT_LEAD_TIME_HOURS)
+        lead_time_b = float(horizon_b_hours)
+        lead_time_c = float(horizon_c_hours)
         buffer_multiplier = float(rules.SAFETY_BUFFER_MULTIPLIERS.get(phase, 0.0))
         b_threshold = lead_time_b * (1.0 + buffer_multiplier)
         c_threshold = lead_time_c * (1.0 + buffer_multiplier)
@@ -480,7 +503,7 @@ def build_preview_items(
                 "recommended_qty": round(horizon_c_qty, 2),
                 "est_unit_cost": est_unit_cost,
                 "est_total_cost": est_total_cost,
-                "lead_time_hours_default": rules.PROCUREMENT_LEAD_TIME_HOURS,
+                "lead_time_hours_default": int(horizon_c_hours),
                 "approval": approval,
                 "gojep_note": {
                     "label": rules.GOJEP_NOTE_LABEL,
@@ -495,6 +518,7 @@ def build_preview_items(
             + (["burn_rate_estimated"] if burn_rate_estimated else []),
             procurement_available=False,
             mapping_best_effort=mapping_best_effort,
+            freshness_level=freshness_state,
         )
         item_warnings = merge_warnings(item_warnings, freshness_warnings)
         warnings = merge_warnings(warnings, item_warnings)
@@ -540,7 +564,7 @@ def build_preview_items(
             "triggers": triggers,
             "confidence": {"level": confidence_level, "reasons": reasons},
             "warnings": item_warnings,
-            "freshness_state": freshness_state.capitalize(),
+            "freshness_state": freshness_state,
             "freshness": {
                 "state": freshness_state,
                 "inventory_as_of": inventory_as_of.isoformat()

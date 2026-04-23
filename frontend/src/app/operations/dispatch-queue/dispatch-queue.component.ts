@@ -14,7 +14,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { DispatchQueueItem } from '../models/operations.model';
@@ -22,16 +22,19 @@ import {
   formatOperationsPackageStatus,
   formatOperationsAge,
   formatOperationsDateTime,
+  formatOperationsRefreshedLabel,
   formatLegProgressLabel,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
   getOperationsDispatchStage,
   getOperationsPackageTone,
+  getOperationsTimeInStageTone,
   getLegProgressTone,
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  OperationsTimeInStageTone,
   readOperationsQueueSeenEntries,
   writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
@@ -65,6 +68,10 @@ export class DispatchQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<DispatchFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly lastRefreshedAt = signal<number>(Date.now());
+
+  readonly activeQueueCount = computed(() => this.items().length);
+  readonly lastRefreshedLabel = computed(() => formatOperationsRefreshedLabel(this.lastRefreshedAt()));
 
   readonly filterOptions: readonly { label: string; value: DispatchFilter }[] = [
     { label: 'Ready', value: 'ready' },
@@ -98,23 +105,60 @@ export class DispatchQueueComponent implements OnInit {
     });
   });
 
-  readonly queueStats = computed(() => {
+  readonly queueStats = computed<readonly {
+    label: string;
+    value: number;
+    note: string;
+    tileTone: OpsMetricTileTone;
+    badgeLabel: string;
+  }[]>(() => {
     const items = this.items();
     const summary = this.summarizeDispatchStages(items);
     return [
-      { label: 'Ready', value: summary.ready, note: 'Awaiting handoff' },
-      { label: 'In Transit', value: summary.inTransit, note: 'Dispatched, receipt pending' },
-      { label: 'Completed', value: summary.completed, note: 'Receipt confirmed' },
-      { label: 'All Packages', value: items.length, note: 'Visible in the queue' },
+      {
+        label: 'Ready',
+        value: summary.ready,
+        note: 'Awaiting handoff',
+        tileTone: 'ready',
+        badgeLabel: 'READY',
+      },
+      {
+        label: 'In Transit',
+        value: summary.inTransit,
+        note: 'Dispatched, receipt pending',
+        tileTone: 'transit',
+        badgeLabel: 'TRANSIT',
+      },
+      {
+        label: 'Completed',
+        value: summary.completed,
+        note: 'Receipt confirmed',
+        tileTone: 'completed',
+        badgeLabel: 'COMPLETED',
+      },
+      {
+        label: 'All Packages',
+        value: items.length,
+        note: 'Visible in the queue',
+        tileTone: 'info',
+        badgeLabel: 'TOTAL',
+      },
     ];
   });
 
   readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() =>
-    this.queueStats().map((stat) => ({
-      label: stat.label,
-      value: String(stat.value),
-      hint: stat.note,
-    })),
+    this.queueStats().map((stat) => {
+      const filter = this.tileToneToFilter(stat.tileTone);
+      return {
+        label: stat.label,
+        value: String(stat.value),
+        hint: stat.note,
+        token: stat.tileTone,
+        interactive: filter !== null,
+        active: filter !== null && this.activeFilter() === filter,
+        badge: { label: stat.badgeLabel, tone: stat.tileTone },
+      };
+    }),
   );
 
   readonly sidebarSummary = computed(() => {
@@ -165,6 +209,29 @@ export class DispatchQueueComponent implements OnInit {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
+  openMetric(item: OpsMetricStripItem): void {
+    const filter = this.tileToneToFilter(item.token);
+    if (filter === null) {
+      return;
+    }
+    this.setFilter(filter);
+  }
+
+  private tileToneToFilter(tone: string | undefined): DispatchFilter | null {
+    switch (tone) {
+      case 'ready':
+        return 'ready';
+      case 'transit':
+        return 'in_transit';
+      case 'completed':
+        return 'completed';
+      case 'info':
+        return 'all';
+      default:
+        return null;
+    }
+  }
+
   hasUnread(filter: DispatchFilter): boolean {
     return filter !== 'all' && this.unreadCount(filter) > 0;
   }
@@ -211,6 +278,92 @@ export class DispatchQueueComponent implements OnInit {
     return mapOperationsToneToChipTone(tone);
   }
 
+  rowStageClass(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-row--ready';
+      case 'in_transit':
+        return 'ops-row--transit';
+      case 'completed':
+        return 'ops-row--completed';
+      default:
+        return 'ops-row--neutral';
+    }
+  }
+
+  stageLabel(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'Ready';
+      case 'in_transit':
+        return 'In Transit';
+      case 'completed':
+        return 'Completed';
+      default:
+        return 'Open';
+    }
+  }
+
+  stagePillClass(row: DispatchQueueItem): string {
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-stage-pill--ready';
+      case 'in_transit':
+        return 'ops-stage-pill--transit';
+      case 'completed':
+        return 'ops-stage-pill--completed';
+      default:
+        return 'ops-stage-pill--neutral';
+    }
+  }
+
+  timePillClass(row: DispatchQueueItem): string {
+    return `ops-time-pill--${this.timePillTone(row)}`;
+  }
+
+  timePillTone(row: DispatchQueueItem): OperationsTimeInStageTone {
+    if (this.getDispatchStage(row) === 'completed') {
+      return 'fresh';
+    }
+    return getOperationsTimeInStageTone(row.dispatch_dtime ?? null);
+  }
+
+  actionClass(row: DispatchQueueItem): string {
+    if (this.isPickupRelease(row)) {
+      return 'ops-action--ready';
+    }
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'ops-action--ready';
+      case 'in_transit':
+        return 'ops-action--transit';
+      case 'completed':
+        return 'ops-action--completed';
+      default:
+        return 'ops-action--neutral';
+    }
+  }
+
+  actionLabel(row: DispatchQueueItem): string {
+    if (this.isPickupRelease(row)) {
+      return 'Open pickup release';
+    }
+    switch (this.getDispatchStage(row)) {
+      case 'ready':
+        return 'Handoff dispatch';
+      case 'in_transit':
+        return 'Monitor shipment';
+      case 'completed':
+        return 'View dispatch';
+      default:
+        return 'Open dispatch';
+    }
+  }
+
+  partyLabel(row: DispatchQueueItem): string {
+    return row.agency_name ?? `Agency ${row.agency_id}`;
+  }
+
   private getDispatchStage(row: DispatchQueueItem): DispatchStage {
     return getOperationsDispatchStage(row);
   }
@@ -250,6 +403,7 @@ export class DispatchQueueComponent implements OnInit {
       next: (response) => {
         this.items.set(response.results);
         this.syncSeenFilterForActiveView();
+        this.lastRefreshedAt.set(Date.now());
         this.loading.set(false);
       },
       error: () => {

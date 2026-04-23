@@ -1,33 +1,54 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">local_shipping</mat-icon>
-        Operations / Dispatch
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Dispatch</span>
       </p>
-      <h1 class="ops-hero__title">Dispatch Queue</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Dispatch Queue</h1>
+      <p class="ops-queue-hero__copy">
         Post-reservation packages ready for operational handoff, waybill review, and dispatch tracking.
       </p>
-      <app-ops-status-chip label="Ready for Handoff" tone="success" />
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>On the road</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('ready')">
-        <mat-icon>check_circle</mat-icon>
-        Show Ready
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--ghost"
+        (click)="setFilter('ready')"
+        aria-label="Show ready packages">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+        <span>Show Ready</span>
       </button>
-      <button mat-stroked-button type="button" (click)="refreshQueue()">
-        <mat-icon>refresh</mat-icon>
-        Refresh Queue
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="refreshQueue()"
+        aria-label="Refresh dispatch queue">
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        <span>Refresh Queue</span>
       </button>
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="queueMetrics()" />
+  <app-ops-metric-strip [items]="queueMetrics()" (itemClick)="openMetric($event)" />
 
-  <div class="ops-grid ops-grid--split">
-    <section class="ops-panel">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
@@ -38,37 +59,35 @@
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search dispatch queue">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by tracking number, agency, event, or transport"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter dispatch queue">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                [class.ops-chip--unread]="hasUnread(filter.value)"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                <span>{{ filter.label }}</span>
-                @if (hasUnread(filter.value)) {
-                  <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
-                }
-              </button>
-            }
-          </div>
+        <label class="ops-queue-search" aria-label="Search dispatch queue">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by tracking number, agency, event, or transport"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter dispatch queue">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              [class.ops-chip--unread]="hasUnread(filter.value)"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+              @if (hasUnread(filter.value)) {
+                <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+              }
+            </button>
+          }
         </div>
 
         @if (loading()) {
@@ -83,7 +102,8 @@
           <div class="ops-row-list">
             @for (row of filteredItems(); track trackByPackageId($index, row)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(row)"
                 tabindex="0"
                 role="button"
                 (click)="viewDispatch(row)"
@@ -92,7 +112,7 @@
                 (keyup.space)="viewDispatch(row)">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
+                    <p class="ops-row__title ops-row__id">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
                     <app-ops-status-chip [label]="formatPackageStatus(row.status_code, row.execution_status)" [tone]="chipTone(getPackageTone(row.status_code, row.execution_status))" />
                     @if (row.fulfillment_mode === 'PICKUP_AT_STAGING') {
                       <app-ops-status-chip label="Pickup at staging" tone="info" />
@@ -108,20 +128,40 @@
                       <app-ops-status-chip [label]="row.transport_mode" tone="soft" />
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ row.request_tracking_no ?? ('Request ' + row.reliefrqst_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.event_name ?? 'No event' }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(row) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">assignment</mat-icon>
+                      <span>{{ row.request_tracking_no ?? ('Request ' + row.reliefrqst_id) }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ row.event_name ?? 'No event' }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>{{ row.dispatch_dtime ? 'Dispatched ' + formatDateTime(row.dispatch_dtime) : 'Pending handoff' }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatAge(row.dispatch_dtime)" tone="neutral" [showDot]="false" />
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(row)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(row) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(row)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatAge(row.dispatch_dtime) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(row)"
+                    [attr.aria-label]="actionLabel(row) + ' ' + (row.tracking_no ?? ('PKG-' + row.reliefpkg_id))"
+                    (click)="viewDispatch(row); $event.stopPropagation()">
+                    <span>{{ actionLabel(row) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -130,74 +170,62 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workload</p>
-            <h2 class="ops-section__title">Queue metrics</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Dispatch workload and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workload</p>
+          <h2 class="ops-queue-side-card__title">Queue metrics</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Total shown</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Total shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ sidebarSummary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Ready</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--warning">{{ sidebarSummary().ready }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Ready</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().ready }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">In Transit</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--info">{{ sidebarSummary().inTransit }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">In Transit</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().inTransit }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Completed</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().completed }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Completed</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--success">{{ sidebarSummary().completed }}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Guidance</p>
-            <h2 class="ops-section__title">What to do next</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Guidance</p>
+          <h2 class="ops-queue-side-card__title">What to do next</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Ready packages need dispatch handoff.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a package to assign transport details and confirm departure.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Ready packages need dispatch handoff</p>
+              <p class="ops-queue-tips__meta">Open a package to assign transport details and confirm departure.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #17447f;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">In-transit packages are on the road.</p>
-                <div class="ops-timeline__meta">
-                  <span>Monitor dispatch status and follow up with the receiving agency.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">In-transit packages are on the road</p>
+              <p class="ops-queue-tips__meta">Monitor dispatch status and follow up with the receiving agency.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #286a36;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Completed packages have confirmed receipt.</p>
-                <div class="ops-timeline__meta">
-                  <span>These packages are fully delivered and no further action is needed.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Completed packages have confirmed receipt</p>
+              <p class="ops-queue-tips__meta">These packages are fully delivered and no further action is needed.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

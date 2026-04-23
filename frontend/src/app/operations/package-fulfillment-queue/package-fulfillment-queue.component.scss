@@ -1,13 +1,1465 @@
-.ops-row__actions mat-icon {
-  color: var(--color-text-secondary);
+// ─────────────────────────────────────────────────────────────────────────
+// Package Fulfillment Queue — Claude Design warm ops palette.
+// Component-local rules that back the redesigned queue layout:
+//   • custom hero (breadcrumb → title → copy → context pills → actions)
+//   • action inbox with count badges and "Open Dispatch Queue" link
+//   • metric grid with colored left border + stage badge
+//   • split queue panel (search + toolbar + rows + pager) with sidebar
+//   • sidebar cards: "Queue at a glance" + "What to do next"
+// Shared primitives (`ops-panel`, `ops-grid--split`, `ops-section__eyebrow`)
+// still come from `operations-shell.scss`; everything else is scoped here.
+// Font family is inherited site-wide — do not set `font-family` locally
+// so we don't drift away from the system sans stack.
+// ─────────────────────────────────────────────────────────────────────────
+
+.pfq-shell {
+  // Stage palette — matches the queue color system.
+  --pfq-awaiting: #b7833f;
+  --pfq-drafts: #3d4b99;
+  --pfq-preparing: #7a4fd1;
+  --pfq-ready: #2e8a48;
+
+  // SLA tones (time-in-stage pill).
+  --pfq-breach: #b42318;
+  --pfq-warn: #b54708;
+  --pfq-fresh: #067647;
+
+  // Surface + text tokens.
+  --pfq-surface: var(--color-surface-container-lowest);
+  --pfq-surface-warm: #f5f1e8;
+  --pfq-border: rgba(55, 53, 47, 0.12);
+  --pfq-border-soft: rgba(55, 53, 47, 0.08);
+  --pfq-ink: #1f1b14;
+  --pfq-ink-muted: #5a554a;
+  --pfq-primary: #1f2a5a;
+
+  display: grid;
+  gap: 1.1rem;
 }
 
-:host .ops-summary-grid {
+// ── Hero ────────────────────────────────────────────────────────────────
+.pfq-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.25rem;
+  padding: 1.25rem 1.35rem 1.1rem;
+  background: var(--pfq-surface);
+  border: 1px solid var(--pfq-border-soft);
+  border-radius: 1rem;
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+}
+
+.pfq-hero__lead {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.pfq-hero__eyebrow {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--pfq-ink-muted);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-hero__sep {
+  color: rgba(55, 53, 47, 0.35);
+}
+
+.pfq-hero__title {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+}
+
+.pfq-hero__copy {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-hero__context {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.pfq-hero__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--pfq-surface-warm);
+  border: 1px solid var(--pfq-border-soft);
+  font-size: 0.78rem;
+  color: var(--pfq-ink);
+
+  strong {
+    font-weight: var(--weight-semibold, 600);
+    color: var(--pfq-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    color: var(--pfq-ink-muted);
+  }
+}
+
+.pfq-hero__pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--pfq-awaiting);
+  display: inline-block;
+}
+
+.pfq-hero__pill-sep {
+  color: rgba(55, 53, 47, 0.3);
+}
+
+.pfq-hero__pill--status {
+  background: #fbf3e5;
+  border-color: rgba(183, 131, 63, 0.24);
+  color: var(--pfq-ink);
+}
+
+.pfq-hero__pill--meta {
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink);
+}
+
+.pfq-hero__warehouse {
+  font-size: 0.78rem;
+  color: var(--pfq-ink-muted);
+
+  strong {
+    color: var(--pfq-ink);
+    font-weight: var(--weight-semibold, 600);
+  }
+}
+
+.pfq-hero__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  align-self: start;
+}
+
+.pfq-hero__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid var(--pfq-border);
+  background: var(--pfq-surface);
+  color: var(--pfq-ink);
+  font-size: 0.85rem;
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(26, 28, 28, 0.08);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+.pfq-hero__btn--ghost {
+  background: var(--pfq-surface);
+  color: var(--pfq-ink);
+}
+
+.pfq-hero__btn--primary {
+  background: var(--pfq-primary);
+  border-color: var(--pfq-primary);
+  color: #fff;
+
+  &:hover {
+    background: #162046;
+  }
+}
+
+// ── Action inbox ────────────────────────────────────────────────────────
+.pfq-inbox {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'eyebrow link'
+    'pills   link';
+  column-gap: 1rem;
+  row-gap: 0.65rem;
+  align-items: center;
+  padding: 0.9rem 1.1rem;
+  background: var(--pfq-surface);
+  border-radius: 1rem;
+  border: 1px solid var(--pfq-border-soft);
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+}
+
+.pfq-inbox__eyebrow {
+  grid-area: eyebrow;
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--pfq-ink-muted);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-inbox__pills {
+  grid-area: pills;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.pfq-inbox__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.6rem 0.4rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--pfq-border);
+  background: var(--pfq-surface);
+  color: var(--pfq-ink);
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(26, 28, 28, 0.08);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+.pfq-inbox__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--pfq-ink);
+  color: #fff;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-inbox__label {
+  color: inherit;
+}
+
+.pfq-inbox__chev {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  color: var(--pfq-ink-muted);
+  transition: transform 120ms ease;
+}
+
+.pfq-inbox__pill:hover .pfq-inbox__chev {
+  transform: translateX(2px);
+}
+
+.pfq-inbox__pill--warning .pfq-inbox__badge {
+  background: var(--pfq-breach);
+}
+
+.pfq-inbox__pill--info .pfq-inbox__badge {
+  background: #2a3880;
+}
+
+.pfq-inbox__pill--success .pfq-inbox__badge {
+  background: var(--pfq-ready);
+}
+
+.pfq-inbox__link {
+  grid-area: link;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-primary);
+  text-decoration: none;
+  align-self: start;
+  transition: background 120ms ease;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+  }
+
+  &:hover {
+    background: var(--pfq-surface-warm);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+// ── Metric cards ────────────────────────────────────────────────────────
+.pfq-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+// Composes with the shared `.ops-queue-tile` primitive in
+// `operations-shell.scss`, which supplies the flat left-edge bar via
+// ::before. Here we only layer on display/padding/interaction rules and
+// the per-stage accent color via `--ops-queue-accent`.
+.pfq-metric {
+  display: grid;
+  gap: 0.4rem;
+  // Match the shared tile's left inset so the copy doesn't cram against
+  // the accent bar, while keeping right/top/bottom padding tight.
+  padding: 0.95rem 1rem 0.95rem 1.25rem;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(26, 28, 28, 0.07);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+.pfq-metric--awaiting  { --ops-queue-accent: var(--pfq-awaiting); }
+.pfq-metric--drafts    { --ops-queue-accent: var(--pfq-drafts); }
+.pfq-metric--preparing { --ops-queue-accent: var(--pfq-preparing); }
+.pfq-metric--ready     { --ops-queue-accent: var(--pfq-ready); }
+
+.pfq-metric--active {
+  background: #fffdf9;
+  border-color: var(--pfq-border);
+  box-shadow: 0 14px 28px rgba(26, 28, 28, 0.08);
+}
+
+.pfq-metric__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pfq-metric__label {
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+}
+
+.pfq-metric__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: var(--weight-semibold, 600);
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  border: 1px solid var(--pfq-border-soft);
+}
+
+.pfq-metric__badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  display: inline-block;
+  background: currentcolor;
+}
+
+.pfq-metric__badge--awaiting {
+  background: #fbf3e5;
+  color: #7f5a1f;
+  border-color: rgba(183, 131, 63, 0.28);
+}
+
+.pfq-metric__badge--drafts {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.24);
+}
+
+.pfq-metric__badge--preparing {
+  background: #f3ecfb;
+  color: #563898;
+  border-color: rgba(122, 79, 209, 0.24);
+}
+
+.pfq-metric__badge--ready {
+  background: #ebf5ee;
+  color: #225d33;
+  border-color: rgba(46, 138, 72, 0.24);
+}
+
+.pfq-metric__value {
+  margin: 0;
+  font-size: 1.9rem;
+  line-height: 1.1;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pfq-metric__note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--pfq-ink-muted);
+}
+
+// ── Split layout (queue panel + sidebar) ────────────────────────────────
+// `operations-shell.scss` is loaded after the component SCSS, so we have
+// to reach the split grid with a two-class selector to win over the
+// shared `.ops-grid--split` default (1.6fr / 0.9fr) — which otherwise
+// gives the sidebar too much column on wide viewports and squeezes the
+// row meta line.
+.ops-grid--split.pfq-split {
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1.1rem;
+}
+
+.pfq-panel {
+  min-width: 0;
+}
+
+.pfq-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pfq-panel__heading {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.pfq-panel__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  letter-spacing: -0.01em;
+}
+
+.pfq-panel__copy {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--pfq-ink-muted);
+  line-height: 1.5;
+}
+
+.pfq-panel__meta {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--pfq-ink-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-panel__body {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.85rem;
+}
+
+// ── Search ──────────────────────────────────────────────────────────────
+.pfq-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--pfq-surface);
+  border: 1px solid var(--pfq-border);
+  border-radius: 10px;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    color: var(--pfq-ink-muted);
+  }
+
+  input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 0.88rem;
+    color: var(--pfq-ink);
+
+    &:focus {
+      outline: none;
+    }
+
+    &::placeholder {
+      color: var(--pfq-ink-muted);
+    }
+  }
+
+  &:focus-within {
+    border-color: var(--pfq-primary);
+    box-shadow: 0 0 0 3px rgba(31, 42, 90, 0.12);
+  }
+}
+
+// ── Toolbar (chips + selects) ───────────────────────────────────────────
+.pfq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.pfq-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pfq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--pfq-border);
+  background: var(--pfq-surface);
+  color: var(--pfq-ink);
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+
+  &:hover {
+    background: var(--pfq-surface-warm);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+.pfq-chip--active {
+  background: var(--pfq-ink);
+  color: #fff;
+  border-color: var(--pfq-ink);
+}
+
+.pfq-chip__count {
+  min-width: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(55, 53, 47, 0.08);
+  color: var(--pfq-ink-muted);
+  font-size: 0.7rem;
+  font-weight: var(--weight-semibold, 600);
+  line-height: 1.4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pfq-chip--active .pfq-chip__count {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+
+.pfq-chip__unread {
+  min-width: 1.2rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--pfq-breach);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: var(--weight-semibold, 600);
+  line-height: 1.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pfq-selects {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pfq-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--pfq-border);
+  background: var(--pfq-surface);
+  font-size: 0.82rem;
+  color: var(--pfq-ink);
+  position: relative;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    color: var(--pfq-ink-muted);
+    pointer-events: none;
+  }
+
+  &:focus-within {
+    border-color: var(--pfq-primary);
+    box-shadow: 0 0 0 3px rgba(31, 42, 90, 0.12);
+  }
+}
+
+.pfq-select__label {
+  color: var(--pfq-ink-muted);
+  font-size: 0.78rem;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-select__control {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--pfq-ink);
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+// ── Rows ────────────────────────────────────────────────────────────────
+.pfq-rows {
+  display: grid;
+  gap: 0.6rem;
+}
+
+// Composes with the shared `.ops-queue-row` primitive (see
+// `operations-shell.scss`), which provides the flat ::before accent bar
+// and a subtle neutral fill so rows differentiate from the white queue
+// panel. The classes below add layout, per-stage accent color, and the
+// hover/focus treatment.
+.pfq-row {
+  display: grid;
+  // Keep the right cluster auto-sized so the action button + pills
+  // only claim as much width as they need; the lead column takes the
+  // rest. Matches the condensed cards in the reference design.
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 1rem;
+  row-gap: 0.5rem;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  // Positioning context for the stretched activator button overlay.
+  position: relative;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(26, 28, 28, 0.05);
+    // A touch lighter on hover so the row reads as interactive without
+    // flipping all the way to white.
+    --ops-queue-surface: #fbfaf6;
+  }
+
+  // Route keyboard focus styling through the overlay button: when it is
+  // focus-visible, show the outline on the whole card so the previous
+  // keyboard-affordance is preserved exactly.
+  &:has(> .pfq-row__activator:focus-visible) {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+// Stretched activator button — invisible by design, covers the full card so
+// a single tabbable control opens the request. Keeps the article layout a
+// pure listitem container (no nested interactive element on the <article>).
+.pfq-row__activator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  // Keep it above the card surface but below the inner action button so the
+  // stage CTA remains independently clickable without propagating into the
+  // card-level handler.
+  z-index: 1;
+  border-radius: inherit;
+
+  // The outline is rendered on the parent via :has() so the focus ring wraps
+  // the whole card rather than just the hit-target rectangle.
+  &:focus {
+    outline: none;
+  }
+}
+
+.ops-row--awaiting  { --ops-queue-accent: var(--pfq-awaiting); }
+.ops-row--drafts    { --ops-queue-accent: var(--pfq-drafts); }
+.ops-row--preparing { --ops-queue-accent: var(--pfq-preparing); }
+.ops-row--ready     { --ops-queue-accent: var(--pfq-ready); }
+
+.pfq-row__lead {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.pfq-row__title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.pfq-row__id {
+  font-size: 0.95rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.pfq-row__pkg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pfq-row__pkg-label {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.64rem;
+}
+
+.pfq-row__pkg-value {
+  color: var(--pfq-ink);
+}
+
+.pfq-row__urgency {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: var(--weight-semibold, 600);
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  border: 1px solid var(--pfq-border-soft);
+}
+
+.pfq-row__urgency--danger {
+  background: #fbebea;
+  color: var(--pfq-breach);
+  border-color: rgba(180, 35, 24, 0.24);
+}
+
+.pfq-row__urgency--warning {
+  background: #fdf0e3;
+  color: var(--pfq-warn);
+  border-color: rgba(181, 71, 8, 0.24);
+}
+
+.pfq-row__urgency--review {
+  background: #fbf3e5;
+  color: #7f5a1f;
+  border-color: rgba(183, 131, 63, 0.24);
+}
+
+.pfq-row__urgency--success {
+  background: #ebf5ee;
+  color: var(--pfq-fresh);
+  border-color: rgba(6, 118, 71, 0.24);
+}
+
+.pfq-row__urgency--draft {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.24);
+}
+
+.pfq-row__urgency--muted {
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-row__authority {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  border: 1px solid var(--pfq-border-soft);
+}
+
+.pfq-row__authority-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
+  display: inline-block;
+}
+
+.pfq-row__authority--success {
+  background: #ebf5ee;
+  color: var(--pfq-fresh);
+  border-color: rgba(6, 118, 71, 0.24);
+}
+
+.pfq-row__authority--warning {
+  background: #fdf0e3;
+  color: var(--pfq-warn);
+  border-color: rgba(181, 71, 8, 0.24);
+}
+
+.pfq-row__authority--danger {
+  background: #fbebea;
+  color: var(--pfq-breach);
+  border-color: rgba(180, 35, 24, 0.24);
+}
+
+.pfq-row__authority--review {
+  background: #fbf3e5;
+  color: #7f5a1f;
+  border-color: rgba(183, 131, 63, 0.24);
+}
+
+.pfq-row__authority--draft {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.24);
+}
+
+.pfq-row__authority--muted {
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-row__party {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+}
+
+.pfq-row__meta {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+  font-size: 0.78rem;
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-row__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    color: var(--pfq-ink-muted);
+  }
+}
+
+.pfq-row__meta-sep {
+  color: rgba(55, 53, 47, 0.3);
+}
+
+// ── Next-action cluster (stage pill, time pill, action button) ─────────
+.pfq-row__next {
+  display: grid;
+  gap: 0.5rem;
+  align-content: space-between;
+  justify-items: end;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.pfq-row__pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.pfq-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  border: 1px solid var(--pfq-border-soft);
+}
+
+.pfq-stage-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
+  display: inline-block;
+}
+
+.pfq-stage-pill--awaiting {
+  background: #fbf3e5;
+  color: #7f5a1f;
+  border-color: rgba(183, 131, 63, 0.28);
+}
+
+.pfq-stage-pill--drafts {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.24);
+}
+
+.pfq-stage-pill--preparing {
+  background: #f3ecfb;
+  color: #563898;
+  border-color: rgba(122, 79, 209, 0.24);
+}
+
+.pfq-stage-pill--ready {
+  background: #ebf5ee;
+  color: #225d33;
+  border-color: rgba(46, 138, 72, 0.24);
+}
+
+.pfq-time-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+  border: 1px solid var(--pfq-border-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  mat-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+  }
+}
+
+.pfq-time-pill--fresh {
+  background: #ebf5ee;
+  color: var(--pfq-fresh);
+  border-color: rgba(6, 118, 71, 0.22);
+}
+
+.pfq-time-pill--normal {
+  background: var(--pfq-surface-warm);
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-time-pill--stale {
+  background: #fdf0e3;
+  color: var(--pfq-warn);
+  border-color: rgba(181, 71, 8, 0.24);
+}
+
+.pfq-time-pill--breach {
+  background: #fbebea;
+  color: var(--pfq-breach);
+  border-color: rgba(180, 35, 24, 0.24);
+}
+
+.pfq-action {
+  // Auto-size to content — the compact design in the approved queue
+  // screenshot anchors the button to the bottom-right instead of
+  // stretching across the whole side-rail.
+  justify-self: end;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 8px;
+  font-weight: var(--weight-semibold, 600);
+  font-size: 0.82rem;
+  line-height: 1.1;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  // Keep the stage CTA above the full-card activator overlay so clicks on
+  // the button stay independent from the row-level "open request" action.
+  position: relative;
+  z-index: 2;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(26, 28, 28, 0.09);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pfq-primary);
+    outline-offset: 2px;
+  }
+}
+
+.pfq-action--awaiting {
+  background: var(--pfq-ink);
+  color: #fff;
+  border-color: var(--pfq-ink);
+
+  &:hover {
+    background: #000;
+  }
+}
+
+.pfq-action--drafts {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.32);
+
+  &:hover {
+    background: #e2e6f5;
+  }
+}
+
+.pfq-action--preparing {
+  background: #f3ecfb;
+  color: #563898;
+  border-color: rgba(122, 79, 209, 0.3);
+
+  &:hover {
+    background: #e8dff5;
+  }
+}
+
+.pfq-action--ready {
+  background: var(--pfq-ready);
+  color: #fff;
+  border-color: var(--pfq-ready);
+
+  &:hover {
+    background: #256f3a;
+  }
+}
+
+// ── Pager ───────────────────────────────────────────────────────────────
+.pfq-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding-top: 0.9rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--pfq-border-soft);
+  font-size: 0.78rem;
+  color: var(--pfq-ink-muted);
+}
+
+.pfq-pager__range strong {
+  color: var(--pfq-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.pfq-pager__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.pfq-pager__btn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--pfq-border);
+  background: var(--pfq-surface);
+  color: var(--pfq-ink-muted);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: var(--pfq-surface-warm);
+    color: var(--pfq-ink);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.pfq-pager__btn--active {
+  background: var(--pfq-ink);
+  color: #fff;
+  border-color: var(--pfq-ink);
+
+  &:hover:not(:disabled) {
+    background: #000;
+  }
+}
+
+.pfq-pager__ellipsis {
+  padding: 0 0.2rem;
+  color: rgba(55, 53, 47, 0.45);
+}
+
+// ── Empty state ─────────────────────────────────────────────────────────
+.pfq-empty {
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  padding: 1rem 0 0.5rem;
+}
+
+// ── Sidebar (workload + guidance) ───────────────────────────────────────
+.pfq-sidebar {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.pfq-side-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  background: var(--pfq-surface);
+  border: 1px solid var(--pfq-border-soft);
+  border-radius: 0.9rem;
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+  min-width: 0;
+}
+
+.pfq-side-card__header {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.pfq-side-card__eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--pfq-ink-muted);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.pfq-side-card__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  letter-spacing: -0.01em;
+}
+
+// ── Queue at a glance ───────────────────────────────────────────────────
+.pfq-glance {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pfq-glance__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.pfq-glance__row--total {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--pfq-border-soft);
+}
+
+.pfq-glance__label {
+  font-size: 0.72rem;
+  color: var(--pfq-ink-muted);
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pfq-glance__value {
+  font-size: 0.95rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.pfq-glance__value--lg {
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.pfq-glance__value--awaiting  { color: var(--pfq-awaiting); }
+.pfq-glance__value--drafts    { color: var(--pfq-drafts); }
+.pfq-glance__value--preparing { color: var(--pfq-preparing); }
+.pfq-glance__value--ready     { color: var(--pfq-ready); }
+
+.pfq-glance__grid {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
 }
 
-@media (max-width: 768px) {
-  :host .ops-row {
+.pfq-glance__cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+// ── What to do next ─────────────────────────────────────────────────────
+.pfq-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pfq-tips__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.pfq-tips__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--pfq-ink-muted);
+  display: inline-block;
+  margin-top: 0.45rem;
+}
+
+.pfq-tips__item:nth-child(1) .pfq-tips__dot { background: var(--pfq-awaiting); }
+.pfq-tips__item:nth-child(2) .pfq-tips__dot { background: var(--pfq-drafts); }
+.pfq-tips__item:nth-child(3) .pfq-tips__dot { background: var(--pfq-preparing); }
+.pfq-tips__item:nth-child(4) .pfq-tips__dot { background: var(--pfq-ready); }
+
+.pfq-tips__body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.pfq-tips__title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--pfq-ink);
+  line-height: 1.35;
+}
+
+.pfq-tips__meta {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--pfq-ink-muted);
+  line-height: 1.4;
+}
+
+// ── Responsive ──────────────────────────────────────────────────────────
+@media (max-width: 1180px) {
+  // Shared `ops-grid--split` collapses to 1fr at this breakpoint. The
+  // more-specific local override above would otherwise keep a 2-col
+  // grid, so restate the collapse locally.
+  .ops-grid--split.pfq-split {
+    grid-template-columns: 1fr;
+  }
+
+  .pfq-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pfq-sidebar {
+    gap: 0.85rem;
+  }
+}
+
+@media (max-width: 1100px) {
+  .pfq-row {
+    grid-template-columns: 1fr;
+    row-gap: 0.75rem;
+  }
+
+  .pfq-row__next {
+    justify-items: stretch;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--pfq-border-soft);
+  }
+
+  .pfq-row__pills {
+    justify-content: flex-start;
+  }
+
+  .pfq-action {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 900px) {
+  .pfq-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .pfq-hero__actions {
+    justify-content: flex-start;
+  }
+
+  .pfq-inbox {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'eyebrow'
+      'pills'
+      'link';
+    row-gap: 0.55rem;
+  }
+
+  .pfq-inbox__link {
+    justify-self: flex-start;
+  }
+
+  .pfq-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pfq-selects {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .pfq-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .pfq-inbox__pill {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .pfq-pager {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .pfq-pager__range {
+    width: 100%;
+  }
+
+  .pfq-glance__grid {
     grid-template-columns: 1fr;
   }
 }

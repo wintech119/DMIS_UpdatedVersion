@@ -1,72 +1,87 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">task_alt</mat-icon>
-        Operations / Task Center
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Task Center</span>
       </p>
-      <h1 class="ops-hero__title">Task Center</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Task Center</h1>
+      <p class="ops-queue-hero__copy">
         Live queue assignments and workflow notifications across the operations module.
       </p>
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>Action items</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-stroked-button type="button" (click)="loadTasks()">
-        <mat-icon>refresh</mat-icon>
-        Refresh
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="loadTasks()"
+        aria-label="Refresh task center">
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        <span>Refresh</span>
       </button>
     </div>
   </header>
 
-  <section class="ops-kpi-grid" aria-label="Task summary">
-    @for (metric of metrics(); track metric.label) {
-      <div class="ops-kpi-card">
-        <span class="ops-kpi-card__label">{{ metric.label }}</span>
-        <span class="ops-kpi-card__value">{{ metric.value }}</span>
-        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
-      </div>
-    }
-  </section>
+  <app-ops-metric-strip
+    [items]="metricStrip()"
+    (itemClick)="openMetricTile($event)"
+    aria-label="Task summary"
+  ></app-ops-metric-strip>
 
-  <div class="ops-grid ops-grid--split">
-    <section class="ops-panel">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
           <h2 class="ops-section__title">Action items</h2>
           <p class="ops-section__copy">Filter by status and open a live assignment or notification to navigate to the related workflow.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredTasks().length }} task{{ filteredTasks().length === 1 ? '' : 's' }}
+        </span>
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search tasks">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by title or description"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
+        <label class="ops-queue-search" aria-label="Search tasks">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by title or description"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
 
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter task queue">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                {{ filter.label }}
-              </button>
-            }
-          </div>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter task queue">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+            </button>
+          }
         </div>
 
         @if (loading()) {
@@ -81,7 +96,8 @@
           <div class="ops-row-list">
             @for (task of filteredTasks(); track trackByTaskId($index, task)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(task)"
                 tabindex="0"
                 role="button"
                 (click)="openTask(task)"
@@ -96,14 +112,38 @@
                       <app-ops-status-chip [label]="formatOperationsUrgency(task.priority)" [tone]="chipTone(getOperationsUrgencyTone(task.priority))"></app-ops-status-chip>
                     }
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ task.description }}</span>
-                  </div>
+                  @if (assignmentLabel(task); as assignee) {
+                    <p class="ops-row__party">{{ assignee }}</p>
+                  }
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">description</mat-icon>
+                      <span>{{ task.description }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span>Created {{ formatOperationsAge(task.created_at) }} ago</span>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(task.created_at)" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(task)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(task) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(task)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(task.created_at) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(task)"
+                    [attr.aria-label]="actionLabel(task) + ' ' + task.title"
+                    (click)="openTask(task); $event.stopPropagation()">
+                    <span>{{ actionLabel(task) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -112,61 +152,47 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">About</p>
-            <h2 class="ops-section__title">Task Center</h2>
-          </div>
+    <aside class="ops-queue-sidebar" aria-label="Task Center context and guidance">
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">About</p>
+          <h2 class="ops-queue-side-card__title">Task Center</h2>
         </div>
-        <div class="ops-card__body">
-          <p>
-            The Task Center aggregates live queue assignments alongside workflow notifications.
-            Each row links to the related entity so you can move from notification to action without rebuilding the
-            worklist in the browser.
-          </p>
-        </div>
+        <p class="ops-queue-tips__meta">
+          The Task Center aggregates live queue assignments alongside workflow notifications.
+          Each row links to the related entity so you can move from notification to action without rebuilding
+          the worklist in the browser.
+        </p>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workflow</p>
-            <h2 class="ops-section__title">Task types</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Workflow</p>
+          <h2 class="ops-queue-side-card__title">Task types</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Request notifications</p>
-                <div class="ops-timeline__meta">
-                  <span>Submitted, approved, rejected, or ineligible request events.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Request notifications</p>
+              <p class="ops-queue-tips__meta">Submitted, approved, rejected, or ineligible request events.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Package notifications</p>
-                <div class="ops-timeline__meta">
-                  <span>Locked, committed, or override-requested package events.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Package notifications</p>
+              <p class="ops-queue-tips__meta">Locked, committed, or override-requested package events.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Dispatch and receipt</p>
-                <div class="ops-timeline__meta">
-                  <span>Dispatch completed and receipt confirmed events.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Dispatch and receipt</p>
+              <p class="ops-queue-tips__meta">Dispatch completed and receipt confirmed events.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

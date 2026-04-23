@@ -1,5 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, DestroyRef, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  OnInit,
+  OnDestroy,
+  DestroyRef,
+  inject,
+  signal,
+  computed
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -18,14 +28,27 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { forkJoin, Subject, Subscription } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
+import { HttpErrorResponse } from '@angular/common/http';
 import { AppAccessService } from '../../core/app-access.service';
 import { AuthRbacService } from '../services/auth-rbac.service';
-import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
+import { ReplenishmentService, ActiveEvent, Warehouse, NeedsListDuplicateSummary } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
 import { DmisNotificationService } from '../services/notification.service';
-import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup } from '../models/stock-status.model';
+import {
+  StockStatusItem,
+  formatTimeToStockout,
+  EventPhase,
+  SeverityLevel,
+  FreshnessLevel,
+  WarehouseStockGroup,
+  DisplaySeverity,
+  DisplayStatus,
+  PhaseWindowsResponse,
+  PHASE_WINDOWS
+} from '../models/stock-status.model';
 import {
   ExternalUpdateSummary,
   NeedsListItem,
@@ -38,6 +61,63 @@ import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { toDisplaySeverity, toDisplayStatus, phaseToIntervalMs } from './utils/display-mappers';
+import { ScopePickerDialogComponent, ScopePickerDialogResult } from './dialogs/scope-picker-dialog.component';
+import { DuplicateGuardDialogComponent, DuplicateGuardDialogResult } from './dialogs/duplicate-guard-dialog.component';
+import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-dialog.component';
+import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
+import type { OpsMetricStripItem } from '../../operations/shared/ops-metric-strip.component';
+import { OpsStatusChipComponent } from '../../operations/shared/ops-status-chip.component';
+
+// Ops-shell chip tone vocabulary, narrowed to what this dashboard surfaces.
+type OpsChipTone = 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline';
+
+export interface ActionInboxCounts {
+  awaitingApproval: number;
+  draftsInProgress: number;
+  returned: number;
+  reviewQueueTarget: string;
+}
+
+export interface FreshnessRow {
+  warehouseId: number;
+  warehouseName: string;
+  tone: FreshnessLevel;
+  chipTone: OpsChipTone;
+  ageLabel: string;
+  ageHours: number | null;
+}
+
+export interface CategoryRollupEntry {
+  name: string;
+  critical: number;
+  warning: number;
+  good: number;
+  atRisk: number;
+  total: number;
+  atRiskPct: number;
+}
+
+export interface FreshnessSummary {
+  fresh: number;
+  total: number;
+  tone: FreshnessLevel;
+  chipTone: OpsChipTone;
+}
+
+export interface KpiCardEntry {
+  key: 'items-at-risk' | 'warehouses-at-risk' | 'pending' | 'freshness';
+  label: string;
+  icon: string;
+  value: string;
+  unit?: string;
+  hint: string;
+  delta?: string;
+  chipLabel?: string;
+  chipTone?: OpsChipTone;
+  interactive: boolean;
+  ariaLabel?: string;
+}
 
 
 interface FilterState {
@@ -71,11 +151,13 @@ interface FilterState {
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
     DmisEmptyStateComponent,
+    OpsStatusChipComponent,
   ],
   templateUrl: './stock-status-dashboard.component.html',
-  styleUrl: './stock-status-dashboard.component.scss'
+  styleUrl: './stock-status-dashboard.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class StockStatusDashboardComponent implements OnInit {
+export class StockStatusDashboardComponent implements OnInit, OnDestroy {
   private replenishmentService = inject(ReplenishmentService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -86,9 +168,33 @@ export class StockStatusDashboardComponent implements OnInit {
   private dataFreshnessService = inject(DataFreshnessService);
   private dashboardDataService = inject(DashboardDataService);
   private notificationService = inject(DmisNotificationService);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
+  // Internal severity filter domain (4 buckets). Kept for the
+  // DashboardDataOptions/selector contract so business logic is unchanged.
   readonly severityOptions: SeverityLevel[] = ['CRITICAL', 'WARNING', 'WATCH', 'OK'];
+  // Display-boundary severity chip list (3 buckets). WATCH folds into WARNING,
+  // OK folds into GOOD. This is what renders in the UI filter row.
+  readonly displaySeverityOptions: DisplaySeverity[] = ['CRITICAL', 'WARNING', 'GOOD'];
+
+  // Phase-aware refresh + CTA gate signals (new UI slices only).
+  readonly phaseSignal = signal<EventPhase>('BASELINE');
+  readonly refreshIntervalMs = computed(() => phaseToIntervalMs(this.phaseSignal()));
+  readonly phaseWindows = signal<PhaseWindowsResponse | null>(null);
+  readonly canManagePhaseWindows = computed(() => !!this.phaseWindows()?.manageable_by_active_tenant);
+  readonly ctaInFlight = signal(false);
+
+  // LOW-confidence banner dismissal (session-local, resets on reload).
+  lowConfidenceBannerDismissed = false;
+
+  // Safe poll loop state.
+  private pollInFlight = false;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private visibilityListener: (() => void) | null = null;
+  private readonly manualRefresh$ = new Subject<void>();
+  private manualRefreshSub: Subscription | null = null;
+  private retryAfterMs: number | null = null;
 
   // Current context
   activeEvent: ActiveEvent | null = null;
@@ -131,6 +237,12 @@ export class StockStatusDashboardComponent implements OnInit {
   warnings: string[] = [];
   errors: string[] = [];
 
+  // Warehouse items pagination (Level-2 rows, 5 per page per warehouse).
+  readonly ITEMS_PAGE_SIZE = 5;
+  private itemsPageByWarehouse: Record<number, number> = {};
+  private readonly expandedWarehouseIds = new Set<number>();
+  private readonly userManagedWarehouseExpansionIds = new Set<number>();
+
   // Filters
   filtersExpanded = false; // Collapsed by default
   availableCategories: string[] = [];
@@ -138,6 +250,7 @@ export class StockStatusDashboardComponent implements OnInit {
   selectedSeverities: SeverityLevel[] = [];
   sortBy: 'time_to_stockout' | 'item_name' | 'severity' = 'time_to_stockout';
   sortDirection: 'asc' | 'desc' = 'asc';
+  lastRefreshAt: Date | null = null;
 
   // For single warehouse drill-down
   selectedWarehouseId: number | null = null;
@@ -187,9 +300,37 @@ export class StockStatusDashboardComponent implements OnInit {
     this.dataFreshnessService.onRefreshRequested$().pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(() => {
-      this.dashboardDataService.invalidateCache();
-      this.loadMultiWarehouseStatus();
+      this.triggerManualRefresh();
     });
+
+    // Debounced manual refresh (300ms) to avoid thundering-herd when users
+    // click refresh repeatedly.
+    this.manualRefreshSub = this.manualRefresh$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.dashboardDataService.invalidateCache();
+        this.loadMultiWarehouseStatus();
+      });
+
+    // Pause polling when the tab is hidden, resume when visible.
+    if (typeof document !== 'undefined') {
+      this.visibilityListener = () => {
+        if (document.hidden) {
+          this.stopPollTimer();
+        } else {
+          this.schedulePoll();
+        }
+      };
+      document.addEventListener('visibilitychange', this.visibilityListener);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.stopPollTimer();
+    if (this.visibilityListener && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityListener);
+    }
+    this.manualRefreshSub?.unsubscribe();
   }
 
   /**
@@ -206,6 +347,7 @@ export class StockStatusDashboardComponent implements OnInit {
       next: ({ event, warehouses }) => {
         if (event) {
           this.activeEvent = this.resolveRequestedEventContext(event);
+          this.phaseSignal.set((this.activeEvent.phase as EventPhase) || 'BASELINE');
         } else {
           this.activeEvent = null;
         }
@@ -214,16 +356,25 @@ export class StockStatusDashboardComponent implements OnInit {
         // If no active event, stop loading and show empty state
         if (!event) {
           this.loading = false;
+          this.phaseWindows.set(null);
+          this.markForDashboardUpdate();
           return;
         }
 
-        // Load stock status for all warehouses
+        // Phase windows are event-scoped in the backend contract; defer the
+        // call until we know the active event_id. Without an event, the
+        // endpoint does not exist.
+        this.loadPhaseWindows();
+
+        // Load stock status for all warehouses, then kick off the poll loop.
         this.loadMultiWarehouseStatus();
+        this.schedulePoll();
       },
       error: (error) => {
         this.loading = false;
         const msg = error.error?.errors?.event || error.message || 'Failed to load dashboard data.';
         this.notificationService.showNetworkError(msg, () => this.autoLoadDashboard());
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -247,6 +398,8 @@ export class StockStatusDashboardComponent implements OnInit {
     if (warehouseIds.length === 0) {
       this.loading = false;
       this.notificationService.showWarning('No warehouses available.');
+      this.reconcileWarehouseExpansion([]);
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -258,6 +411,7 @@ export class StockStatusDashboardComponent implements OnInit {
     } else {
       this.loading = true;
     }
+    this.markForDashboardUpdate();
 
     this.dashboardDataService.getDashboardData(
       requestedEventId,
@@ -273,6 +427,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.warehouseGroups = data.groups;
         this.warnings = data.warnings;
         this.availableCategories = data.availableCategories;
+        this.reconcileWarehouseExpansion(this.warehouseGroups);
 
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
@@ -280,6 +435,9 @@ export class StockStatusDashboardComponent implements OnInit {
         this.errors = [];
         this.loading = false;
         this.refreshing = false;
+        this.lastRefreshAt = new Date();
+        this.onRefreshComplete();
+        this.markForDashboardUpdate();
       },
       error: (error) => {
         if (!this.shouldApplyMultiWarehouseResult(requestToken, requestedEventId, requestedPhase, requestedWarehouseIds)) {
@@ -293,6 +451,8 @@ export class StockStatusDashboardComponent implements OnInit {
         const msg = error.message || 'Failed to load stock status.';
         this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
+        this.onRefreshComplete(error instanceof HttpErrorResponse ? error : undefined);
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -303,7 +463,7 @@ export class StockStatusDashboardComponent implements OnInit {
       categories: this.selectedCategories,
       severities: this.selectedSeverities,
       sortBy: this.sortBy,
-      sortDirection: this.sortDirection
+      sortDirection: this.sortBy === 'severity' ? 'asc' : this.sortDirection
     };
   }
 
@@ -339,6 +499,7 @@ export class StockStatusDashboardComponent implements OnInit {
     } else {
       this.loading = true;
     }
+    this.markForDashboardUpdate();
 
     this.dashboardDataService.getDashboardData(
       requestedEventId,
@@ -357,12 +518,15 @@ export class StockStatusDashboardComponent implements OnInit {
         );
         this.warnings = data.warnings;
         this.availableCategories = data.availableCategories;
+        this.reconcileWarehouseExpansion(this.warehouseGroups);
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
         this.dataLoadedSuccessfully = true;
         this.errors = [];
         this.loading = false;
         this.refreshing = false;
+        this.lastRefreshAt = new Date();
+        this.markForDashboardUpdate();
       },
       error: (error) => {
         if (!this.shouldApplySingleWarehouseResult(requestToken, requestedWarehouseId, requestedEventId)) {
@@ -376,6 +540,7 @@ export class StockStatusDashboardComponent implements OnInit {
         const msg = error.message || 'Failed to load stock status.';
         this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.retryCurrentView());
+        this.markForDashboardUpdate();
       }
     });
   }
@@ -428,6 +593,17 @@ export class StockStatusDashboardComponent implements OnInit {
     this.onFiltersChanged();
   }
 
+  setWarehouseScope(value: string | number | null): void {
+    const raw = value === null || value === undefined ? '' : String(value).trim();
+    if (!raw) {
+      this.selectedWarehouseIds = [];
+    } else {
+      const id = Number(raw);
+      this.selectedWarehouseIds = Number.isFinite(id) && id > 0 ? [id] : [];
+    }
+    this.onFiltersChanged();
+  }
+
   /**
    * Drill down to single warehouse detail view
    */
@@ -435,6 +611,7 @@ export class StockStatusDashboardComponent implements OnInit {
     this.invalidateSingleWarehouseRequest();
     this.viewMode = 'single';
     this.selectedWarehouseId = warehouseId;
+    this.userManagedWarehouseExpansionIds.delete(warehouseId);
     this.loadSingleWarehouseStatus();
   }
 
@@ -468,8 +645,11 @@ export class StockStatusDashboardComponent implements OnInit {
         return;
       }
       this.activeEvent = { ...this.activeEvent, phase: newPhase };
+      this.phaseSignal.set(newPhase);
       this.dashboardDataService.invalidateCache();
       this.loadMultiWarehouseStatus();
+      this.schedulePoll();
+      this.markForDashboardUpdate();
     });
   }
 
@@ -530,13 +710,55 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   changeSortBy(field: 'time_to_stockout' | 'item_name' | 'severity'): void {
-    if (this.sortBy === field) {
+    if (field === 'severity') {
+      this.sortBy = 'severity';
+      this.sortDirection = 'asc';
+    } else if (this.sortBy === field) {
       this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
     } else {
       this.sortBy = field;
       this.sortDirection = 'asc';
     }
     this.onFiltersChanged();
+  }
+
+  get sortPreset(): string {
+    if (this.sortBy === 'severity') {
+      return 'severity_asc';
+    }
+    if (this.sortBy === 'item_name') {
+      return 'item_name_asc';
+    }
+    return 'time_to_stockout_asc';
+  }
+
+  setSortPreset(value: string): void {
+    switch (value) {
+      case 'severity_asc':
+      case 'severity_desc':
+        this.sortBy = 'severity';
+        this.sortDirection = 'asc';
+        break;
+      case 'item_name_asc':
+        this.sortBy = 'item_name';
+        this.sortDirection = 'asc';
+        break;
+      case 'time_to_stockout_asc':
+      default:
+        this.sortBy = 'time_to_stockout';
+        this.sortDirection = 'asc';
+        break;
+    }
+    this.onFiltersChanged();
+  }
+
+  get lastRefreshLabel(): string {
+    if (!this.lastRefreshAt) {
+      return '—';
+    }
+    const hh = String(this.lastRefreshAt.getUTCHours()).padStart(2, '0');
+    const mm = String(this.lastRefreshAt.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm} UTC`;
   }
 
   resetFilters(): void {
@@ -562,18 +784,907 @@ export class StockStatusDashboardComponent implements OnInit {
     this.router.navigate(['/replenishment/needs-list-review']);
   }
 
+  /**
+   * Legacy entry point. Kept only so existing callers continue to work;
+   * all UI bindings should call `generateNeedsListWithGates()` directly.
+   */
   generateNeedsList(warehouseId?: number): void {
+    this.generateNeedsListWithGates('legacy', warehouseId);
+  }
+
+  /**
+   * Single CTA path for creating a needs list. Enforces (in order):
+   *   1. Scope: event + warehouse must be resolved (opens ScopePickerDialog if missing)
+   *   2. Duplicate check: `checkActiveNeedsLists` → DuplicateGuardDialog if any
+   *   3. Low-confidence ack: LowConfidenceAckDialog when scope has LOW confidence
+   *   4. Navigate to wizard with queryParams
+   *
+   * All three UI triggers (hero, mobile FAB, warehouse card) route through
+   * this method. Backend remains the authoritative enforcement layer; the
+   * dialogs on steps 2 and 3 are UX aids only.
+   */
+  generateNeedsListWithGates(
+    source: 'hero' | 'fab' | 'warehouse-card' | 'legacy',
+    warehouseId?: number | null
+  ): void {
+    if (!this.activeEvent) {
+      this.notificationService.showWarning('No active event. Cannot create a needs list.');
+      return;
+    }
+    if (this.ctaInFlight()) {
+      return;
+    }
+
+    const preselected = warehouseId ?? this.selectedWarehouseId ?? (
+      this.selectedWarehouseIds.length === 1 ? this.selectedWarehouseIds[0] : null
+    );
+
+    if (preselected == null) {
+      this.openScopePicker(source);
+      return;
+    }
+
+    this.runGateChain(preselected);
+  }
+
+  private openScopePicker(source: 'hero' | 'fab' | 'warehouse-card' | 'legacy'): void {
+    if (!this.allWarehouses.length) {
+      this.notificationService.showWarning('No warehouses are available to create a needs list.');
+      return;
+    }
+    const ref = this.dialog.open(ScopePickerDialogComponent, {
+      data: {
+        availableWarehouses: this.allWarehouses,
+        preselectedWarehouseId: this.selectedWarehouseId
+      },
+      ariaLabel: 'Select warehouse for needs list'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: ScopePickerDialogResult | undefined) => {
+      if (!result) return;
+      this.runGateChain(result.warehouseId, source);
+    });
+  }
+
+  private runGateChain(
+    warehouseId: number,
+    _source: 'hero' | 'fab' | 'warehouse-card' | 'legacy' = 'legacy'
+  ): void {
+    void _source;
     if (!this.activeEvent) return;
 
-    // Navigate to needs list wizard with pre-filled form data
+    this.ctaInFlight.set(true);
+
+    const eventId = this.activeEvent.event_id;
+    const phase = String(this.activeEvent.phase);
+
+    this.replenishmentService
+      .checkActiveNeedsLists({ eventId, warehouseId, phase })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (duplicates) => {
+          if (duplicates && duplicates.length > 0) {
+            this.openDuplicateGuard(duplicates, warehouseId);
+            return;
+          }
+          this.runLowConfidenceGate(warehouseId);
+        },
+        error: () => {
+          // Backend still validates at submission — fall through to navigation.
+          this.runLowConfidenceGate(warehouseId);
+        }
+      });
+  }
+
+  private openDuplicateGuard(duplicates: NeedsListDuplicateSummary[], warehouseId: number): void {
+    const warehouseName = this.warehouseNameFor(warehouseId);
+    const ref = this.dialog.open(DuplicateGuardDialogComponent, {
+      data: {
+        duplicates,
+        warehouseName,
+        phase: String(this.activeEvent?.phase ?? '')
+      },
+      ariaLabel: 'Duplicate needs list warning'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: DuplicateGuardDialogResult) => {
+      if (!result) {
+        this.ctaInFlight.set(false);
+        return;
+      }
+      if (result.action === 'open') {
+        this.ctaInFlight.set(false);
+        this.router.navigate(['/replenishment/needs-list', result.needsListId, 'review']);
+        return;
+      }
+      this.runLowConfidenceGate(warehouseId);
+    });
+  }
+
+  private runLowConfidenceGate(warehouseId: number): void {
+    const group = this.warehouseGroups.find((g) => g.warehouse_id === warehouseId);
+    const lowConfItem = group?.items?.find((item) => item.confidence?.level === 'LOW');
+
+    if (!lowConfItem) {
+      this.navigateToWizard(warehouseId);
+      return;
+    }
+
+    const reasons = Array.from(
+      new Set(
+        (group?.items ?? [])
+          .filter((it) => it.confidence?.level === 'LOW')
+          .flatMap((it) => it.confidence?.reasons ?? [])
+      )
+    );
+
+    const ref = this.dialog.open(LowConfidenceAckDialogComponent, {
+      data: {
+        warehouseName: this.warehouseNameFor(warehouseId),
+        reasons
+      },
+      ariaLabel: 'Low-confidence acknowledgement'
+    });
+    ref.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((proceed?: boolean) => {
+      if (!proceed) {
+        this.ctaInFlight.set(false);
+        return;
+      }
+      this.navigateToWizard(warehouseId);
+    });
+  }
+
+  private navigateToWizard(warehouseId: number): void {
+    this.ctaInFlight.set(false);
+    if (!this.activeEvent) return;
     this.router.navigate(['/replenishment/needs-list-wizard'], {
       queryParams: {
         event_id: this.activeEvent.event_id,
         event_name: this.activeEvent.event_name,
-        warehouse_id: warehouseId || this.selectedWarehouseId,
+        warehouse_id: warehouseId,
         phase: this.activeEvent.phase
       }
     });
+  }
+
+  private warehouseNameFor(warehouseId: number): string {
+    const warehouse = this.allWarehouses.find((w) => w.warehouse_id === warehouseId);
+    if (warehouse?.warehouse_name) {
+      return warehouse.warehouse_name;
+    }
+    const group = this.warehouseGroups.find((g) => g.warehouse_id === warehouseId);
+    return group?.warehouse_name ?? `Warehouse ${warehouseId}`;
+  }
+
+  // -- Phase windows --------------------------------------------------
+
+  loadPhaseWindows(): void {
+    const eventId = this.activeEvent?.event_id;
+    if (!eventId) {
+      this.phaseWindows.set(null);
+      this.markForDashboardUpdate();
+      return;
+    }
+    this.replenishmentService
+      .getPhaseWindows(eventId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.phaseWindows.set(response);
+          this.markForDashboardUpdate();
+        },
+        error: () => {
+          this.phaseWindows.set(null);
+          this.markForDashboardUpdate();
+        }
+      });
+  }
+
+  openPhaseWindowsDialog(): void {
+    const current = this.phaseWindows();
+    const eventId = this.activeEvent?.event_id;
+    if (!current || !current.manageable_by_active_tenant || !eventId) {
+      return;
+    }
+    const ref = this.dialog.open(PhaseWindowsDialogComponent, {
+      data: { eventId, windows: current.windows },
+      ariaLabel: 'Edit phase windows'
+    });
+    // Always refetch — the dialog may have made partial saves before being
+    // closed, and the projected `windows` record must reflect server truth.
+    ref
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadPhaseWindows());
+  }
+
+  // -- Safe poll loop --------------------------------------------------
+
+  /**
+   * Schedule the next auto-refresh based on the current phase. Honors the
+   * in-flight guard (to avoid overlapping calls), pauses when the tab is
+   * hidden, and respects `Retry-After` when a prior call returned 429.
+   */
+  private schedulePoll(): void {
+    this.stopPollTimer();
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+    const baseInterval = this.refreshIntervalMs();
+    const delay = this.retryAfterMs ?? baseInterval;
+    this.retryAfterMs = null;
+    this.pollTimer = setTimeout(() => this.pollTick(), delay);
+  }
+
+  private stopPollTimer(): void {
+    if (this.pollTimer != null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private pollTick(): void {
+    if (this.pollInFlight) {
+      this.schedulePoll();
+      return;
+    }
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+    if (!this.activeEvent) {
+      this.schedulePoll();
+      return;
+    }
+    this.pollInFlight = true;
+    this.dashboardDataService.invalidateCache();
+    this.loadMultiWarehouseStatus();
+    // `loadMultiWarehouseStatus` clears pollInFlight via onRefreshComplete().
+  }
+
+  private onRefreshComplete(error?: HttpErrorResponse): void {
+    this.pollInFlight = false;
+    if (error && error.status === 429) {
+      const retryHeader = error.headers?.get?.('Retry-After');
+      const seconds = Number(retryHeader);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        this.retryAfterMs = Math.min(seconds * 1000, 60 * 60 * 1000);
+      }
+    }
+    this.schedulePoll();
+  }
+
+  triggerManualRefresh(): void {
+    this.manualRefresh$.next();
+  }
+
+  // -- Display mappers (exposed to template) ---------------------------
+
+  displaySeverity(severity: SeverityLevel | undefined): DisplaySeverity {
+    return toDisplaySeverity(severity ?? 'OK');
+  }
+
+  displayStatus(status: string | undefined | null): DisplayStatus {
+    return toDisplayStatus(status);
+  }
+
+  isWarehouseExpanded(group: WarehouseStockGroup): boolean {
+    return this.expandedWarehouseIds.has(group.warehouse_id);
+  }
+
+  onWarehouseDetailsToggle(group: WarehouseStockGroup, event: Event): void {
+    const details = event.currentTarget as HTMLDetailsElement | null;
+    if (!details) {
+      return;
+    }
+
+    this.userManagedWarehouseExpansionIds.add(group.warehouse_id);
+    if (details.open) {
+      this.expandedWarehouseIds.add(group.warehouse_id);
+    } else {
+      this.expandedWarehouseIds.delete(group.warehouse_id);
+    }
+    this.markForDashboardUpdate();
+  }
+
+  getDisplaySeverityClass(severity: SeverityLevel | undefined): string {
+    return `display-severity-${this.displaySeverity(severity).toLowerCase()}`;
+  }
+
+  /**
+   * Badge CSS class for stock-status pills at the display boundary.
+   * Always returns one of `badge-critical`, `badge-warning`, `badge-good`.
+   * Prevents raw WATCH/OK leakage into the rendered DOM.
+   */
+  getDisplayBadgeClass(severity: SeverityLevel | undefined): string {
+    return `badge-${this.displaySeverity(severity).toLowerCase()}`;
+  }
+
+  /** Filter chip CSS class at the display boundary (3-bucket). */
+  getDisplayChipClass(bucket: DisplaySeverity): string {
+    return `chip-${bucket.toLowerCase()}`;
+  }
+
+  /**
+   * Expand a display-severity bucket into the internal SeverityLevel values
+   * that the dashboard selector/filter operates on. WATCH is shown under
+   * WARNING in the UI; OK is shown under GOOD.
+   */
+  private expandDisplaySeverity(bucket: DisplaySeverity): SeverityLevel[] {
+    switch (bucket) {
+      case 'CRITICAL': return ['CRITICAL'];
+      case 'WARNING':  return ['WARNING', 'WATCH'];
+      case 'GOOD':     return ['OK'];
+    }
+  }
+
+  isDisplaySeveritySelected(bucket: DisplaySeverity): boolean {
+    // A bucket is "selected" when every internal severity it represents is
+    // currently in the filter. Partial membership is treated as unselected
+    // so the chip's UI state stays binary.
+    const members = this.expandDisplaySeverity(bucket);
+    return members.every((s) => this.selectedSeverities.includes(s));
+  }
+
+  onDisplaySeveritySelectionChange(bucket: DisplaySeverity, change: MatChipSelectionChange): void {
+    if (!change.isUserInput) {
+      return;
+    }
+    this.setDisplaySeveritySelection(bucket, change.selected);
+    this.onFiltersChanged();
+  }
+
+  /** Toolbar click handler: toggle a severity filter chip in the inline srd-toolbar. */
+  toggleDisplaySeverity(bucket: DisplaySeverity): void {
+    const next = !this.isDisplaySeveritySelected(bucket);
+    this.setDisplaySeveritySelection(bucket, next);
+    this.onFiltersChanged();
+  }
+
+  private setDisplaySeveritySelection(bucket: DisplaySeverity, selected: boolean): void {
+    const members = this.expandDisplaySeverity(bucket);
+    for (const severity of members) {
+      const idx = this.selectedSeverities.indexOf(severity);
+      if (selected && idx < 0) {
+        this.selectedSeverities.push(severity);
+      } else if (!selected && idx >= 0) {
+        this.selectedSeverities.splice(idx, 1);
+      }
+    }
+  }
+
+  getDisplaySeverityTooltip(bucket: DisplaySeverity): string {
+    switch (bucket) {
+      case 'CRITICAL':
+        return 'CRITICAL: Less than 8 hours of stock remaining. Immediate replenishment action required using transfers (Horizon A).';
+      case 'WARNING':
+        return 'WARNING: Less than 72 hours of stock remaining. Includes items under 24h (act soon) and under 72h (plan ahead).';
+      case 'GOOD':
+        return 'GOOD: More than 72 hours of stock remaining. Stock levels are healthy.';
+    }
+  }
+
+  // -- Ops-shell chip tone mappers (display boundary) ------------------
+
+  /** Map a 3-bucket display severity into an ops-shell chip tone. */
+  displaySeverityTone(severity: SeverityLevel | undefined): OpsChipTone {
+    switch (this.displaySeverity(severity)) {
+      case 'CRITICAL': return 'critical';
+      case 'WARNING': return 'warning';
+      case 'GOOD': return 'success';
+    }
+  }
+
+  /** Map a freshness level into an ops-shell chip tone. */
+  freshnessChipTone(tone: FreshnessLevel | undefined): OpsChipTone {
+    switch (tone) {
+      case 'HIGH': return 'success';
+      case 'MEDIUM': return 'warning';
+      case 'LOW': return 'critical';
+      default: return 'neutral';
+    }
+  }
+
+  /** Map a FR02.93 display status into an ops-shell chip tone. */
+  statusChipTone(status: string | undefined | null): OpsChipTone {
+    switch (this.displayStatus(status)) {
+      case 'SUBMITTED': return 'info';
+      case 'DRAFT': return 'soft';
+      case 'MODIFIED': return 'warning';
+      case 'APPROVED': return 'success';
+      case 'REJECTED': return 'critical';
+      case 'IN_PROGRESS': return 'info';
+      case 'FULFILLED': return 'success';
+      case 'SUPERSEDED': return 'neutral';
+      case 'UNKNOWN': return 'neutral';
+    }
+  }
+
+  // -- Action Inbox (FR02.93 status buckets) ---------------------------
+
+  /**
+   * Derived action-inbox counts for the hero bar. Source: the existing
+   * `myNeedsLists` field (populated by `loadMyNeedsLists()` — no new fetch).
+   * Statuses pass through the FR02.93 display mapper so UI vocabulary stays
+   * stable across backend drift (PENDING_APPROVAL / UNDER_REVIEW collapse
+   * into SUBMITTED, RETURNED folds into MODIFIED, etc.).
+   */
+  get actionInbox(): ActionInboxCounts {
+    const lists = this.myNeedsLists ?? [];
+    const displayStatuses = lists.map((l) => toDisplayStatus(l.status));
+    const countBy = (predicate: (display: DisplayStatus) => boolean): number =>
+      displayStatuses.filter((status) => predicate(status)).length;
+    return {
+      awaitingApproval: countBy((s) => s === 'SUBMITTED'),
+      draftsInProgress: countBy((s) => s === 'DRAFT'),
+      returned: countBy((s) => s === 'MODIFIED' || s === 'REJECTED'),
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    };
+  }
+
+  /** Total pending across all three buckets. */
+  get actionInboxTotal(): number {
+    const inbox = this.actionInbox;
+    return inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+  }
+
+  // -- LOW confidence banner -------------------------------------------
+
+  /** True if any item in any warehouse has LOW confidence. */
+  get hasLowConfidence(): boolean {
+    return (this.warehouseGroups ?? []).some((g) =>
+      (g.items ?? []).some((item) => item.confidence?.level === 'LOW')
+    );
+  }
+
+  /** How many items are flagged LOW confidence (for banner copy). */
+  get lowConfidenceItemCount(): number {
+    return (this.warehouseGroups ?? []).reduce((sum, g) => {
+      return sum + (g.items ?? []).filter((item) => item.confidence?.level === 'LOW').length;
+    }, 0);
+  }
+
+  // -- Data freshness panel --------------------------------------------
+
+  /**
+   * Rows for the right-side Data Freshness panel. One row per warehouse,
+   * using `overall_freshness` for the chip tone and the max per-item
+   * `age_hours` for the "X ago" label. No new API call.
+   */
+  get freshnessRows(): FreshnessRow[] {
+    return (this.warehouseGroups ?? []).map((g) => {
+      const maxAge = this.maxAgeHoursFor(g);
+      const tone = g.overall_freshness ?? 'HIGH';
+      return {
+        warehouseId: g.warehouse_id,
+        warehouseName: g.warehouse_name,
+        tone,
+        chipTone: this.freshnessChipTone(tone),
+        ageLabel: this.formatAgeLabel(maxAge),
+        ageHours: maxAge
+      };
+    });
+  }
+
+  /**
+   * Hero freshness summary chip. Counts HIGH as "fresh", escalates tone
+   * (LOW overrides MEDIUM overrides HIGH).
+   */
+  get freshnessSummary(): FreshnessSummary {
+    const groups = this.warehouseGroups ?? [];
+    const total = groups.length;
+    const fresh = groups.filter((g) => g.overall_freshness === 'HIGH').length;
+    const anyLow = groups.some((g) => g.overall_freshness === 'LOW');
+    const anyMedium = groups.some((g) => g.overall_freshness === 'MEDIUM');
+    const tone: FreshnessLevel = anyLow ? 'LOW' : anyMedium ? 'MEDIUM' : 'HIGH';
+    return {
+      fresh,
+      total,
+      tone,
+      chipTone: this.freshnessChipTone(tone)
+    };
+  }
+
+  // -- Risk by category rollup -----------------------------------------
+
+  /**
+   * Group items by category into CRITICAL / WARNING / GOOD counts.
+   * Items whose `category` is missing bucket into an explicit
+   * 'Uncategorized' entry (per pre-plan review requirement). Zero-aware:
+   * `atRiskPct` is 0 when a category has no items (guards divide-by-zero).
+   */
+  get categoryRollup(): CategoryRollupEntry[] {
+    const buckets = new Map<string, { critical: number; warning: number; good: number }>();
+    for (const group of this.warehouseGroups ?? []) {
+      for (const item of group.items ?? []) {
+        const raw = String(item.category ?? '').trim();
+        const name = raw.length > 0 ? raw : 'Uncategorized';
+        const bucket = buckets.get(name) ?? { critical: 0, warning: 0, good: 0 };
+        const disp = toDisplaySeverity(item.severity);
+        if (disp === 'CRITICAL') {
+          bucket.critical += 1;
+        } else if (disp === 'WARNING') {
+          bucket.warning += 1;
+        } else {
+          bucket.good += 1;
+        }
+        buckets.set(name, bucket);
+      }
+    }
+    return Array.from(buckets.entries())
+      .map(([name, b]) => {
+        const total = b.critical + b.warning + b.good;
+        const atRisk = b.critical + b.warning;
+        const atRiskPct = total > 0 ? Math.round((atRisk / total) * 100) : 0;
+        return {
+          name,
+          critical: b.critical,
+          warning: b.warning,
+          good: b.good,
+          atRisk,
+          total,
+          atRiskPct
+        };
+      })
+      .sort((a, b) => (b.atRisk - a.atRisk) || a.name.localeCompare(b.name));
+  }
+
+  // -- Toolbar search (srd-toolbar) ------------------------------------
+
+  searchQuery = '';
+
+  onSearchChange(value: string): void {
+    this.searchQuery = (value ?? '').trim();
+  }
+
+  clearSearch(): void {
+    this.searchQuery = '';
+  }
+
+  get visibleWarehouseGroups(): WarehouseStockGroup[] {
+    const q = this.normalizedSearchQuery();
+    const groups = this.warehouseGroups ?? [];
+    if (!q) return groups;
+
+    return groups.filter((group) =>
+      this.warehouseMatchesSearch(group, q) ||
+      (group.items ?? []).some((item) => this.itemMatchesSearch(item, q))
+    );
+  }
+
+  getWarehouseParish(warehouseId: number): { name: string; code: string } | null {
+    const wh = this.allWarehouses.find((w) => w.warehouse_id === warehouseId);
+    if (!wh) return null;
+    const name = (wh.parish_name ?? '').trim();
+    const code = (wh.parish_code ?? '').trim();
+    if (!name && !code) return null;
+    return { name: name || code, code: code || name };
+  }
+
+  /** Case-insensitive warehouse/item filter applied after server-side filtering. */
+  filteredItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
+    const q = this.normalizedSearchQuery();
+    const items = group.items ?? [];
+    if (!q) return items;
+    if (this.warehouseMatchesSearch(group, q)) return items;
+    return items.filter((item) => this.itemMatchesSearch(item, q));
+  }
+
+  private normalizedSearchQuery(): string {
+    return this.searchQuery.trim().toLowerCase();
+  }
+
+  private warehouseMatchesSearch(group: WarehouseStockGroup, q: string): boolean {
+    const warehouse = this.allWarehouses.find((w) => w.warehouse_id === group.warehouse_id);
+    const searchable = [
+      group.warehouse_name,
+      warehouse?.warehouse_name,
+      warehouse?.parish_name,
+      warehouse?.parish_code
+    ];
+    return searchable.some((value) => String(value ?? '').toLowerCase().includes(q));
+  }
+
+  private itemMatchesSearch(item: StockStatusItem, q: string): boolean {
+    const searchable = [item.item_name, item.item_code, item.category];
+    return searchable.some((value) => String(value ?? '').toLowerCase().includes(q));
+  }
+
+  /** Count of display-severity items across all groups (for toolbar chip counters). */
+  displaySeverityCount(bucket: DisplaySeverity): number {
+    let n = 0;
+    for (const g of this.warehouseGroups ?? []) {
+      for (const it of g.items ?? []) {
+        if (toDisplaySeverity(it.severity) === bucket) n += 1;
+      }
+    }
+    return n;
+  }
+
+  goodCount(group: WarehouseStockGroup): number {
+    return Math.max(0, (group.items?.length ?? 0) - (group.critical_count ?? 0) - (group.warning_count ?? 0));
+  }
+
+  /** Severity tone for a warehouse card's left accent. */
+  warehouseSeverityTone(group: WarehouseStockGroup): 'critical' | 'warning' | 'success' {
+    if (group.critical_count > 0) return 'critical';
+    if (group.warning_count > 0) return 'warning';
+    return 'success';
+  }
+
+  private reconcileWarehouseExpansion(groups: WarehouseStockGroup[]): void {
+    const activeIds = new Set(groups.map((group) => group.warehouse_id));
+
+    for (const warehouseId of Array.from(this.expandedWarehouseIds)) {
+      if (!activeIds.has(warehouseId)) {
+        this.expandedWarehouseIds.delete(warehouseId);
+      }
+    }
+    for (const warehouseId of Array.from(this.userManagedWarehouseExpansionIds)) {
+      if (!activeIds.has(warehouseId)) {
+        this.userManagedWarehouseExpansionIds.delete(warehouseId);
+      }
+    }
+
+    for (const group of groups) {
+      if (this.userManagedWarehouseExpansionIds.has(group.warehouse_id)) {
+        continue;
+      }
+      if (this.shouldWarehouseStartExpanded(group)) {
+        this.expandedWarehouseIds.add(group.warehouse_id);
+      } else {
+        this.expandedWarehouseIds.delete(group.warehouse_id);
+      }
+    }
+  }
+
+  private shouldWarehouseStartExpanded(group: WarehouseStockGroup): boolean {
+    return this.viewMode === 'single' || (group.critical_count ?? 0) > 0;
+  }
+
+  private markForDashboardUpdate(): void {
+    this.cdr.markForCheck();
+  }
+
+  // -- Phase freshness thresholds (srd-freshness sub-header) -----------
+
+  private get phaseFreshnessThresholds(): { fresh: number; warn: number } {
+    const phase = this.phaseSignal();
+    if (phase === 'SURGE') return { fresh: 2, warn: 6 };
+    if (phase === 'STABILIZED') return { fresh: 6, warn: 24 };
+    return { fresh: 24, warn: 72 };
+  }
+
+  get freshThresholdLabel(): string {
+    return `Fresh ≤${this.phaseFreshnessThresholds.fresh}h`;
+  }
+
+  get warnThresholdLabel(): string {
+    const t = this.phaseFreshnessThresholds;
+    return `Warning ${t.fresh}–${t.warn}h`;
+  }
+
+  get staleThresholdLabel(): string {
+    return `Stale >${this.phaseFreshnessThresholds.warn}h`;
+  }
+
+  // -- KPI strip (4 cards for app-ops-metric-strip) --------------------
+
+  /**
+   * Feed for `<app-ops-metric-strip [items]="kpiStrip">`. Order matches
+   * the Claude Design screenshot (Items at risk | Warehouses at risk |
+   * Pending needs lists | Data freshness).
+   */
+  get kpiStrip(): readonly OpsMetricStripItem[] {
+    const totalCritical = this.getTotalCriticalCount();
+    const totalWarning = this.getTotalWarningCount();
+    const totalAtRisk = totalCritical + totalWarning;
+    const groups = this.warehouseGroups ?? [];
+    const warehousesAtRisk = groups.filter((g) => g.critical_count > 0 || g.warning_count > 0).length;
+    const inbox = this.actionInbox;
+    const pending = inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+    const freshness = this.freshnessSummary;
+
+    return [
+      {
+        label: 'Items at risk',
+        value: String(totalAtRisk),
+        hint: totalAtRisk > 0
+          ? `${totalCritical} critical · ${totalWarning} warning`
+          : 'All items healthy',
+        token: totalCritical > 0 ? 'critical' : totalWarning > 0 ? 'warning' : 'success',
+        icon: totalAtRisk > 0 ? 'priority_high' : 'check_circle'
+      },
+      {
+        label: 'Warehouses at risk',
+        value: groups.length > 0 ? `${warehousesAtRisk}/${groups.length}` : '0',
+        hint: warehousesAtRisk > 0 ? 'Need action' : 'All stable',
+        token: warehousesAtRisk > 0 ? 'warning' : 'success',
+        icon: 'warehouse'
+      },
+      {
+        label: 'Pending needs lists',
+        value: String(pending),
+        hint: inbox.awaitingApproval > 0
+          ? `${inbox.awaitingApproval} awaiting approval`
+          : pending > 0
+            ? `${inbox.draftsInProgress} drafts · ${inbox.returned} returned`
+            : 'Nothing pending',
+        token: inbox.awaitingApproval > 0 ? 'info' : pending > 0 ? 'soft' : 'neutral',
+        interactive: this.canAccessReviewQueue,
+        icon: 'assignment',
+        ariaLabel: `Pending needs lists, ${pending}. Open review queue.`
+      },
+      {
+        label: 'Data freshness',
+        value: freshness.total > 0 ? `${freshness.fresh}/${freshness.total}` : '—',
+        hint: `${freshness.tone} confidence`,
+        token: freshness.chipTone,
+        icon: freshness.tone === 'LOW' ? 'sync_problem' : 'history'
+      }
+    ];
+  }
+
+  /**
+   * Click handler for an interactive KPI card. Only the "Pending needs
+   * lists" card emits today; others are display-only. Route is stable
+   * (verified at `replenishment.routes.ts:22`).
+   */
+  onKpiStripClick(item: OpsMetricStripItem): void {
+    if (item.label === 'Pending needs lists' && this.canAccessReviewQueue) {
+      this.openReviewQueue();
+    }
+  }
+
+  /**
+   * Target-design KPI cards. Same 4 signals as `kpiStrip` but with richer
+   * display data: chip label/tone on top-right + optional delta caption.
+   * Source of truth — still derives from `warehouseGroups`, `actionInbox`,
+   * and `freshnessSummary`, so no new API calls.
+   */
+  get kpiCards(): readonly KpiCardEntry[] {
+    const totalCritical = this.getTotalCriticalCount();
+    const totalWarning = this.getTotalWarningCount();
+    const totalAtRisk = totalCritical + totalWarning;
+    const groups = this.warehouseGroups ?? [];
+    const warehousesAtRisk = groups.filter(
+      (g) => g.critical_count > 0 || g.warning_count > 0
+    ).length;
+    const inbox = this.actionInbox;
+    const pending = inbox.awaitingApproval + inbox.draftsInProgress + inbox.returned;
+    const freshness = this.freshnessSummary;
+
+    const itemsChip: { label: string; tone: OpsChipTone } =
+      totalCritical > 0
+        ? { label: 'Critical', tone: 'critical' }
+        : totalWarning > 0
+          ? { label: 'Warning', tone: 'warning' }
+          : { label: 'All good', tone: 'success' };
+
+    const warehouseChip: { label: string; tone: OpsChipTone } =
+      warehousesAtRisk > 0
+        ? { label: 'Action', tone: 'warning' }
+        : { label: 'Stable', tone: 'success' };
+
+    const pendingChip: { label: string; tone: OpsChipTone } | undefined =
+      inbox.awaitingApproval > 0
+        ? { label: 'Awaiting', tone: 'info' }
+        : inbox.returned > 0
+          ? { label: 'Returned', tone: 'warning' }
+          : pending > 0
+            ? { label: 'Drafts', tone: 'soft' }
+            : undefined;
+
+    const freshnessChip: { label: string; tone: OpsChipTone } = {
+      label: freshness.tone,
+      tone: freshness.chipTone
+    };
+
+    return [
+      {
+        key: 'items-at-risk',
+        label: 'Items at risk',
+        icon: totalAtRisk > 0 ? 'priority_high' : 'check_circle',
+        value: String(totalAtRisk),
+        hint: totalAtRisk > 0
+          ? `${totalCritical} critical · ${totalWarning} warning`
+          : 'All items healthy',
+        chipLabel: itemsChip.label,
+        chipTone: itemsChip.tone,
+        interactive: false
+      },
+      {
+        key: 'warehouses-at-risk',
+        label: 'Warehouses at risk',
+        icon: 'warehouse',
+        value: String(warehousesAtRisk),
+        unit: groups.length > 0 ? `of ${groups.length}` : undefined,
+        hint: warehousesAtRisk > 0 ? 'Need action' : 'All warehouses stable',
+        chipLabel: warehouseChip.label,
+        chipTone: warehouseChip.tone,
+        interactive: false
+      },
+      {
+        key: 'pending',
+        label: 'Pending needs lists',
+        icon: 'assignment',
+        value: String(pending),
+        hint: inbox.awaitingApproval > 0
+          ? `${inbox.awaitingApproval} awaiting approval`
+          : pending > 0
+            ? `${inbox.draftsInProgress} drafts · ${inbox.returned} returned`
+            : 'Nothing pending',
+        delta: pending > 0 && this.canAccessReviewQueue ? 'Open queue →' : undefined,
+        chipLabel: pendingChip?.label,
+        chipTone: pendingChip?.tone,
+        interactive: pending > 0 && this.canAccessReviewQueue,
+        ariaLabel: `Pending needs lists, ${pending}. ${this.canAccessReviewQueue ? 'Open review queue.' : ''}`
+      },
+      {
+        key: 'freshness',
+        label: 'Data freshness',
+        icon: freshness.tone === 'LOW' ? 'sync_problem' : 'history',
+        value: freshness.total > 0 ? String(freshness.fresh) : '—',
+        unit: freshness.total > 0 ? `of ${freshness.total} fresh` : undefined,
+        hint: `${freshness.tone} confidence`,
+        chipLabel: freshnessChip.label,
+        chipTone: freshnessChip.tone,
+        interactive: false
+      }
+    ];
+  }
+
+  /**
+   * Click handler for the custom KPI cards. Only the Pending card is
+   * interactive today — the rest are display-only.
+   */
+  onKpiCardClick(entry: KpiCardEntry): void {
+    if (!entry.interactive) { return; }
+    if (entry.key === 'pending' && this.canAccessReviewQueue) {
+      this.openReviewQueue();
+    }
+  }
+
+  /** Hide the LOW-confidence banner for this session. */
+  dismissLowConfidenceBanner(): void {
+    this.lowConfidenceBannerDismissed = true;
+  }
+
+  /** Scroll to the Data Freshness side panel from the LOW-confidence banner. */
+  scrollToFreshness(): void {
+    if (typeof document === 'undefined') { return; }
+    const panel = document.querySelector('.stock-dashboard__freshness-panel');
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // -- Age-label / max-age helpers -------------------------------------
+
+  private maxAgeHoursFor(group: WarehouseStockGroup): number | null {
+    const values: number[] = [];
+    for (const item of group.items ?? []) {
+      const age = item.freshness?.age_hours;
+      if (typeof age === 'number' && Number.isFinite(age) && age >= 0) {
+        values.push(age);
+      }
+    }
+    return values.length > 0 ? Math.max(...values) : null;
+  }
+
+  private formatAgeLabel(ageHours: number | null): string {
+    if (ageHours == null || !Number.isFinite(ageHours)) {
+      return 'No sync';
+    }
+    if (ageHours < 1 / 60) {
+      return 'Just now';
+    }
+    if (ageHours < 1) {
+      const minutes = Math.max(1, Math.round(ageHours * 60));
+      return `${minutes}m ago`;
+    }
+    if (ageHours < 24) {
+      const rounded = ageHours < 10 ? ageHours.toFixed(1) : Math.round(ageHours).toString();
+      return `${rounded}h ago`;
+    }
+    const days = Math.floor(ageHours / 24);
+    const remainderHours = Math.round(ageHours - days * 24);
+    return remainderHours > 0 ? `${days}d ${remainderHours}h ago` : `${days}d ago`;
   }
 
   getTotalCriticalCount(): number {
@@ -752,12 +1863,113 @@ export class StockStatusDashboardComponent implements OnInit {
     return null;
   }
 
+  /**
+   * Formatted "Xh ago" label for a warehouse card's synced-at line. Returns
+   * null when no freshness data is available.
+   */
+  getDataFreshnessAgeLabel(group: WarehouseStockGroup): string | null {
+    const maxAge = this.maxAgeHoursFor(group);
+    if (maxAge == null) { return null; }
+    return this.formatAgeLabel(maxAge);
+  }
+
+  getItemsPageIndex(warehouseId: number): number {
+    return this.itemsPageByWarehouse[warehouseId] ?? 1;
+  }
+
+  totalItemsPages(group: WarehouseStockGroup): number {
+    return Math.max(1, Math.ceil(this.filteredItemsFor(group).length / this.ITEMS_PAGE_SIZE));
+  }
+
+  paginatedItemsFor(group: WarehouseStockGroup): StockStatusItem[] {
+    const filtered = this.filteredItemsFor(group);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / this.ITEMS_PAGE_SIZE));
+    const page = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    const start = (page - 1) * this.ITEMS_PAGE_SIZE;
+    return filtered.slice(start, start + this.ITEMS_PAGE_SIZE);
+  }
+
+  itemsRangeFor(group: WarehouseStockGroup): { start: number; end: number; total: number } {
+    const total = this.filteredItemsFor(group).length;
+    if (total === 0) {
+      return { start: 0, end: 0, total: 0 };
+    }
+    const totalPages = this.totalItemsPages(group);
+    const page = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    const start = (page - 1) * this.ITEMS_PAGE_SIZE + 1;
+    const end = Math.min(start + this.ITEMS_PAGE_SIZE - 1, total);
+    return { start, end, total };
+  }
+
+  visibleItemsPages(group: WarehouseStockGroup): (number | '...')[] {
+    const totalPages = this.totalItemsPages(group);
+    const current = Math.min(this.getItemsPageIndex(group.warehouse_id), totalPages);
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages: (number | '...')[] = [1];
+    const startWindow = Math.max(2, current - 1);
+    const endWindow = Math.min(totalPages - 1, current + 1);
+    if (startWindow > 2) { pages.push('...'); }
+    for (let i = startWindow; i <= endWindow; i++) { pages.push(i); }
+    if (endWindow < totalPages - 1) { pages.push('...'); }
+    pages.push(totalPages);
+    return pages;
+  }
+
+  setItemsPage(warehouseId: number, page: number): void {
+    this.itemsPageByWarehouse = { ...this.itemsPageByWarehouse, [warehouseId]: page };
+  }
+
+  nextItemsPage(group: WarehouseStockGroup): void {
+    const next = Math.min(this.totalItemsPages(group), this.getItemsPageIndex(group.warehouse_id) + 1);
+    this.setItemsPage(group.warehouse_id, next);
+  }
+
+  prevItemsPage(group: WarehouseStockGroup): void {
+    const prev = Math.max(1, this.getItemsPageIndex(group.warehouse_id) - 1);
+    this.setItemsPage(group.warehouse_id, prev);
+  }
+
   getPhaseLabel(): string {
     return this.activeEvent?.phase ?? 'Unknown';
   }
 
   getEventName(): string {
     return this.activeEvent?.event_name ?? 'No Active Event';
+  }
+
+  getDemandWindowLabel(): string {
+    return this.formatWindowHours(this.resolveDemandHours());
+  }
+
+  getPlanningWindowLabel(): string {
+    return this.formatWindowHours(this.resolvePlanningHours());
+  }
+
+  private resolveDemandHours(): number {
+    const phase = this.activeEvent?.phase as EventPhase | undefined;
+    if (!phase) return 0;
+    const fromBackend = this.phaseWindows()?.windows?.[phase];
+    if (fromBackend?.demand_hours != null) return fromBackend.demand_hours;
+    return PHASE_WINDOWS[phase]?.demand_hours ?? 0;
+  }
+
+  private resolvePlanningHours(): number {
+    const phase = this.activeEvent?.phase as EventPhase | undefined;
+    if (!phase) return 0;
+    const fromBackend = this.phaseWindows()?.windows?.[phase];
+    if (fromBackend?.planning_hours != null) return fromBackend.planning_hours;
+    return PHASE_WINDOWS[phase]?.planning_hours ?? 0;
+  }
+
+  private formatWindowHours(hours: number): string {
+    if (!hours || hours <= 0) return '—';
+    if (hours % 24 === 0 && hours >= 24) {
+      const days = hours / 24;
+      return `${days}d`;
+    }
+    return `${hours}h`;
   }
 
   private saveFilterState(): void {
@@ -804,7 +2016,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.selectedCategories = state.categories || [];
         this.selectedSeverities = state.severities || [];
         this.sortBy = state.sortBy || 'time_to_stockout';
-        this.sortDirection = state.sortDirection || 'asc';
+        this.sortDirection = this.sortBy === 'severity' ? 'asc' : (state.sortDirection || 'asc');
       } catch (e) {
         console.error('Failed to load filter state:', e);
       }
@@ -916,6 +2128,12 @@ export class StockStatusDashboardComponent implements OnInit {
     });
   }
 
+  /**
+   * Cross-page-shared needs-list status label (kept for non-dashboard
+   * surfaces that pass status strings through this helper). Dashboard-owned
+   * status pills must use `displayStatus()` instead to stay on the FR02.93
+   * display vocabulary.
+   */
   statusLabel(status: string | undefined): string {
     return formatStatusLabel(status);
   }
@@ -970,6 +2188,7 @@ export class StockStatusDashboardComponent implements OnInit {
     if (!this.currentUserRef) {
       this.setMyNeedsLists([]);
       this.expandedMyNeedsListKeys.clear();
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -983,11 +2202,13 @@ export class StockStatusDashboardComponent implements OnInit {
             .slice(0, 8);
           this.setMyNeedsLists(rows);
           this.syncExpandedNeedsListKeys(rows);
+          this.markForDashboardUpdate();
         },
         error: () => {
           // Keep dashboard functional when this optional feed is unavailable.
           this.setMyNeedsLists([]);
           this.expandedMyNeedsListKeys.clear();
+          this.markForDashboardUpdate();
         }
       });
   }
@@ -1000,6 +2221,7 @@ export class StockStatusDashboardComponent implements OnInit {
   private loadMySubmissionUpdates(): void {
     if (!this.currentUserRef) {
       this.mySubmissionUpdates = [];
+      this.markForDashboardUpdate();
       return;
     }
 
@@ -1016,10 +2238,12 @@ export class StockStatusDashboardComponent implements OnInit {
 
           this.mySubmissionUpdates = updates;
           this.notifySubmitterStatusUpdates(updates);
+          this.markForDashboardUpdate();
         },
         error: () => {
           // Keep dashboard functional when this optional feed is unavailable.
           this.mySubmissionUpdates = [];
+          this.markForDashboardUpdate();
         }
       });
   }

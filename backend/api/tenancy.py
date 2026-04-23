@@ -16,6 +16,7 @@ from api.rbac import (
 
 _NEOC_TENANT_TYPES = {"NEOC", "NATIONAL_LEVEL"}
 _NEOC_TENANT_CODES = {"NEOC", "ODPEM_NEOC"}
+_PHASE_WINDOW_AUTHORITY_TENANT_CODES = {"OFFICE_OF_DISASTER_P"}
 _CROSS_TENANT_POLICY_KEY = "approval.cross_tenant_actions"
 
 
@@ -64,6 +65,24 @@ def _normalize_tenant_code(value: object) -> str:
 
 def _normalize_access_level(value: object) -> str:
     return _normalize_tenant_type(value)
+
+
+def phase_window_authority_tenant_codes() -> set[str]:
+    configured_codes = {
+        _normalize_tenant_code(value)
+        for value in getattr(settings, "NATIONAL_PHASE_WINDOW_ADMIN_CODES", [])
+        if str(value or "").strip()
+    }
+    allowed_codes = configured_codes & _PHASE_WINDOW_AUTHORITY_TENANT_CODES
+    return allowed_codes or set(_PHASE_WINDOW_AUTHORITY_TENANT_CODES)
+
+
+def is_phase_window_authority_tenant_code(value: object) -> bool:
+    normalized = _normalize_tenant_code(value)
+    return (
+        normalized in phase_window_authority_tenant_codes()
+        and normalized not in _NEOC_TENANT_CODES
+    )
 
 
 def _parse_int(value: object) -> int | None:
@@ -386,24 +405,18 @@ def can_access_tenant(
 
 def can_manage_phase_window_config(context: TenantContext) -> bool:
     """
-    Event phase demand/planning windows are centrally managed and must only be
-    configurable by ODPEM national and ODPEM-NEOC tenants.
+    Global replenishment phase windows are centrally managed and must only be
+    configurable by users who are directly assigned to the authoritative
+    ODPEM national tenant.
     """
     active_type = _normalize_tenant_type(context.active_tenant_type)
-    if active_type not in {"NATIONAL", "NEOC", "NATIONAL_LEVEL"}:
+    if active_type not in {"NATIONAL", "NATIONAL_LEVEL"}:
         return False
 
-    configured_codes = getattr(settings, "NATIONAL_PHASE_WINDOW_ADMIN_CODES", [])
-    allowed_codes = {
-        _normalize_tenant_code(value)
-        for value in configured_codes
-        if str(value or "").strip()
-    }
-    if not allowed_codes:
-        allowed_codes = {"OFFICE_OF_DISASTER_P", "ODPEM_NEOC"}
+    if context.active_tenant_id is None or context.active_tenant_id not in context.membership_tenant_ids:
+        return False
 
-    active_code = _normalize_tenant_code(context.active_tenant_code)
-    return active_code in allowed_codes
+    return is_phase_window_authority_tenant_code(context.active_tenant_code)
 
 
 def can_access_warehouse(

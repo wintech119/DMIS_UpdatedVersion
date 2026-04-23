@@ -98,6 +98,541 @@
   gap: 0.65rem;
 }
 
+// ── Notion-style hero with live context strip ──────────────────────────
+.ops-hero--with-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "lead actions"
+    "context context";
+  align-items: flex-start;
+  gap: 1.1rem 1.5rem;
+  padding: 1.6rem 1.75rem 1.4rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 0;
+}
+
+.ops-hero--with-context .ops-hero__lead {
+  grid-area: lead;
+  min-width: 0;
+}
+
+.ops-hero--with-context .ops-hero__actions {
+  grid-area: actions;
+  align-items: flex-start;
+}
+
+.ops-hero--with-context .ops-hero__context {
+  grid-area: context;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.ops-hero--with-context .ops-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #908d87;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow mat-icon {
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  line-height: 0.95rem;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow > span {
+  white-space: nowrap;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow .ops-hero__eyebrow-sep {
+  color: #908d87;
+  opacity: 0.5;
+}
+
+.ops-hero--with-context .ops-hero__eyebrow .ops-hero__eyebrow-current {
+  color: var(--color-text-primary);
+}
+
+.ops-hero--with-context .ops-hero__title {
+  font-size: clamp(1.6rem, 2.4vw, 2.05rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin: 0 0 0.4rem;
+}
+
+.ops-hero--with-context .ops-hero__copy {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.92rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.36rem 0.75rem 0.36rem 0.62rem;
+  border-radius: 999px;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  font-size: 0.78rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.ops-live-pill__dot {
+  width: 0.44rem;
+  height: 0.44rem;
+  border-radius: 50%;
+  background: #e9a23b;
+  box-shadow: 0 0 0 3px rgba(233, 162, 59, 0.18);
+  animation: ops-live-pulse 2.4s ease-in-out infinite;
+}
+
+.ops-live-pill__label {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium, 500);
+}
+
+.ops-live-pill__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-live-pill__sep {
+  color: #908d87;
+  opacity: 0.5;
+}
+
+.ops-hero__default-warehouse {
+  color: #908d87;
+  font-size: 0.78rem;
+}
+
+.ops-hero__default-warehouse strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+@keyframes ops-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-live-pill__dot {
+    animation: none;
+  }
+}
+
+// ── Shared queue hero (Package Fulfillment parity) ─────────────────────
+// Boxed white hero panel used on every operations queue page. Mirrors
+// `.pfq-hero` so Relief Requests, Eligibility, Consolidation, Dispatch and
+// Task Center render the same hero surface as Package Fulfillment.
+// Tokens: the queue hero primary tone is hoisted into these custom
+// properties so every ops queue page (and the panel/search primitives
+// below) share a single source of truth for the primary/focus color —
+// keeping PFQ + the five adopters in lockstep if the brand tone shifts.
+.ops-queue-hero,
+.ops-panel--queue {
+  --ops-queue-primary: #1f2a5a;
+  --ops-queue-primary-hover: #162046;
+  --ops-queue-focus-ring: rgba(31, 42, 90, 0.12);
+}
+
+.ops-queue-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.25rem;
+  padding: 1.25rem 1.35rem 1.1rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 1rem;
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+}
+
+.ops-queue-hero__lead {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ops-queue-hero__eyebrow {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.ops-queue-hero__eyebrow mat-icon {
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  line-height: 0.95rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__sep {
+  color: rgba(55, 53, 47, 0.35);
+}
+
+.ops-queue-hero__title {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__copy {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__context {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.ops-queue-hero__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: #f5f1e8;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  font-size: 0.78rem;
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__pill strong {
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-queue-hero__pill mat-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #b7833f;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.ops-queue-hero__pill-sep {
+  color: rgba(55, 53, 47, 0.3);
+}
+
+.ops-queue-hero__pill--status {
+  background: #fbf3e5;
+  border-color: rgba(183, 131, 63, 0.24);
+}
+
+.ops-queue-hero__pill--meta {
+  background: #f5f1e8;
+}
+
+.ops-queue-hero__meta {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-hero__meta strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.ops-queue-hero__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  align-self: start;
+}
+
+.ops-queue-hero__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-weight: var(--weight-semibold, 600);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.ops-queue-hero__btn strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-queue-hero__btn mat-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+}
+
+.ops-queue-hero__btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(26, 28, 28, 0.08);
+}
+
+.ops-queue-hero__btn:focus-visible {
+  outline: 2px solid var(--ops-queue-primary);
+  outline-offset: 2px;
+}
+
+.ops-queue-hero__btn--ghost {
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-hero__btn--primary {
+  background: var(--ops-queue-primary);
+  border-color: var(--ops-queue-primary);
+  color: #fff;
+}
+
+.ops-queue-hero__btn--primary:hover {
+  background: var(--ops-queue-primary-hover);
+}
+
+@media (max-width: 720px) {
+  .ops-queue-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-queue-hero__actions {
+    justify-content: flex-start;
+  }
+}
+
+// ── Queue panel modifier: tightens the gap between the panel title/copy
+// and the search input. Matches PFQ's `.pfq-panel__body { gap: 0.85rem }`
+// rhythm so the search does not float far from the "Queue" heading.
+// The global `styles.css` applies `.ops-panel { padding: 28px }` to every
+// ops panel, so the header + body here reset their own padding to avoid
+// doubling it (which was making RRQ look wider + more spacious than PFQ).
+// Only the body keeps a top padding so the search still breathes below
+// the heading, mirroring PFQ's `.pfq-panel__body { padding-top: 0.85rem }`.
+// `operations-theme.scss` ships `.ops-panel__header { margin: 0 0 18px }`
+// which does not apply to PFQ (PFQ uses the dedicated `.pfq-panel__header`
+// class). Zero the margin here so the queue panel's body sits the same
+// 13.6px (from `.ops-panel__body` padding-top) below the heading as PFQ
+// — previously the 18px header margin stacked on top of that 13.6px and
+// pushed the search + rows 18px lower than PFQ's panel.
+.ops-panel--queue .ops-panel__header {
+  padding: 0;
+  margin: 0;
+}
+
+.ops-panel--queue .ops-panel__body {
+  padding: 0.85rem 0 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+// Search input used inside `.ops-panel--queue`. Bare pill input (no extra
+// `.ops-toolbar` padding wrapper around it) so the field sits directly
+// below the panel heading text.
+.ops-queue-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 10px;
+}
+
+.ops-queue-search mat-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.88rem;
+  color: var(--color-text-primary);
+  min-width: 0;
+}
+
+.ops-queue-search input:focus {
+  outline: none;
+}
+
+.ops-queue-search input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.ops-queue-search:focus-within {
+  border-color: var(--ops-queue-primary);
+  box-shadow: 0 0 0 3px var(--ops-queue-focus-ring);
+}
+
+// Filter chip row inside `.ops-panel--queue`. Plain inline flex — the
+// chips themselves still use `.ops-chip` from this file.
+.ops-queue-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+// ── PFQ-parity panel heading + meta + chips ───────────────────────────
+// Tightens `.ops-panel--queue` typography and restyles the filter chips
+// to match Package Fulfillment Queue (`.pfq-panel__*` + `.pfq-chip`)
+// so every ops queue page renders the same heading rhythm, right-side
+// count slot, and Title Case chip palette.
+.ops-panel--queue .ops-panel__header > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ops-panel--queue .ops-section__title {
+  font-size: 1.1rem;
+  font-weight: var(--weight-semibold, 600);
+  line-height: normal;
+  letter-spacing: -0.01em;
+}
+
+// `.ops-section__copy` ships with `margin: 0.2rem 0 0`; zero it here so
+// the parent's `gap: 0.2rem` (see .ops-panel__header > div below) is the
+// only spacing between title and copy — matches PFQ's heading grid.
+.ops-panel--queue .ops-section__copy {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+// Right-side count meta shared with `.ops-table-shell__meta` (used by
+// consolidation + dispatch panels). Mirrors `.pfq-panel__meta`.
+.ops-panel__meta,
+.ops-table-shell__meta {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// Chip overrides scoped to the queue filter row — PFQ chips are Title
+// Case, tighter, always-bordered, with a soft grey count pill. The
+// shared `.ops-chip` base stays UPPERCASE for row status chips and
+// other contexts; we only repaint the queue toolbar chips here.
+.ops-queue-filters .ops-chip {
+  padding: 0.4rem 0.75rem;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0;
+  text-transform: none;
+  border-color: rgba(55, 53, 47, 0.12);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-filters .ops-chip:hover,
+.ops-queue-filters .ops-chip:focus-visible {
+  background: #f5f1e8;
+  color: var(--color-text-primary);
+}
+
+.ops-queue-filters .ops-chip.ops-chip--active,
+.ops-queue-filters .ops-chip.ops-chip--active:hover,
+.ops-queue-filters .ops-chip.ops-chip--active:focus-visible {
+  background: var(--color-text-primary);
+  color: #ffffff;
+  border-color: var(--color-text-primary);
+}
+
+// Unread filter chips keep the uniform pill shell — the red count pill
+// is the only unread signal. Override the base `.ops-chip--unread`
+// blue background that other contexts still use.
+.ops-queue-filters .ops-chip.ops-chip--unread {
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+  border-color: rgba(55, 53, 47, 0.12);
+  box-shadow: none;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--unread:hover,
+.ops-queue-filters .ops-chip.ops-chip--unread:focus-visible {
+  background: #f5f1e8;
+  color: var(--color-text-primary);
+}
+
+// Count pill: soft grey by default, red when the chip is marked unread,
+// translucent white when the chip is active.
+.ops-queue-filters .ops-chip .ops-chip__count {
+  min-width: 1.4rem;
+  height: auto;
+  padding: 0 0.4rem;
+  background: rgba(55, 53, 47, 0.08);
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4rem;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--unread .ops-chip__count {
+  background: #b42318;
+  color: #ffffff;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--active .ops-chip__count {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+
 .ops-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -311,6 +846,14 @@ button.ops-chip.ops-chip--active:focus-visible {
   align-items: start;
 }
 
+// Narrow-sidebar modifier for queue pages: matches Package Fulfillment
+// Queue's `.pfq-split` (minmax(0, 1fr) 18rem). Queue pages opt in so the
+// sidebar stops competing with the row meta line for horizontal space.
+.ops-grid--split.ops-grid--narrow-sidebar {
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1.1rem;
+}
+
 .ops-panel,
 .ops-card {
   border-radius: 1rem;
@@ -435,6 +978,229 @@ button.ops-chip.ops-chip--active:focus-visible {
   gap: 0.5rem;
 }
 
+// ── Notion-style row tiers (identity → flags → meta) ──────────────────
+.ops-row--tiered {
+  padding: 0.9rem 1rem 0.9rem 1.1rem;
+  position: relative;
+}
+
+.ops-row--tiered .ops-row__lead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.ops-row__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+// Shared monospace styling for tracking numbers in row titles. Mirrors
+// the tabular-nums + tight letter-spacing that PFQ uses on .pfq-row__id
+// so alphanumeric identifiers (REQ-9001, PKG-00234) line up across rows.
+.ops-row__id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ops-row--tiered .ops-row__title {
+  margin: 0;
+  font-size: 0.97rem;
+  font-weight: var(--weight-bold, 700);
+  letter-spacing: -0.015em;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.ops-row__title .pkg {
+  font-size: 0.75rem;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text-secondary);
+  letter-spacing: 0;
+  padding: 0.12rem 0.44rem;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ops-row__primary-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+  padding-left: 0.75rem;
+  border-left: 1px solid rgba(55, 53, 47, 0.12);
+}
+
+.ops-row__flags {
+  display: flex;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ops-row__flags:empty {
+  display: none;
+}
+
+.ops-row--tiered .ops-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  line-height: 1.3;
+}
+
+.ops-row__meta .meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  white-space: nowrap;
+}
+
+.ops-row__meta .meta-sep {
+  color: #908d87;
+  opacity: 0.45;
+}
+
+.ops-row__meta .meta-icon {
+  font-size: 0.82rem;
+  width: 0.82rem;
+  height: 0.82rem;
+  line-height: 0.82rem;
+  opacity: 0.55;
+}
+
+.ops-row__meta strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold, 600);
+}
+
+// ── Secondary flags (outlined, quieter than chips) ────────────────────
+.ops-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.69rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid rgba(55, 53, 47, 0.14);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.ops-flag mat-icon {
+  font-size: 0.82rem;
+  width: 0.82rem;
+  height: 0.82rem;
+  line-height: 0.82rem;
+}
+
+.ops-flag--locked {
+  background: #f5f2ea;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.25);
+}
+
+.ops-flag--draft {
+  background: #f2efe8;
+  color: #7a5a2a;
+  border-color: rgba(122, 90, 42, 0.25);
+}
+
+.ops-flag--override {
+  background: #fdecce;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.3);
+}
+
+.ops-flag--ready {
+  background: #edf7ef;
+  color: #286a36;
+  border-color: rgba(40, 106, 54, 0.25);
+}
+
+// ── State rail (left-edge 3px stripe colored by package state) ────────
+.ops-row--tiered::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+  border-radius: 2px;
+  background: rgba(55, 53, 47, 0.14);
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.ops-row--tiered.ops-row--interactive:hover::before {
+  opacity: 1;
+}
+
+.ops-row--drafts::before {
+  background: #b7833f;
+  opacity: 0.8;
+}
+
+.ops-row--preparing::before {
+  background: #7a4fd1;
+  opacity: 0.8;
+}
+
+.ops-row--ready::before {
+  background: #2e8a48;
+  opacity: 0.9;
+}
+
+.ops-row--awaiting::before {
+  background: #b7833f;
+  opacity: 0;
+}
+
+// ── Age pill tone variants ────────────────────────────────────────────
+.ops-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.3rem 0.62rem;
+  background: #fbfaf7;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-age--fresh {
+  background: #edf7ef;
+  color: #286a36;
+  border-color: rgba(40, 106, 54, 0.18);
+}
+
+.ops-age--old {
+  background: #fde8b1;
+  color: #6e4200;
+  border-color: rgba(110, 66, 0, 0.18);
+}
+
 .ops-status-chip {
   display: inline-flex;
   align-items: center;
@@ -506,6 +1272,16 @@ button.ops-chip.ops-chip--active:focus-visible {
   color: var(--color-text-primary);
 }
 
+// Shared tone modifiers so queue pages don't inline `style="color: #..."`
+// on workload/summary values. Tones align with the PFQ stage palette and
+// the ops-status-chip vocabulary.
+.ops-summary-card__value--info    { color: #17447f; }
+.ops-summary-card__value--warning { color: #b54708; }
+.ops-summary-card__value--success { color: #286a36; }
+.ops-summary-card__value--critical { color: #b42318; }
+.ops-summary-card__value--accent  { color: #3d4b99; }
+.ops-summary-card__value--muted   { color: var(--color-text-secondary); }
+
 .ops-timeline {
   display: grid;
   gap: 0.65rem;
@@ -525,7 +1301,18 @@ button.ops-chip.ops-chip--active:focus-visible {
   height: 0.8rem;
   margin-top: 0.2rem;
   border-radius: 999px;
+  background: var(--color-text-secondary);
 }
+
+// Tone modifiers for guidance timeline dots so queue pages don't inline
+// `style="background: #..."`. Hex values mirror the PFQ stage palette and
+// the tokens defined in `generation.tsx`.
+.ops-timeline__dot--info     { background: #17447f; }
+.ops-timeline__dot--warning  { background: #b54708; }
+.ops-timeline__dot--success  { background: #286a36; }
+.ops-timeline__dot--critical { background: #b42318; }
+.ops-timeline__dot--accent   { background: #7a4fd1; }
+.ops-timeline__dot--neutral  { background: var(--color-text-secondary); }
 
 .ops-timeline__content {
   display: grid;
@@ -712,6 +1499,480 @@ button.ops-chip.ops-chip--active:focus-visible {
   color: var(--color-text-tertiary);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Queue primitives (reusable tile + row)
+// Generation-style building blocks for queue pages — Package Fulfillment,
+// Dispatch, Eligibility Review, Consolidation, etc. The pattern mirrors
+// the Supply Replenishment warehouse card: a flat solid bar anchored to
+// the left edge of the card (via ::before + overflow: hidden) telegraphs
+// status/stage without the curvy feel of a plain border-left.
+// Callers set `--ops-queue-accent` (and optionally `--ops-queue-accent-width`
+// or `--ops-queue-surface`) on the tile/row or an ancestor to drive the
+// stage color and the subtle card fill. That keeps the primitive palette-
+// agnostic while each queue page controls its own tone tokens.
+// ─────────────────────────────────────────────────────────────────────────
+
+.ops-queue-tile,
+.ops-queue-row {
+  --ops-queue-accent: rgba(55, 53, 47, 0.18);
+  --ops-queue-accent-width: 6px;
+  --ops-queue-surface: var(--color-surface-container-lowest);
+  --ops-queue-border: rgba(55, 53, 47, 0.08);
+
+  position: relative;
+  overflow: hidden;
+  background: var(--ops-queue-surface);
+  border: 1px solid var(--ops-queue-border);
+  border-radius: 0.75rem;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--ops-queue-accent-width);
+    background: var(--ops-queue-accent);
+    border-top-left-radius: inherit;
+    border-bottom-left-radius: inherit;
+  }
+}
+
+.ops-queue-tile {
+  padding: 0.95rem 1rem 0.95rem 1.25rem;
+  box-shadow: 0 6px 14px rgba(26, 28, 28, 0.03);
+}
+
+.ops-queue-row {
+  // Subtle neutral fill so rows differentiate from the white queue panel
+  // while staying quiet enough for a long list. Individual queue pages
+  // may override `--ops-queue-surface` to pick a warmer/cooler tone.
+
+  --ops-queue-accent-width: 5px;
+  --ops-queue-surface: #f6f5f1;
+
+  padding: 0.85rem 1rem 0.85rem 1.15rem;
+}
+
+// Shared stage tones for `.ops-queue-row` — same palette Package Fulfillment
+// Queue uses (awaiting/drafts/preparing/ready) plus dispatch + review tones.
+// Queue pages apply one of these modifier classes per row so every queue
+// telegraphs state with the same color language.
+.ops-row--awaiting  { --ops-queue-accent: #b7833f; }
+.ops-row--drafts    { --ops-queue-accent: #3d4b99; }
+.ops-row--preparing { --ops-queue-accent: #7a4fd1; }
+.ops-row--ready     { --ops-queue-accent: #2e8a48; }
+.ops-row--transit   { --ops-queue-accent: #17447f; }
+.ops-row--completed { --ops-queue-accent: #6b7280; }
+.ops-row--critical  { --ops-queue-accent: #b42318; }
+.ops-row--warning   { --ops-queue-accent: #b54708; }
+.ops-row--info      { --ops-queue-accent: #3d4b99; }
+.ops-row--success   { --ops-queue-accent: #2e8a48; }
+.ops-row--neutral   { --ops-queue-accent: rgba(55, 53, 47, 0.18); }
+
+// ─────────────────────────────────────────────────────────────────────────
+// PFQ-parity rich row anatomy — mirrors `.pfq-row__*` + `.pfq-stage-pill`
+// + `.pfq-time-pill` + `.pfq-action` primitives so every queue page shows
+// the same three-line lead (id+chips / party / meta with icons) and the
+// right-side stage pill + time pill + action button cluster. Font + color
+// tokens match the `.pfq-shell` palette defined in `package-fulfillment-
+// queue.component.scss` so the two surfaces render identically when
+// overlaid. Queue pages only need to apply:
+//   article.ops-queue-row.ops-row--{stage}
+//     .ops-row__lead > .ops-row__header + .ops-row__party + .ops-row__meta
+//     .ops-queue-row__next > .ops-queue-row__pills + button.ops-action
+// ─────────────────────────────────────────────────────────────────────────
+
+.ops-queue-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 1rem;
+  row-gap: 0.5rem;
+  align-items: start;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(26, 28, 28, 0.05);
+  }
+
+  .ops-row__lead {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .ops-row__header {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+  }
+
+  .ops-row__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: var(--weight-semibold, 600);
+    color: #1f1b14;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ops-row__party {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: var(--weight-semibold, 600);
+    color: #1f1b14;
+  }
+
+  .ops-row__meta {
+    margin: 0;
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.85rem;
+    font-size: 0.78rem;
+    color: #5a554a;
+
+    .meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        line-height: 16px;
+        color: #5a554a;
+        opacity: 1;
+      }
+    }
+
+    .meta-sep {
+      color: rgba(55, 53, 47, 0.3);
+      opacity: 1;
+    }
+  }
+}
+
+.ops-queue-row__next {
+  display: grid;
+  gap: 0.5rem;
+  align-content: space-between;
+  justify-items: end;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.ops-queue-row__pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+// ── Stage pill (uppercase, dot + label) ─────────────────────────────────
+.ops-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #f5f1e8;
+  color: #5a554a;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  white-space: nowrap;
+}
+
+.ops-stage-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
+  display: inline-block;
+}
+
+.ops-stage-pill--awaiting  { background: #fbf3e5; color: #7f5a1f; border-color: rgba(183, 131, 63, 0.28); }
+.ops-stage-pill--drafts    { background: #eef1fb; color: #2a3880; border-color: rgba(61, 75, 153, 0.24); }
+.ops-stage-pill--preparing { background: #f3ecfb; color: #563898; border-color: rgba(122, 79, 209, 0.24); }
+.ops-stage-pill--ready     { background: #ebf5ee; color: #225d33; border-color: rgba(46, 138, 72, 0.24); }
+.ops-stage-pill--transit   { background: #e6edf7; color: #17447f; border-color: rgba(23, 68, 127, 0.24); }
+.ops-stage-pill--completed { background: #eef0f2; color: #475467; border-color: rgba(71, 84, 103, 0.24); }
+.ops-stage-pill--warning   { background: #fdf0e3; color: #b54708; border-color: rgba(181, 71, 8, 0.24); }
+.ops-stage-pill--critical  { background: #fbebea; color: #b42318; border-color: rgba(180, 35, 24, 0.24); }
+.ops-stage-pill--info      { background: #eef1fb; color: #2a3880; border-color: rgba(61, 75, 153, 0.24); }
+.ops-stage-pill--success   { background: #ebf5ee; color: #225d33; border-color: rgba(46, 138, 72, 0.24); }
+.ops-stage-pill--neutral   { background: #f5f1e8; color: #5a554a; }
+
+// ── Time-in-stage pill ──────────────────────────────────────────────────
+.ops-time-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-semibold, 600);
+  background: #f5f1e8;
+  color: #5a554a;
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  mat-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+  }
+}
+
+.ops-time-pill--fresh  { background: #ebf5ee; color: #067647; border-color: rgba(6, 118, 71, 0.22); }
+.ops-time-pill--normal { background: #f5f1e8; color: #5a554a; }
+.ops-time-pill--stale  { background: #fdf0e3; color: #b54708; border-color: rgba(181, 71, 8, 0.24); }
+.ops-time-pill--breach { background: #fbebea; color: #b42318; border-color: rgba(180, 35, 24, 0.24); }
+
+// ── Row action button (matches `.pfq-action`) ───────────────────────────
+.ops-action {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 8px;
+  font-weight: var(--weight-semibold, 600);
+  font-size: 0.82rem;
+  line-height: 1.1;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  position: relative;
+  z-index: 2;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(26, 28, 28, 0.09);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1f2a5a;
+    outline-offset: 2px;
+  }
+}
+
+.ops-action--awaiting  { background: #1f1b14; color: #fff; border-color: #1f1b14;
+  &:hover { background: #000; } }
+.ops-action--drafts    { background: #eef1fb; color: #2a3880; border-color: rgba(61, 75, 153, 0.32);
+  &:hover { background: #e2e6f5; } }
+.ops-action--preparing { background: #f3ecfb; color: #563898; border-color: rgba(122, 79, 209, 0.3);
+  &:hover { background: #e8dff5; } }
+.ops-action--ready     { background: #2e8a48; color: #fff; border-color: #2e8a48;
+  &:hover { background: #256f3a; } }
+.ops-action--transit   { background: #17447f; color: #fff; border-color: #17447f;
+  &:hover { background: #0f3361; } }
+.ops-action--completed { background: #f5f1e8; color: #5a554a; border-color: rgba(55, 53, 47, 0.14);
+  &:hover { background: #ece6d9; } }
+.ops-action--warning   { background: #fdf0e3; color: #b54708; border-color: rgba(181, 71, 8, 0.32);
+  &:hover { background: #fbe4cd; } }
+.ops-action--critical  { background: #b42318; color: #fff; border-color: #b42318;
+  &:hover { background: #931c13; } }
+.ops-action--info      { background: #eef1fb; color: #2a3880; border-color: rgba(61, 75, 153, 0.32);
+  &:hover { background: #e2e6f5; } }
+.ops-action--success   { background: #2e8a48; color: #fff; border-color: #2e8a48;
+  &:hover { background: #256f3a; } }
+.ops-action--neutral   { background: #f5f1e8; color: #1f1b14; border-color: rgba(55, 53, 47, 0.14);
+  &:hover { background: #ece6d9; } }
+
+// ── Responsive collapse (mirrors PFQ breakpoint) ────────────────────────
+@media (max-width: 1100px) {
+  .ops-queue-row {
+    grid-template-columns: 1fr;
+    row-gap: 0.75rem;
+  }
+
+  .ops-queue-row__next {
+    justify-items: stretch;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(55, 53, 47, 0.08);
+  }
+
+  .ops-queue-row__pills {
+    justify-content: flex-start;
+  }
+
+  .ops-action {
+    justify-self: start;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Queue sidebar cards — mirrors Package Fulfillment Queue's `.pfq-side-card`
+// + `.pfq-glance` + `.pfq-tips` so every queue page presents workload and
+// guidance in an identical PFQ-shaped sidebar column.
+// ─────────────────────────────────────────────────────────────────────────
+
+.ops-queue-sidebar {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.ops-queue-side-card {
+  padding: 0.95rem 1rem;
+  border-radius: 0.9rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid rgba(55, 53, 47, 0.08);
+  box-shadow: 0 18px 36px rgba(26, 28, 28, 0.04);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ops-queue-side-card__header {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.ops-queue-side-card__eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #5a554a;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.ops-queue-side-card__title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-weight: var(--weight-semibold, 600);
+  color: #1f1b14;
+}
+
+.ops-queue-glance {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.ops-queue-glance__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ops-queue-glance__row--total {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.ops-queue-glance__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+}
+
+.ops-queue-glance__cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.ops-queue-glance__label {
+  font-size: 0.78rem;
+  color: #5a554a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-queue-glance__value {
+  font-size: 0.95rem;
+  font-weight: var(--weight-semibold, 600);
+  color: #1f1b14;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.ops-queue-glance__value--lg {
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.ops-queue-glance__value--awaiting  { color: #b7833f; }
+.ops-queue-glance__value--drafts    { color: #3d4b99; }
+.ops-queue-glance__value--preparing { color: #7a4fd1; }
+.ops-queue-glance__value--ready     { color: #2e8a48; }
+.ops-queue-glance__value--critical  { color: #b42318; }
+.ops-queue-glance__value--warning   { color: #b54708; }
+.ops-queue-glance__value--info      { color: #17447f; }
+.ops-queue-glance__value--success   { color: #2e8a48; }
+.ops-queue-glance__value--accent    { color: #7a4fd1; }
+
+.ops-queue-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ops-queue-tips__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.6rem;
+  background: #f9f7f2;
+}
+
+.ops-queue-tips__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.5rem;
+  border-radius: 999px;
+  background: rgba(55, 53, 47, 0.28);
+  flex-shrink: 0;
+}
+
+.ops-queue-tips__dot--info     { background: #3d4b99; }
+.ops-queue-tips__dot--warning  { background: #b7833f; }
+.ops-queue-tips__dot--accent   { background: #7a4fd1; }
+.ops-queue-tips__dot--success  { background: #2e8a48; }
+.ops-queue-tips__dot--critical { background: #b42318; }
+
+.ops-queue-tips__body {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ops-queue-tips__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: var(--weight-semibold, 600);
+  color: #1f1b14;
+  line-height: 1.3;
+}
+
+.ops-queue-tips__meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #5a554a;
+  line-height: 1.45;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ops-row {
     transition: none;
@@ -740,6 +2001,16 @@ button.ops-chip.ops-chip--active:focus-visible {
     justify-content: flex-start;
   }
 
+  .ops-hero--with-context {
+    grid-template-columns: 1fr;
+    grid-template-areas: "lead" "actions" "context";
+    padding: 1.25rem;
+  }
+
+  .ops-hero--with-context .ops-hero__actions {
+    justify-content: flex-start;
+  }
+
   .ops-kpi-grid,
   .ops-summary-grid,
   .ops-detail-meta {
@@ -748,5 +2019,18 @@ button.ops-chip.ops-chip--active:focus-visible {
 
   .ops-row {
     grid-template-columns: 1fr;
+  }
+
+  .ops-row--tiered .ops-row__actions {
+    justify-content: space-between;
+    align-self: start;
+    padding-top: 0.4rem;
+    border-top: 1px dashed rgba(55, 53, 47, 0.14);
+  }
+
+  .ops-row__primary-chips {
+    padding-left: 0;
+    border-left: 0;
+    width: 100%;
   }
 }

@@ -1,222 +1,60 @@
-// Time-to-Stockout Component Styles
 .time-to-stockout-container {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 180px;
-  padding: 8px;
-  border-radius: 4px;
-  transition: all 0.3s ease;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
 
   .stockout-main {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-
-    .action-icon {
-      font-size: 24px;
-      width: 24px;
-      height: 24px;
-      flex-shrink: 0;
-    }
+    gap: 6px;
 
     .stockout-text {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
 
       .countdown {
-        font-weight: var(--weight-semibold);
-        font-size: var(--text-base);
+        font-weight: 600;
+        font-size: 13px;
         line-height: 1.2;
       }
 
       .urgency-badge {
         display: inline-block;
-        padding: 2px 6px;
+        padding: 1px 5px;
         font-size: 9px;
-        font-weight: var(--weight-bold);
+        font-weight: 700;
         text-transform: uppercase;
-        border-radius: 2px;
-        background-color: #c82333; // Darker red for WCAG compliance
-        color: white;
-        width: fit-content;
+        border-radius: 3px;
+        background-color: #B42318;
+        color: #fff;
         letter-spacing: 0.5px;
       }
     }
   }
 
-  .progress-container {
-    width: 100%;
+  .progress-container { display: none; }
 
-    mat-progress-bar {
-      height: 6px;
-      border-radius: 3px;
-      overflow: hidden;
+  &.severity-critical .countdown { color: #B42318; }
+  &.severity-warning  .countdown { color: #B54708; }
+  &.severity-watch    .countdown { color: #B54708; }
+  &.severity-ok       .countdown { color: #067647; }
 
-      ::ng-deep .mat-mdc-progress-bar-buffer {
-        background-color: rgba(0, 0, 0, 0.1);
-      }
-    }
-  }
-
-  // Severity-based color coding (WCAG AA compliant colors)
-  &.severity-critical {
-    background-color: #fff5f5;
-    border-left: 4px solid #c82333;
-
-    .action-icon {
-      color: #c82333; // Darker for better contrast
-    }
-
-    .countdown {
-      color: #c82333; // Darker for better contrast
-    }
-
-    .progress-critical ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #c82333;
-    }
-  }
-
-  &.severity-warning {
-    background-color: #fffbf0;
-    border-left: 4px solid #e8590c;
-
-    .action-icon {
-      color: #e8590c; // Darker for better contrast
-    }
-
-    .countdown {
-      color: #e8590c; // Darker for better contrast
-    }
-
-    .progress-warning ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #e8590c;
-    }
-  }
-
-  &.severity-watch {
-    background-color: #fffef0;
-    border-left: 4px solid #e6a700;
-
-    .action-icon {
-      color: #b38600; // Darker for better contrast
-    }
-
-    .countdown {
-      color: #b38600; // Darker for better contrast
-    }
-
-    .progress-watch ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #e6a700;
-    }
-  }
-
-  &.severity-ok {
-    background-color: #f0fdf4;
-    border-left: 4px solid #218838;
-
-    .action-icon {
-      color: #218838; // Darker for better contrast
-    }
-
-    .countdown {
-      color: #218838; // Darker for better contrast
-    }
-
-    .progress-ok ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #218838;
-    }
-  }
-
-  // Hover effect
-  &:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transform: translateY(-1px);
-  }
-
-  &.compact-mode {
-    min-width: 0;
-    padding: 0;
-  }
-}
-
-// Pulse animation for CRITICAL items
-@keyframes pulse {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  &.compact-mode { min-width: 0; padding: 0; }
 }
 
 @keyframes pulse-text {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 1;
-  }
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
 }
 
-.pulse-animation {
-  animation: pulse 2s ease-in-out infinite;
-}
+.pulse-text { animation: pulse-text 2s ease-in-out infinite; }
 
-.pulse-text {
-  animation: pulse-text 2s ease-in-out infinite;
-}
-
-// Respect user preference for reduced motion
 @media (prefers-reduced-motion: reduce) {
-  .pulse-animation,
-  .pulse-text {
-    animation: none;
-  }
-}
-
-// Mobile responsiveness
-@media (max-width: 768px) {
-  .time-to-stockout-container {
-    min-width: 140px;
-    padding: 6px;
-
-    .stockout-main {
-      gap: 6px;
-
-      .action-icon {
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-      }
-
-      .stockout-text {
-        .countdown {
-          font-size: 12px;
-        }
-
-        .urgency-badge {
-          font-size: 8px;
-          padding: 1px 4px;
-        }
-      }
-    }
-
-    .progress-container {
-      mat-progress-bar {
-        height: 4px;
-      }
-    }
-  }
+  .pulse-text { animation: none; }
 }

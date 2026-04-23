@@ -349,6 +349,18 @@ export interface PackageAbandonDraftResponse {
 }
 
 /**
+ * Backend-computed rationale for a warehouse card's rank position. Dates are
+ * raw ISO strings so existing pipes (DatePipe) format them at render time.
+ */
+export interface RankingContext {
+  basis: 'FEFO' | 'FIFO' | string;
+  top_batch_id: number | null;
+  top_batch_no: string | null;
+  top_batch_date: string | null;
+  top_expiry_date: string | null;
+}
+
+/**
  * One warehouse's contribution toward an item, as the backend pre-ranked and
  * pre-filled it for the Stock-Aware step. Every warehouse card in the payload
  * represents a warehouse that currently holds stock of the item — the
@@ -359,12 +371,33 @@ export interface WarehouseAllocationCard {
   warehouse_name: string;
   /** Zero-based rank within the FEFO/FIFO-ordered list of cards. */
   rank: number;
+  /** True when this warehouse is the FEFO/FIFO-recommended source (typically rank 0). */
+  recommended?: boolean;
   issuance_order: 'FEFO' | 'FIFO' | string;
   /** Total available usable stock for this item at this warehouse. */
   total_available: string;
+  /**
+   * Available qty after subtracting the operator's draft allocations. Absent on
+   * the initial GET; populated on POST preview responses. Falls back to
+   * {@link total_available} when missing.
+   */
+  allocatable_available_qty?: string;
   /** Server-suggested greedy fill against the item's remaining requested qty. */
   suggested_qty: string;
+  /** Ranking rationale metadata; null when backend omits it. */
+  ranking_context?: RankingContext | null;
   batches: WarehouseAllocationBatch[];
+  /**
+   * Client-only synthetic marker. Set to `true` when the frontend has added
+   * a card for an alternate warehouse that the user selected via
+   * "Add next warehouse" but the backend allocation-preview POST has not yet
+   * returned its batch detail. These cards render with a subtle "loading"
+   * visual cue and a trimmed metric strip until the preview populates.
+   *
+   * NEVER set by the backend — the normalizer leaves it undefined. Intended
+   * only to differentiate real, pre-ranked cards from in-flight placeholders.
+   */
+  pending?: boolean;
 }
 
 export interface AllocationItemGroup {
@@ -392,6 +425,10 @@ export interface AllocationItemGroup {
   override_required: boolean;
   /** Source warehouse for this item (set when using per-item warehouse override). */
   source_warehouse_id?: number | null;
+  /** Ranked/selected warehouse IDs currently active for this item. */
+  selected_warehouse_ids?: number[];
+  /** Backend-recommended primary warehouse, when a ranked option exists. */
+  recommended_warehouse_id?: number | null;
   /** Data-integrity issue for the active source warehouse aggregate, if any. */
   stock_integrity_issue?: string | null;
   /** Quantity still needed after using this warehouse only. */
@@ -413,7 +450,8 @@ export interface AllocationItemGroup {
 }
 
 export interface ItemAllocationPreviewPayload {
-  source_warehouse_id: number;
+  source_warehouse_id?: number;
+  additional_warehouse_ids?: number[];
   draft_allocations: SuggestedAllocationLine[];
 }
 

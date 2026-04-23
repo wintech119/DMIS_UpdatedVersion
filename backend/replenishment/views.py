@@ -57,6 +57,7 @@ from api.rbac import (
     PERM_PROCUREMENT_ORDER,
     PERM_PROCUREMENT_RECEIVE,
     PERM_PROCUREMENT_CANCEL,
+    PERM_NATIONAL_ACT_CROSS_TENANT,
     resolve_roles_and_permissions,
 )
 from api.tenancy import (
@@ -67,6 +68,7 @@ from api.tenancy import (
     tenant_context_to_dict,
 )
 from api.task_engine import TaskRule, resolve_available_tasks
+from operations import policy as operations_policy
 from replenishment import rules, workflow_store_db
 from replenishment.models import (
     NeedsList,
@@ -311,6 +313,9 @@ def _status_matches(
 
 
 def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> int | None:
+    if isinstance(value, bool):
+        errors[field_name] = "Must be a positive integer."
+        return None
     if isinstance(value, float):
         errors[field_name] = "Must be an integer."
         return None
@@ -712,6 +717,185 @@ def _tenant_context(request):
     return context
 
 
+def _required_idempotency_key(request) -> str:
+    idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
+    if not idempotency_key:
+        raise ValueError("Idempotency-Key header is required.")
+    return idempotency_key
+
+
+def _idempotency_resource_id(record: Mapping[str, Any] | str) -> str:
+    if isinstance(record, Mapping):
+        return str(record.get("needs_list_id") or record.get("needs_list_no") or "unknown")
+    return str(record or "unknown")
+
+
+def _idempotency_cache_key(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> str:
+    actor_id = str(_actor_id(request) or "SYSTEM")
+    tenant_context = _tenant_context(request)
+    tenant_id = (
+        getattr(tenant_context, "active_tenant_id", None)
+        or getattr(tenant_context, "requested_tenant_id", None)
+        or "unknown"
+    )
+    digest = hashlib.sha256(str(idempotency_key).encode("utf-8")).hexdigest()
+    return f"replenishment:idempotency:{endpoint}:{actor_id}:{tenant_id}:{_idempotency_resource_id(record)}:{digest}"
+
+
+def _normalize_idempotency_request_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_idempotency_request_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_idempotency_request_value(item) for item in value]
+    return value
+
+
+def _request_idempotency_fingerprint(request) -> str:
+    try:
+        payload = getattr(request, "data", None)
+    except Exception:
+        payload = None
+
+    if payload not in (None, ""):
+        serialized = json.dumps(
+            _normalize_idempotency_request_value(payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    raw_body = getattr(request, "body", b"") or b""
+    if isinstance(raw_body, str):
+        raw_body = raw_body.encode("utf-8")
+    return hashlib.sha256(raw_body).hexdigest()
+
+
+def _cached_idempotent_response(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> Response | None:
+    cached_result = cache.get(
+        _idempotency_cache_key(idempotency_key, request, record, endpoint=endpoint)
+    )
+    if not isinstance(cached_result, dict):
+        return None
+    return _cached_idempotent_http_response(request, cached_result)
+
+
+def _cached_idempotent_http_response(
+    request,
+    cached_result: Mapping[str, Any],
+) -> Response:
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cached_fingerprint = str(cached_result.get("_request_fingerprint") or "").strip()
+    if cached_fingerprint and cached_fingerprint != request_fingerprint:
+        return Response(
+            {
+                "errors": {
+                    "idempotency_key": (
+                        "Idempotency-Key was already used for a different request payload."
+                    )
+                }
+            },
+            status=409,
+        )
+    response_payload = {
+        key: value
+        for key, value in cached_result.items()
+        if key != "_request_fingerprint"
+    }
+    return Response(response_payload)
+
+
+def _begin_idempotent_response(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> tuple[str, str | None, str | None, Response | None]:
+    cache_key = _idempotency_cache_key(idempotency_key, request, record, endpoint=endpoint)
+    cached_result = cache.get(cache_key)
+    if isinstance(cached_result, dict):
+        return cache_key, None, None, _cached_idempotent_http_response(request, cached_result)
+
+    reservation_key = f"{cache_key}:in_progress"
+    reservation_token = uuid.uuid4().hex
+    if not cache.add(
+        reservation_key,
+        reservation_token,
+        timeout=_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS,
+    ):
+        cached_result = cache.get(cache_key)
+        if isinstance(cached_result, dict):
+            return cache_key, None, None, _cached_idempotent_http_response(request, cached_result)
+        return (
+            cache_key,
+            None,
+            None,
+            Response(
+                {"errors": {"idempotency_key": "A request with this Idempotency-Key is already in progress."}},
+                status=400,
+            ),
+        )
+    return cache_key, reservation_key, reservation_token, None
+
+
+def _release_idempotency_reservation(reservation_key: str | None, reservation_token: str | None) -> None:
+    if reservation_key and reservation_token and cache.get(reservation_key) == reservation_token:
+        cache.delete(reservation_key)
+
+
+def _cache_idempotent_response_after_commit(
+    cache_key: str,
+    payload: dict[str, Any],
+    *,
+    request_fingerprint: str,
+    reservation_key: str | None,
+    reservation_token: str | None,
+) -> None:
+    def _store() -> None:
+        try:
+            cache.set(
+                cache_key,
+                {
+                    **payload,
+                    "_request_fingerprint": request_fingerprint,
+                },
+                timeout=_IDEMPOTENCY_TTL_SECONDS,
+            )
+        except Exception:
+            logger.exception(
+                "idempotency_cache_store_failed",
+                extra={"event_type": "CACHE_WRITE_FAILURE", "cache_key": cache_key},
+            )
+        finally:
+            _release_idempotency_reservation(reservation_key, reservation_token)
+
+    try:
+        transaction.on_commit(_store)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
+
+
+def _idempotency_key_error_response(exc: ValueError) -> Response:
+    return Response({"errors": {"idempotency_key": str(exc)}}, status=400)
+
+
 def _should_enforce_tenant_scope(request) -> bool:
     """
     Rollout gate for strict tenant scope enforcement.
@@ -817,6 +1001,58 @@ def _record_tenant_id(record: Dict[str, Any], snapshot: Dict[str, Any] | None = 
     return resolve_warehouse_tenant_id(warehouse_id)
 
 
+def _is_odpem_replenishment_only_record(record: Mapping[str, Any]) -> bool:
+    warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+    warehouse_ids: list[int] = []
+    if warehouse_id is not None:
+        warehouse_ids.append(warehouse_id)
+    raw_warehouse_ids = record.get("warehouse_ids")
+    if isinstance(raw_warehouse_ids, (list, tuple, set)):
+        for raw_warehouse_id in raw_warehouse_ids:
+            parsed_warehouse_id = _to_int_or_none(raw_warehouse_id)
+            if parsed_warehouse_id is not None:
+                warehouse_ids.append(parsed_warehouse_id)
+
+    for candidate_warehouse_id in dict.fromkeys(warehouse_ids):
+        resolved_owner = resolve_warehouse_tenant_id(candidate_warehouse_id)
+        owner_tenant_code = None
+        if isinstance(resolved_owner, Mapping):
+            owner_tenant_id = _to_int_or_none(resolved_owner.get("tenant_id"))
+            owner_tenant_code = resolved_owner.get("tenant_code")
+        elif isinstance(resolved_owner, (list, tuple)):
+            owner_tenant_id = _to_int_or_none(resolved_owner[0] if resolved_owner else None)
+            owner_tenant_code = resolved_owner[1] if len(resolved_owner) > 1 else None
+        else:
+            owner_tenant_id = _to_int_or_none(resolved_owner)
+        if owner_tenant_id is not None and operations_policy.is_odpem_tenant(
+            owner_tenant_id,
+            tenant_code=owner_tenant_code,
+        ):
+            return True
+    return False
+
+
+def _odpem_replenishment_only_response(record: Mapping[str, Any], *, action: str) -> Response:
+    return Response(
+        {
+            "errors": {
+                "source_needs_list_id": {
+                    "code": "odpem_replenishment_only_needs_list",
+                    "message": (
+                        "ODPEM HQ/NATIONAL needs lists are replenishment sourcing records only "
+                        "and cannot become ODPEM-owned Operations relief request demand."
+                    ),
+                    "action": action,
+                    "needs_list_id": record.get("needs_list_id"),
+                    "needs_list_no": record.get("needs_list_no"),
+                    "warehouse_id": record.get("warehouse_id"),
+                }
+            }
+        },
+        status=409,
+    )
+
+
 def _audit_username(request) -> str | None:
     return getattr(request.user, "username", None)
 
@@ -895,6 +1131,19 @@ _NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS = 20
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_PER_MINUTE = 10
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS = 60
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
+    _NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS + 5
+)
+_HIGH_RISK_SURGE_ROLE_CODES = {
+    "LOGISTICS_OFFICER",
+    "LOGISTICS_MANAGER",
+    "AGENCY_DISTRIBUTOR",
+}
+_HIGH_RISK_SURGE_PHASES = {"SURGE", "STABILIZED"}
+_IDEMPOTENCY_TTL_SECONDS = 15 * 60
+_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS = 60
 
 
 def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
@@ -1141,6 +1390,171 @@ def _needs_list_export_rate_limited_response(
     )
     response["Retry-After"] = str(retry_after)
     return response
+
+
+def _normalize_role_codes(values: Any) -> set[str]:
+    normalized: set[str] = set()
+    for raw_value in values or ():
+        candidate = str(raw_value or "").strip().upper().replace("-", "_").replace(" ", "_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        if candidate:
+            normalized.add(candidate)
+    return normalized
+
+
+def _needs_list_high_risk_rate_limit_key(
+    *,
+    actor_user_id: str,
+    tenant_id: int | None,
+    scope: str,
+) -> str:
+    return ":".join(
+        [
+            "needs-list-high-risk-rate-limit",
+            scope,
+            str(actor_user_id or "SYSTEM"),
+            str(tenant_id or "unknown"),
+        ]
+    )
+
+
+def _scaled_needs_list_high_risk_limit(
+    request,
+    *,
+    base_limit: int,
+    active_event_phase: str | None,
+) -> int:
+    if active_event_phase not in _HIGH_RISK_SURGE_PHASES:
+        return base_limit
+
+    roles, permissions = resolve_roles_and_permissions(request, request.user)
+    normalized_roles = _normalize_role_codes(roles)
+    permission_set = {str(permission or "").strip().lower() for permission in permissions}
+    has_override = bool(normalized_roles & _HIGH_RISK_SURGE_ROLE_CODES) or (
+        PERM_NATIONAL_ACT_CROSS_TENANT.lower() in permission_set
+    )
+    return base_limit * 2 if has_override else base_limit
+
+
+def _claim_needs_list_high_risk_slot(
+    request,
+    *,
+    actor_user_id: str,
+    tenant_id: int | None,
+    scope: str,
+) -> tuple[bool, int]:
+    active_event_phase: str | None = None
+    if not connection.in_atomic_block:
+        active_event = data_access.get_active_event() or {}
+        active_event_phase = str(active_event.get("phase") or "").strip().upper() or None
+    capacity = float(
+        _scaled_needs_list_high_risk_limit(
+            request,
+            base_limit=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_PER_MINUTE,
+            active_event_phase=active_event_phase,
+        )
+    )
+    refill_window = float(_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS)
+    refill_rate = capacity / refill_window
+    now = timezone.now().timestamp()
+    cache_key = _needs_list_high_risk_rate_limit_key(
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        scope=scope,
+    )
+    lock_key = f"{cache_key}:lock"
+    client_ip = _request_client_ip(request)
+    lock_owner_token = _acquire_needs_list_export_rate_limit_lock(lock_key)
+    if not lock_owner_token:
+        logger.warning(
+            "request.throttled",
+            extra=build_log_extra(
+                request,
+                event="request.throttled",
+                status_code=429,
+                endpoint_tier="high_risk_ops",
+                active_event_phase=active_event_phase,
+                enforcement_key=cache_key,
+                actor_user_id=actor_user_id,
+                tenant_id=tenant_id,
+                client_ip=client_ip,
+                token_count=0.0,
+                retry_after=1,
+                throttle_reason="lock_timeout",
+            ),
+        )
+        return False, 1
+
+    try:
+        state = cache.get(cache_key) or {}
+        tokens = float(state.get("tokens", capacity))
+        last_refill = float(state.get("last_refill", now))
+        elapsed = max(now - last_refill, 0.0)
+        tokens = min(capacity, tokens + (elapsed * refill_rate))
+
+        if tokens < 1.0:
+            retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
+            cache.set(
+                cache_key,
+                {"tokens": tokens, "last_refill": now},
+                timeout=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+            )
+            logger.warning(
+                "request.throttled",
+                extra=build_log_extra(
+                    request,
+                    event="request.throttled",
+                    status_code=429,
+                    endpoint_tier="high_risk_ops",
+                    active_event_phase=active_event_phase,
+                    enforcement_key=cache_key,
+                    actor_user_id=actor_user_id,
+                    tenant_id=tenant_id,
+                    client_ip=client_ip,
+                    token_count=round(tokens, 3),
+                    retry_after=retry_after,
+                    throttle_reason="token_bucket_exhausted",
+                ),
+            )
+            return False, retry_after
+
+        cache.set(
+            cache_key,
+            {"tokens": tokens - 1.0, "last_refill": now},
+            timeout=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+        )
+        return True, 1
+    finally:
+        _release_needs_list_export_rate_limit_lock(lock_key, lock_owner_token)
+
+
+def _needs_list_high_risk_rate_limited_response(retry_after: int) -> Response:
+    response = Response({"detail": "Rate limit exceeded."}, status=429)
+    response["Retry-After"] = str(retry_after)
+    return response
+
+
+def _high_risk_transition_rate_limit_response(
+    request,
+    *,
+    actor_user_id: str,
+    scope: str,
+) -> Response | None:
+    tenant_context = _tenant_context(request)
+    tenant_id = (
+        getattr(tenant_context, "active_tenant_id", None)
+        or getattr(tenant_context, "requested_tenant_id", None)
+    )
+    allowed, retry_after = _claim_needs_list_high_risk_slot(
+        request,
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        scope=scope,
+    )
+    if allowed:
+        return None
+    return _needs_list_high_risk_rate_limited_response(retry_after)
 
 
 def _queue_export_job_log_extra(
@@ -1828,16 +2242,14 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
 
     phase = payload.get("phase")
     warnings_phase: list[str] = []
-    as_of_raw = payload.get("as_of_datetime")
     as_of_dt = timezone.now()
-    if as_of_raw:
-        parsed = parse_datetime(as_of_raw)
-        if parsed is None:
-            errors["as_of_datetime"] = "Must be an ISO-8601 datetime string."
-        else:
-            if timezone.is_naive(parsed):
-                parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
-            as_of_dt = parsed
+    parsed_as_of = _parse_optional_datetime(
+        payload.get("as_of_datetime"),
+        "as_of_datetime",
+        errors,
+    )
+    if parsed_as_of is not None:
+        as_of_dt = parsed_as_of
 
     if errors:
         return {}, errors
@@ -1854,27 +2266,10 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     planning_window_hours = int(windows["planning_hours"])
     planning_window_days = planning_window_hours / 24
 
-    horizon_a_setting = getattr(settings, "NEEDS_HORIZON_A_DAYS", 7)
-    try:
-        horizon_a_hours = int(horizon_a_setting) * 24
-    except (TypeError, ValueError):
-        logger.warning(
-            "Invalid NEEDS_HORIZON_A_DAYS setting %r, defaulting to 7",
-            horizon_a_setting,
-        )
-        horizon_a_hours = 7 * 24
-    horizon_b_days_setting = getattr(settings, "NEEDS_HORIZON_B_DAYS", None)
-    if horizon_b_days_setting is None:
-        horizon_b_hours = max(planning_window_hours - horizon_a_hours, 0)
-    else:
-        try:
-            horizon_b_hours = int(horizon_b_days_setting or 0) * 24
-        except (TypeError, ValueError):
-            logger.warning(
-                "Invalid NEEDS_HORIZON_B_DAYS setting %r, defaulting to 0",
-                horizon_b_days_setting,
-            )
-            horizon_b_hours = 0
+    horizon_lead_times = phase_window_policy.get_default_horizon_lead_times()
+    horizon_a_hours = int(horizon_lead_times["A"]["lead_time_hours"])
+    horizon_b_hours = int(horizon_lead_times["B"]["lead_time_hours"])
+    horizon_c_hours = int(horizon_lead_times["C"]["lead_time_hours"])
 
     (
         available_by_item,
@@ -1943,6 +2338,7 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         safety_factor=safety_factor,
         horizon_a_hours=horizon_a_hours,
         horizon_b_hours=horizon_b_hours,
+        horizon_c_hours=horizon_c_hours,
         burn_source=burn_source,
         as_of_dt=as_of_dt,
         phase=phase,
@@ -1984,6 +2380,19 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
                     },
                 )
 
+    def _freshness_state(item: Mapping[str, Any]) -> str:
+        freshness = item.get("freshness")
+        if isinstance(freshness, str):
+            return freshness.strip().upper()
+        if isinstance(freshness, dict):
+            return str(freshness.get("state") or "").strip().upper()
+        legacy_state = item.get("freshness_state")
+        if isinstance(legacy_state, str):
+            return legacy_state.strip().upper()
+        if isinstance(legacy_state, Mapping):
+            return str(legacy_state.get("state") or legacy_state.get("value") or "").strip().upper()
+        return ""
+
     response = {
         "as_of_datetime": (
             restored_snapshot.get("as_of_datetime", as_of_dt.isoformat())
@@ -1994,6 +2403,28 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         "event_id": event_id,
         "warehouse_id": warehouse_id,
         "phase": phase,
+        "phase_window": windows,
+        "horizon_lead_times_hours": {
+            key: int(value["lead_time_hours"])
+            for key, value in horizon_lead_times.items()
+        },
+        "freshness_summary": {
+            "HIGH": sum(
+                1
+                for item in items
+                if _freshness_state(item) == "HIGH"
+            ),
+            "MEDIUM": sum(
+                1
+                for item in items
+                if _freshness_state(item) == "MEDIUM"
+            ),
+            "LOW": sum(
+                1
+                for item in items
+                if _freshness_state(item) == "LOW"
+            ),
+        },
         "items": items,
         "warnings": warnings,
     }
@@ -3880,13 +4311,26 @@ def assign_storage_location(request):
     assert inventory_id is not None
     assert location_id is not None
 
+    scope_error = _require_warehouse_scope(request, inventory_id, write=True)
+    if scope_error:
+        return scope_error
+
+    actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="assign_storage_location",
+    )
+    if rate_limited is not None:
+        return rate_limited
+
     try:
         result = location_storage.assign_storage_location(
             item_id=item_id,
             inventory_id=inventory_id,
             location_id=location_id,
             batch_id=batch_id,
-            actor_id=_actor_id(request),
+            actor_id=actor_user_id,
         )
     except location_storage.LocationAssignmentError as exc:
         return Response({"errors": {exc.code: exc.message}}, status=exc.status_code)
@@ -4023,6 +4467,15 @@ def inventory_repackaging(request):
     if scope_error:
         return scope_error
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="inventory_repackaging_create",
+    )
+    if rate_limited is not None:
+        return rate_limited
+
     try:
         record, warnings = repackaging_service.create_repackaging_transaction(
             warehouse_id=warehouse_id,
@@ -4036,7 +4489,7 @@ def inventory_repackaging(request):
             batch_or_lot=str(body.get("batch_or_lot") or "").strip(),
             client_target_qty=body.get("target_qty"),
             client_equivalent_default_qty=body.get("equivalent_default_qty"),
-            actor_id=_actor_id(request),
+            actor_id=actor_user_id,
         )
     except RepackagingError as exc:
         response_payload: Dict[str, Any] = {
@@ -4812,6 +5265,18 @@ def needs_list_approve(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_approve",
+    )
+    if cached_response is not None:
+        return cached_response
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -4859,11 +5324,25 @@ def needs_list_approve(request, needs_list_id: str):
     if not role_set.intersection(required_roles):
         return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 
-    record = workflow_store.transition_status(record, "APPROVED", actor)
-    record["approval_tier"] = approval.get("tier")
-    record["approval_rationale"] = approval_rationale
-    record["submitted_approval_summary"] = approval_summary
-    workflow_store.update_record(needs_list_id, record)
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_approve",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(record, "APPROVED", actor)
+            record["approval_tier"] = approval.get("tier")
+            record["approval_rationale"] = approval_rationale
+            record["submitted_approval_summary"] = approval_summary
+            workflow_store.update_record(needs_list_id, record)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_approved",
@@ -4883,7 +5362,15 @@ def needs_list_approve(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        request_fingerprint=request_fingerprint,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5032,11 +5519,20 @@ def needs_list_start_preparation(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="start_preparation")
 
     if record.get("status") != "APPROVED":
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
 
     actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_start_preparation",
+    )
+    if rate_limited is not None:
+        return rate_limited
     target_status = _workflow_target_status("IN_PREPARATION")
     with transaction.atomic():
         record = workflow_store.transition_status(
@@ -5091,6 +5587,21 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="mark_dispatched")
+
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_dispatched",
+    )
+    if cached_response is not None:
+        return cached_response
 
     if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
@@ -5103,28 +5614,48 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_dispatched",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_dispatched",
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
     try:
         with transaction.atomic():
-            dispatch_result = allocation_dispatch.dispatch_package(
-                _allocation_context_from_record(record, request.data or {}, link=link),
-                actor_user_id=actor_user_id,
-                transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
-            )
-            reliefrqst_id = dispatch_result.get("reliefrqst_id")
-            reliefpkg_id = dispatch_result.get("reliefpkg_id")
-            if reliefrqst_id is None or reliefpkg_id is None:
-                raise allocation_dispatch.AllocationDispatchError(
-                    "Dispatch did not return committed request/package identifiers.",
-                    code="legacy_context_missing",
+            dispatch_result: dict[str, Any] = {}
+            if link is not None and link.reliefrqst_id is not None and link.reliefpkg_id is not None:
+                dispatch_result = allocation_dispatch.dispatch_package(
+                    _allocation_context_from_record(record, request.data or {}, link=link),
+                    actor_user_id=actor_user_id,
+                    transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+                    idempotency_key=idempotency_key,
                 )
-            execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
-                record
-            )
-            if execution_needs_list_id is None:
-                raise allocation_dispatch.AllocationDispatchError(
-                    "Dispatch requires a persisted needs list execution context.",
-                    code="legacy_context_missing",
+                reliefrqst_id = dispatch_result.get("reliefrqst_id")
+                reliefpkg_id = dispatch_result.get("reliefpkg_id")
+                if reliefrqst_id is None or reliefpkg_id is None:
+                    raise allocation_dispatch.AllocationDispatchError(
+                        "Dispatch did not return committed request/package identifiers.",
+                        code="legacy_context_missing",
+                    )
+                execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
+                    record
                 )
+                if execution_needs_list_id is None:
+                    raise allocation_dispatch.AllocationDispatchError(
+                        "Dispatch requires a persisted needs list execution context.",
+                        code="legacy_context_missing",
+                    )
             record = workflow_store.transition_status(
                 record,
                 target_status,
@@ -5132,18 +5663,23 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
                 stage="DISPATCHED",
             )
             workflow_store.update_record(needs_list_id, record)
-            _upsert_execution_link(
-                needs_list_id=execution_needs_list_id,
-                actor_user_id=actor_user_id,
-                reliefrqst_id=reliefrqst_id,
-                reliefpkg_id=reliefpkg_id,
-                execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
-                waybill_no=dispatch_result.get("waybill_no"),
-                waybill_payload=dispatch_result.get("waybill_payload"),
-                dispatched=True,
-            )
+            if dispatch_result:
+                _upsert_execution_link(
+                    needs_list_id=execution_needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=reliefrqst_id,
+                    reliefpkg_id=reliefpkg_id,
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                    waybill_no=dispatch_result.get("waybill_no"),
+                    waybill_payload=dispatch_result.get("waybill_payload"),
+                    dispatched=True,
+                )
     except allocation_dispatch.AllocationDispatchError as exc:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {exc.code: exc.message}}, status=409)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_dispatched",
@@ -5157,7 +5693,15 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        request_fingerprint=request_fingerprint,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5178,6 +5722,21 @@ def needs_list_mark_received(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(record, action="mark_received")
+
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_received",
+    )
+    if cached_response is not None:
+        return cached_response
 
     if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
@@ -5189,25 +5748,46 @@ def needs_list_mark_received(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
-    with transaction.atomic():
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="RECEIVED",
-        )
-        workflow_store.update_record(needs_list_id, record)
-        link = _execution_link_for_record(record)
-        if link is not None:
-            _upsert_execution_link(
-                needs_list_id=link.needs_list_id,
-                actor_user_id=actor_user_id,
-                reliefrqst_id=link.reliefrqst_id,
-                reliefpkg_id=link.reliefpkg_id,
-                selected_method=link.selected_method,
-                execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
-                received=True,
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_received",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_received",
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="RECEIVED",
             )
+            workflow_store.update_record(needs_list_id, record)
+            link = _execution_link_for_record(record)
+            if link is not None:
+                _upsert_execution_link(
+                    needs_list_id=link.needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=link.reliefrqst_id,
+                    reliefpkg_id=link.reliefpkg_id,
+                    selected_method=link.selected_method,
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
+                    received=True,
+                )
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_received",
@@ -5221,7 +5801,15 @@ def needs_list_mark_received(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        request_fingerprint=request_fingerprint,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5253,6 +5841,13 @@ def needs_list_mark_completed(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("COMPLETED")
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_completed",
+    )
+    if rate_limited is not None:
+        return rate_limited
     with transaction.atomic():
         record = workflow_store.transition_status(record, target_status, actor_user_id)
         workflow_store.update_record(needs_list_id, record)
@@ -5384,6 +5979,25 @@ def _allocation_commit_response(
     if error_response is not None:
         return error_response
     assert record is not None
+    if _is_odpem_replenishment_only_record(record):
+        return _odpem_replenishment_only_response(
+            record,
+            action="approve_allocation_override" if approval_required else "commit_allocation",
+        )
+
+    endpoint = "needs_list_allocations_override_approve" if approval_required else "needs_list_allocations_commit"
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint=endpoint,
+    )
+    if cached_response is not None:
+        return cached_response
 
     payload = dict(payload_override or request.data or {})
     actor_user_id = _actor_id(request) or "SYSTEM"
@@ -5477,6 +6091,23 @@ def _allocation_commit_response(
     context = _allocation_context_from_record(record, payload, link=link)
     if selected_method is not None:
         context["selected_method"] = selected_method
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint=endpoint,
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope=endpoint,
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
 
     try:
         with transaction.atomic():
@@ -5490,6 +6121,7 @@ def _allocation_commit_response(
                     submitter_user_id=getattr(link, "override_requested_by", None),
                     override_reason_code=override_reason_code,
                     override_note=override_note,
+                    idempotency_key=idempotency_key,
                 )
             else:
                 result = allocation_dispatch.commit_allocation(
@@ -5498,6 +6130,7 @@ def _allocation_commit_response(
                     actor_user_id=actor_user_id,
                     override_reason_code=override_reason_code or None,
                     override_note=override_note or None,
+                    idempotency_key=idempotency_key,
                 )
 
             needs_list_obj = NeedsList.objects.select_for_update().get(needs_list_id=needs_list_pk)
@@ -5526,14 +6159,26 @@ def _allocation_commit_response(
                 override_approved=approval_required,
             )
     except allocation_dispatch.AllocationDispatchError as exc:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {exc.code: exc.message}}, status=409)
     except NeedsList.DoesNotExist:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     refreshed = workflow_store.get_record(needs_list_id) or record
     response_payload = _serialize_workflow_record(refreshed, include_overrides=True)
     response_payload["override_required"] = bool(result.get("override_required"))
     response_payload["override_markers"] = result.get("override_markers") or []
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        request_fingerprint=request_fingerprint,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
     return Response(response_payload)
 
 

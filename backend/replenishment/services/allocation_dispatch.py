@@ -893,6 +893,7 @@ def _log_audit(
     new_value: Any = None,
     reason_code: str | None = None,
     notes_text: str | None = None,
+    request_id: str | None = None,
 ) -> None:
     from replenishment.models import NeedsListAudit
 
@@ -905,6 +906,7 @@ def _log_audit(
         new_value=None if new_value is None else str(new_value),
         reason_code=reason_code,
         notes_text=notes_text,
+        request_id=request_id,
         actor_user_id=str(actor_user_id),
     )
 
@@ -1591,10 +1593,92 @@ def commit_allocation(
     supervisor_user_id: str | None = None,
     supervisor_role_codes: Iterable[str] | None = None,
     allow_pending_override: bool = True,
+    override_markers: Sequence[str] | None = None,
+    manager_direct_commit: bool = False,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     ctx = _normalize_context(context)
     needs_list = _load_needs_list(ctx.needs_list_id)
     needs_items_list = _load_needs_list_items(needs_list.needs_list_id)
+
+    selected_rows = _group_plan_rows(selections)
+    if not selected_rows:
+        raise AllocationDispatchError(
+            "At least one allocation selection is required.",
+            code="allocation_selection_missing",
+        )
+
+    needs_items = {item.item_id: item for item in needs_items_list}
+    rows_by_item = _package_plan_map(selected_rows)
+    selected_item_ids = set(rows_by_item)
+    missing_item_ids = sorted(selected_item_ids - set(needs_items))
+    if missing_item_ids:
+        raise AllocationDispatchError(
+            f"Allocation contains item(s) not present in the needs list: {', '.join(str(item_id) for item_id in missing_item_ids)}.",
+            code="allocation_item_not_in_needs",
+        )
+    if override_markers is None:
+        candidate_by_item: dict[int, list[dict[str, Any]]] = {}
+        for item_id in sorted(selected_item_ids):
+            item = Item.objects.filter(item_id=item_id).first()
+            if item is None:
+                raise AllocationDispatchError(
+                    (
+                        "Allocation item metadata is missing for "
+                        f"item {item_id} at warehouse {needs_list.warehouse_id}."
+                    ),
+                    code="allocation_item_metadata_missing",
+                )
+            candidate_by_item[item_id] = sort_batch_candidates(
+                item,
+                _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
+            )
+
+        resolved_override_markers: list[str] = []
+        for item_id, rows in rows_by_item.items():
+            candidates = candidate_by_item.get(item_id, [])
+            target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
+            recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)
+            if remaining > 0:
+                resolved_override_markers.append("insufficient_on_hand_stock")
+            if _group_plan_rows(recommended) != rows:
+                resolved_override_markers.append("allocation_order_override")
+        override_markers = resolved_override_markers
+    override_markers = list(
+        dict.fromkeys(
+            str(marker).strip()
+            for marker in override_markers
+            if str(marker).strip()
+        )
+    )
+    approval_markers = _approval_required_override_markers(override_markers)
+    effective_manager_direct_commit = (
+        bool(approval_markers) and allow_pending_override and manager_direct_commit
+    )
+    if effective_manager_direct_commit:
+        validate_override_approval(
+            approver_user_id=supervisor_user_id,
+            approver_role_codes=supervisor_role_codes,
+            submitter_user_id=ctx.submitted_by or actor_user_id,
+            needs_list_submitted_by=needs_list.submitted_by,
+        )
+    override_required = (
+        bool(approval_markers) and allow_pending_override and not effective_manager_direct_commit
+    )
+
+    if override_markers:
+        if not override_reason_code:
+            raise OverrideApprovalError(
+                "Override reason code is required for non-compliant allocations.",
+                code="override_details_missing",
+            )
+    if approval_markers:
+        if not override_note:
+            raise OverrideApprovalError(
+                "Override note is required for allocations awaiting approval.",
+                code="override_details_missing",
+            )
+
     request, package = _ensure_legacy_request_package(
         ctx,
         needs_list=needs_list,
@@ -1628,62 +1712,6 @@ def commit_allocation(
             code="package_version_mismatch",
         )
 
-    selected_rows = _group_plan_rows(selections)
-    if not selected_rows:
-        raise AllocationDispatchError(
-            "At least one allocation selection is required.",
-            code="allocation_selection_missing",
-        )
-
-    needs_items = {item.item_id: item for item in needs_items_list}
-    selected_item_ids = {int(row["item_id"]) for row in selected_rows}
-    missing_item_ids = sorted(selected_item_ids - set(needs_items))
-    if missing_item_ids:
-        raise AllocationDispatchError(
-            f"Allocation contains item(s) not present in the needs list: {', '.join(str(item_id) for item_id in missing_item_ids)}.",
-            code="allocation_item_not_in_needs",
-        )
-    candidate_by_item: dict[int, list[dict[str, Any]]] = {}
-    for item_id in needs_items:
-        item = Item.objects.filter(item_id=item_id).first() or {"issuance_order": "FIFO"}
-        candidate_by_item[item_id] = sort_batch_candidates(
-            item,
-            _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
-        )
-
-    override_markers: list[str] = []
-    for item_id, rows in _package_plan_map(selected_rows).items():
-        candidates = candidate_by_item.get(item_id, [])
-        target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
-        recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)
-        if remaining > 0:
-            override_markers.append("insufficient_on_hand_stock")
-        if _group_plan_rows(recommended) != rows:
-            override_markers.append("allocation_order_override")
-    override_markers = list(dict.fromkeys(override_markers))
-    approval_markers = _approval_required_override_markers(override_markers)
-    override_required = bool(approval_markers)
-
-    if override_markers:
-        if not override_reason_code:
-            raise OverrideApprovalError(
-                "Override reason code is required for non-compliant allocations.",
-                code="override_details_missing",
-            )
-    if override_required:
-        if not override_note:
-            raise OverrideApprovalError(
-                "Override note is required for allocations awaiting approval.",
-                code="override_details_missing",
-            )
-        if not allow_pending_override:
-            validate_override_approval(
-                approver_user_id=supervisor_user_id,
-                approver_role_codes=supervisor_role_codes,
-                submitter_user_id=ctx.submitted_by or actor_user_id,
-                needs_list_submitted_by=needs_list.submitted_by,
-            )
-
     current_reserved = current_package_status in {
         "P",
         "C",
@@ -1716,7 +1744,7 @@ def commit_allocation(
         )
         package_status = "P"
         audit_action = (
-            "ALLOCATION_OVERRIDE_APPROVED" if override_required else "ALLOCATION_COMMITTED"
+            "ALLOCATION_OVERRIDE_APPROVED" if approval_markers else "ALLOCATION_COMMITTED"
         )
     else:
         package_status = "A"
@@ -1737,6 +1765,7 @@ def commit_allocation(
         action_type=audit_action,
         reason_code=override_reason_code if override_markers else "allocation_commit",
         notes_text=override_note,
+        request_id=idempotency_key,
     )
 
     return {
@@ -1777,6 +1806,7 @@ def approve_override(
     submitter_user_id: str | None = None,
     expected_request_version_nbr: int | None = None,
     expected_package_version_nbr: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     ctx = _normalize_context(context)
     needs_list = _load_needs_list(ctx.needs_list_id)
@@ -1797,6 +1827,7 @@ def approve_override(
         supervisor_user_id=supervisor_user_id,
         supervisor_role_codes=supervisor_role_codes,
         allow_pending_override=False,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -1905,6 +1936,7 @@ def dispatch_package(
     expected_request_version_nbr: int | None = None,
     expected_package_version_nbr: int | None = None,
     transport_mode: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     from replenishment.legacy_models import ReliefPkg, ReliefRqst, ReliefRqstItem
 
@@ -2040,6 +2072,7 @@ def dispatch_package(
         action_type="DISPATCHED",
         reason_code="dispatch",
         notes_text=waybill_payload["waybill_no"],
+        request_id=idempotency_key,
     )
     return {
         "status": "DISPATCHED",

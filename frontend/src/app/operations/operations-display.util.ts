@@ -32,7 +32,7 @@ const REQUEST_STATUS_TONES: Record<string, OperationsTone> = {
   DRAFT: 'draft',
   SUBMITTED: 'review',
   UNDER_ELIGIBILITY_REVIEW: 'review',
-  APPROVED_FOR_FULFILLMENT: 'review',
+  APPROVED_FOR_FULFILLMENT: 'success',
   PARTIALLY_FULFILLED: 'warning',
   FULFILLED: 'success',
   INELIGIBLE: 'danger',
@@ -64,13 +64,13 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
 
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
-  A: 'draft',
+  A: 'muted',
   P: 'review',
   V: 'success',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
-  DRAFT: 'draft',
+  DRAFT: 'muted',
   PENDING_OVERRIDE_APPROVAL: 'warning',
   REJECTED: 'danger',
   COMMITTED: 'success',
@@ -130,8 +130,8 @@ const URGENCY_LABELS: Record<string, string> = {
 const URGENCY_TONES: Record<string, OperationsTone> = {
   C: 'danger',
   H: 'warning',
-  M: 'review',
-  L: 'muted',
+  M: 'warning',
+  L: 'review',
 };
 
 const FULFILLMENT_ENTRY_REQUEST_STATUSES = new Set([
@@ -480,6 +480,64 @@ export function formatOperationsAge(value: string | null | undefined): string {
   }
   const days = Math.round(hours / 24);
   return days === 1 ? '1 day' : `${days} days`;
+}
+
+// Relative "Updated" label for the ops queue hero meta pill. Takes an epoch
+// milliseconds timestamp (typically Date.now() captured when the queue
+// successfully refreshed) and returns a human-friendly freshness phrase.
+export function formatOperationsRefreshedLabel(timestampMs: number | null | undefined): string {
+  if (timestampMs == null || !Number.isFinite(timestampMs)) {
+    return 'just now';
+  }
+  const diffMs = Date.now() - timestampMs;
+  if (diffMs < 60_000) {
+    return 'just now';
+  }
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) {
+    return minutes === 1 ? '1 min ago' : `${minutes} mins ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return hours === 1 ? '1 hr ago' : `${hours} hrs ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
+export type OperationsTimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
+
+// Shared SLA thresholds (hours) — same placeholder values the Package
+// Fulfillment Queue uses so every ops queue rings the same time-in-stage
+// pill color language. Queue pages simply feed the row's "created" or
+// "updated" timestamp into `getOperationsTimeInStageTone`.
+const OPERATIONS_TIME_IN_STAGE_THRESHOLDS = {
+  fresh: 4,
+  normal: 24,
+  stale: 48,
+} as const;
+
+export function getOperationsTimeInStageTone(
+  value: string | null | undefined,
+): OperationsTimeInStageTone {
+  if (!value) {
+    return 'normal';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'normal';
+  }
+  const hours = Math.max(0, (Date.now() - parsed.getTime()) / (60 * 60 * 1000));
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.fresh) {
+    return 'fresh';
+  }
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.normal) {
+    return 'normal';
+  }
+  if (hours < OPERATIONS_TIME_IN_STAGE_THRESHOLDS.stale) {
+    return 'stale';
+  }
+  return 'breach';
 }
 
 export function extractOperationsErrorMessage(value: unknown): string | null {

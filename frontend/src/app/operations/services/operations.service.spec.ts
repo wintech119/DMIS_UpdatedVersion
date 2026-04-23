@@ -517,6 +517,33 @@ describe('OperationsService', () => {
     });
   });
 
+  it('adds an idempotency key when abandoning a package draft', () => {
+    service.abandonDraft(44, 'Reset this fulfillment').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/abandon-draft');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^package-abandon-44-/);
+    request.flush({ status: 'ABANDONED', reliefpkg_id: 44, reliefrqst_id: 12 });
+  });
+
+  it('uses a caller-supplied idempotency key when abandoning a package draft', () => {
+    service.abandonDraft(44, 'Reset this fulfillment', 'retry-key-44').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/abandon-draft');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('retry-key-44');
+    request.flush({ status: 'ABANDONED', reliefpkg_id: 44, reliefrqst_id: 12 });
+  });
+
+  it('falls back to a generated idempotency key when the caller-supplied abandon key is blank', () => {
+    service.abandonDraft(44, 'Reset this fulfillment', '   ').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/abandon-draft');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^package-abandon-44-/);
+    request.flush({ status: 'ABANDONED', reliefpkg_id: 44, reliefrqst_id: 12 });
+  });
+
   it('normalizes consolidation leg status codes before deriving the fallback label', () => {
     let result: unknown;
 
@@ -590,6 +617,56 @@ describe('OperationsService', () => {
     request.flush({ reliefpkg_id: 44, status: 'DISPATCHED' });
   });
 
+  it('adds an idempotency key when dispatching a consolidation leg', () => {
+    service.dispatchConsolidationLeg(44, 301, { driver_name: 'Driver One' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/dispatch');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^consolidation-leg-dispatch-44-301-/);
+    request.flush({
+      status: 'IN_TRANSIT',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'IN_TRANSIT' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when dispatching a consolidation leg', () => {
+    service.dispatchConsolidationLeg(44, 301, { driver_name: 'Driver One' }, 'dispatch-leg-44-301-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/dispatch');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('dispatch-leg-44-301-fixed');
+    request.flush({
+      status: 'IN_TRANSIT',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'IN_TRANSIT' },
+    });
+  });
+
+  it('adds an idempotency key when receiving a consolidation leg', () => {
+    service.receiveConsolidationLeg(44, 301, { received_by_name: 'Officer One' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/receive');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^consolidation-leg-receive-44-301-/);
+    request.flush({
+      status: 'RECEIVED_AT_STAGING',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'RECEIVED_AT_STAGING' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when receiving a consolidation leg', () => {
+    service.receiveConsolidationLeg(44, 301, { received_by_name: 'Officer One' }, 'receive-leg-44-301-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/receive');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('receive-leg-44-301-fixed');
+    request.flush({
+      status: 'RECEIVED_AT_STAGING',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'RECEIVED_AT_STAGING' },
+    });
+  });
+
   it('adds an idempotency key when confirming receipt', () => {
     service.confirmReceipt(44, { received_by_name: 'Receiver One' }).subscribe();
 
@@ -606,6 +683,77 @@ describe('OperationsService', () => {
     expect(request.request.method).toBe('POST');
     expect(request.request.headers.get('Idempotency-Key')).toMatch(/^allocation-commit-12-/);
     request.flush({ status: 'COMMITTED', reliefrqst_id: 12, reliefpkg_id: 44 });
+  });
+
+  it('adds an idempotency key when requesting a partial release', () => {
+    service.requestPartialRelease(44, { reason: 'Split urgent items.' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/request');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^partial-release-request-44-/);
+    request.flush({
+      status: 'PARTIAL_RELEASE_REQUESTED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'PARTIAL_RELEASE_REQUESTED' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when requesting a partial release', () => {
+    service.requestPartialRelease(44, { reason: 'Split urgent items.' }, 'partial-release-request-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/request');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('partial-release-request-44-fixed');
+    request.flush({
+      status: 'PARTIAL_RELEASE_REQUESTED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'PARTIAL_RELEASE_REQUESTED' },
+    });
+  });
+
+  it('adds an idempotency key when approving a partial release', () => {
+    service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/approve');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^partial-release-approve-44-/);
+    request.flush({
+      parent: { reliefpkg_id: 44 },
+      released_child: { reliefpkg_id: 45 },
+      residual_child: { reliefpkg_id: 46 },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when approving a partial release', () => {
+    service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }, 'partial-release-approve-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/approve');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('partial-release-approve-44-fixed');
+    request.flush({
+      parent: { reliefpkg_id: 44 },
+      released_child: { reliefpkg_id: 45 },
+      residual_child: { reliefpkg_id: 46 },
+    });
+  });
+
+  it('adds an idempotency key when submitting pickup release', () => {
+    service.submitPickupRelease(44, { collected_by_name: 'Driver One' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/pickup-release');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^pickup-release-44-/);
+    request.flush({
+      status: 'RECEIVED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'RECEIVED' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when submitting pickup release', () => {
+    service.submitPickupRelease(44, { collected_by_name: 'Driver One' }, 'pickup-release-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/pickup-release');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('pickup-release-44-fixed');
+    request.flush({
+      status: 'RECEIVED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'RECEIVED' },
+    });
   });
 
   it('adds an idempotency key when submitting a relief request', () => {

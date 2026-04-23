@@ -2,21 +2,23 @@ import {
   Component,
   ChangeDetectionStrategy,
   computed,
+  DestroyRef,
   inject,
   signal,
   OnInit,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { interval } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
-import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
+import type { OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OperationsService } from '../services/operations.service';
 import { PackageQueueItem } from '../models/operations.model';
 import {
@@ -42,20 +44,49 @@ import {
 
 export type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready';
 type FulfillmentStage = FulfillmentFilter | 'excluded';
+export type TimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 
 const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
 const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
+const FULFILLMENT_FILTERS = new Set<string>([
+  'all',
+  'awaiting',
+  'drafts',
+  'preparing',
+  'ready',
+]);
+
+const PAGE_SIZE = 5;
+
+// SLA thresholds (hours) — placeholder per design spec §14 Q2.
+const TIME_IN_STAGE_THRESHOLDS = {
+  fresh: 4,
+  normal: 24,
+  stale: 48,
+} as const;
+
+interface ActionInboxPill {
+  readonly token: Exclude<FulfillmentFilter, 'all'>;
+  readonly label: string;
+  readonly count: number;
+  readonly severity: 'info' | 'warning' | 'success';
+  readonly icon: string;
+}
+
+interface WarehouseFilterOption {
+  readonly value: string;
+  readonly label: string;
+}
 
 @Component({
   selector: 'app-package-fulfillment-queue',
   standalone: true,
   imports: [
     FormsModule,
+    RouterLink,
     MatButtonModule,
     MatIconModule,
-    OpsMetricStripComponent,
-    OpsStatusChipComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
   ],
@@ -67,8 +98,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly seenStorageScope = 'package-fulfillment';
   private readonly warnedOutOfContractRequestIds = new Set<number>();
+  private readonly nowTick = signal(Date.now());
 
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
@@ -76,27 +109,46 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly activeFilter = signal<FulfillmentFilter>('all');
   readonly seenFilters = signal<Record<string, number[]>>({});
+  readonly page = signal(1);
+
+  // Secondary scoped filters rendered as toolbar selects — currently
+  // presentational pass-through; backend integration is tracked as a
+  // follow-up so the visual toolbar matches the approved design today.
+  readonly priorityFilter = signal<'all' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+  readonly warehouseFilter = signal<string>('all');
+  readonly sortOrder = signal<'oldest' | 'newest'>('oldest');
 
   readonly errored = computed(() => !this.loading() && this.loadError() !== null);
 
   readonly filterOptions: readonly { label: string; value: FulfillmentFilter }[] = [
+    { label: 'All', value: 'all' },
     { label: 'Awaiting', value: 'awaiting' },
     { label: 'Drafts', value: 'drafts' },
     { label: 'Preparing', value: 'preparing' },
     { label: 'Ready', value: 'ready' },
-    { label: 'All', value: 'all' },
   ];
+
+  readonly pageSize = PAGE_SIZE;
 
   readonly filteredItems = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
     const filter = this.activeFilter();
+    const priority = this.priorityFilter();
+    const warehouse = this.warehouseFilter();
+    const sortOrder = this.sortOrder();
 
-    return this.items().filter((row) => {
+    const rows = this.items().filter((row) => {
       const stage = this.getFulfillmentStage(row);
       if (stage === 'excluded') {
         return false;
       }
       if (filter !== 'all' && stage !== filter) {
+        return false;
+      }
+      if (priority !== 'all' && this.priorityBucket(row) !== priority) {
+        return false;
+      }
+      if (warehouse !== 'all' && this.rowWarehouseId(row) !== warehouse) {
         return false;
       }
       if (!term) {
@@ -115,41 +167,176 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         .toLowerCase();
       return haystack.includes(term);
     });
+
+    return rows.sort((left, right) => {
+      const leftTime = this.rowTimestamp(left);
+      const rightTime = this.rowTimestamp(right);
+      if (leftTime === rightTime) {
+        return left.reliefrqst_id - right.reliefrqst_id;
+      }
+      if (leftTime === null) {
+        return 1;
+      }
+      if (rightTime === null) {
+        return -1;
+      }
+      return sortOrder === 'newest' ? rightTime - leftTime : leftTime - rightTime;
+    });
+  });
+
+  readonly totalPages = computed(() =>
+    Math.max(1, Math.ceil(this.filteredItems().length / PAGE_SIZE)),
+  );
+
+  readonly currentPage = computed(() => Math.min(this.page(), this.totalPages()));
+
+  readonly pagedItems = computed(() => {
+    const rows = this.filteredItems();
+    const page = this.currentPage();
+    const start = (page - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  });
+
+  readonly pageRange = computed(() => {
+    const total = this.filteredItems().length;
+    if (total === 0) {
+      return { start: 0, end: 0, total: 0 };
+    }
+    const page = this.currentPage();
+    const start = (page - 1) * PAGE_SIZE + 1;
+    const end = Math.min(start + PAGE_SIZE - 1, total);
+    return { start, end, total };
+  });
+
+  readonly visiblePages = computed<(number | 'ellipsis')[]>(() => {
+    const total = this.totalPages();
+    const current = this.currentPage();
+    if (total <= 5) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const pages: (number | 'ellipsis')[] = [1];
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    if (start > 2) pages.push('ellipsis');
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push('ellipsis');
+    pages.push(total);
+    return pages;
   });
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const total = items.length;
     const awaiting = items.filter((item) => this.getFulfillmentStage(item) === 'awaiting').length;
     const drafts = items.filter((item) => this.getFulfillmentStage(item) === 'drafts').length;
     const preparing = items.filter((item) => this.getFulfillmentStage(item) === 'preparing').length;
     const ready = items.filter((item) => this.getFulfillmentStage(item) === 'ready').length;
     return [
-      { label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue' },
-      { label: 'Drafts To Resume', value: drafts, note: 'Saved package work' },
-      { label: 'Preparing', value: preparing, note: 'Reservation in progress' },
-      { label: 'Ready to Dispatch', value: ready, note: 'Packages committed' },
-      { label: 'All Requests', value: total, note: 'Visible in the queue' },
+      {
+        id: 'awaiting' as const,
+        label: 'Awaiting Fulfillment',
+        value: awaiting,
+        note: 'New work in queue',
+        icon: 'pending_actions',
+      },
+      {
+        id: 'drafts' as const,
+        label: 'Drafts to Resume',
+        value: drafts,
+        note: 'Saved package work',
+        icon: 'drafts',
+      },
+      {
+        id: 'preparing' as const,
+        label: 'Preparing',
+        value: preparing,
+        note: 'Reservation in progress',
+        icon: 'inventory_2',
+      },
+      {
+        id: 'ready' as const,
+        label: 'Ready to Dispatch',
+        value: ready,
+        note: 'Packages committed',
+        icon: 'local_shipping',
+      },
     ];
   });
 
-  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() =>
-    this.queueStats().map((stat) => ({
+  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
+    const active = this.activeFilter();
+    return this.queueStats().map((stat) => ({
       label: stat.label,
       value: String(stat.value),
       hint: stat.note,
-    })),
+      interactive: true,
+      token: stat.id,
+      active: active === stat.id,
+      icon: stat.icon,
+      ariaLabel: `Filter queue to ${stat.label.toLowerCase()}, ${stat.value} ${stat.value === 1 ? 'package' : 'packages'}${active === stat.id ? ', active filter' : ''}`,
+    }));
+  });
+
+  readonly activeQueueCount = computed(() =>
+    this.queueStats().reduce((total, stat) => total + stat.value, 0),
   );
 
-  readonly sidebarSummary = computed(() => {
-    const rows = this.filteredItems();
-    return {
-      total: rows.length,
-      awaiting: rows.filter((r) => this.getFulfillmentStage(r) === 'awaiting').length,
-      drafts: rows.filter((r) => this.getFulfillmentStage(r) === 'drafts').length,
-      preparing: rows.filter((r) => this.getFulfillmentStage(r) === 'preparing').length,
-      ready: rows.filter((r) => this.getFulfillmentStage(r) === 'ready').length,
-    };
+  readonly defaultWarehouseLabel = signal('All warehouses');
+
+  readonly warehouseOptions = computed<readonly WarehouseFilterOption[]>(() => {
+    const options = new Map<string, WarehouseFilterOption>();
+    for (const row of this.items()) {
+      const warehouseId = this.rowWarehouseId(row);
+      if (!warehouseId || options.has(warehouseId)) {
+        continue;
+      }
+      options.set(warehouseId, {
+        value: warehouseId,
+        label: `Warehouse ${warehouseId}`,
+      });
+    }
+    return Array.from(options.values()).sort(
+      (left, right) => Number(left.value) - Number(right.value),
+    );
+  });
+
+  readonly actionInbox = computed<readonly ActionInboxPill[]>(() => {
+    const stats = this.queueStats();
+    const awaiting = stats.find((s) => s.id === 'awaiting')?.value ?? 0;
+    const drafts = stats.find((s) => s.id === 'drafts')?.value ?? 0;
+    const ready = stats.find((s) => s.id === 'ready')?.value ?? 0;
+
+    const pills: ActionInboxPill[] = [];
+    if (drafts > 0) {
+      pills.push({
+        token: 'drafts',
+        label: drafts === 1 ? '1 draft to resume' : `${drafts} drafts to resume`,
+        count: drafts,
+        severity: 'info',
+        icon: 'edit_note',
+      });
+    }
+    if (awaiting > 0) {
+      pills.push({
+        token: 'awaiting',
+        label:
+          awaiting === 1
+            ? '1 awaiting stock reservation'
+            : `${awaiting} awaiting stock reservation`,
+        count: awaiting,
+        severity: 'warning',
+        icon: 'pending_actions',
+      });
+    }
+    if (ready > 0) {
+      pills.push({
+        token: 'ready',
+        label: ready === 1 ? '1 ready to hand off' : `${ready} ready to hand off`,
+        count: ready,
+        severity: 'success',
+        icon: 'local_shipping',
+      });
+    }
+    return pills;
   });
 
   readonly unreadCounts = computed<Record<FulfillmentFilter, number>>(() => {
@@ -165,6 +352,17 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     };
   });
 
+  readonly filterChipCounts = computed<Record<FulfillmentFilter, number>>(() => {
+    const stats = this.queueStats();
+    return {
+      all: this.activeQueueCount(),
+      awaiting: stats.find((s) => s.id === 'awaiting')?.value ?? 0,
+      drafts: stats.find((s) => s.id === 'drafts')?.value ?? 0,
+      preparing: stats.find((s) => s.id === 'preparing')?.value ?? 0,
+      ready: stats.find((s) => s.id === 'ready')?.value ?? 0,
+    };
+  });
+
   readonly formatPackageStatus = formatOperationsPackageStatus;
   readonly formatRequestStatus = formatOperationsRequestStatus;
   readonly formatUrgency = formatOperationsUrgency;
@@ -176,6 +374,9 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly getUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.nowTick.set(Date.now()));
     this.loadSeenFilters();
     this.refreshQueue();
   }
@@ -230,15 +431,208 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   onSearch(value: string): void {
     this.searchTerm.set(value);
+    this.page.set(1);
   }
 
   setFilter(filter: FulfillmentFilter): void {
+    if (this.activeFilter() !== filter) {
+      this.page.set(1);
+    }
     this.activeFilter.set(filter);
     this.markFilterSeen(filter);
   }
 
+  onMetricClick(item: OpsMetricStripItem): void {
+    const token = String(item.token ?? '');
+    if (!this.isFulfillmentFilter(token)) {
+      return;
+    }
+    this.setFilter(token);
+  }
+
+  onInboxClick(pill: ActionInboxPill): void {
+    this.setFilter(pill.token);
+  }
+
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  nextAction(row: PackageQueueItem): { label: string } {
+    const stage = this.getFulfillmentStage(row);
+    switch (stage) {
+      case 'drafts':
+        return { label: 'Resume draft' };
+      case 'preparing':
+        return { label: 'Continue packing' };
+      case 'ready':
+        return { label: 'Hand off to dispatch' };
+      case 'awaiting':
+      default:
+        return { label: 'Allocate stock' };
+    }
+  }
+
+  nextActionAriaLabel(row: PackageQueueItem): string {
+    const { label } = this.nextAction(row);
+    const id = row.tracking_no ?? `REQ-${row.reliefrqst_id}`;
+    return `${label} for ${id}`;
+  }
+
+  timeInStageHours(row: PackageQueueItem): number | null {
+    const now = this.nowTick();
+    const value = row.create_dtime ?? row.request_date;
+    if (!value) {
+      return null;
+    }
+    const then = new Date(value).getTime();
+    if (Number.isNaN(then)) {
+      return null;
+    }
+    return Math.max(0, (now - then) / (60 * 60 * 1000));
+  }
+
+  timeInStageTone(row: PackageQueueItem): TimeInStageTone {
+    const hours = this.timeInStageHours(row);
+    if (hours === null) {
+      return 'normal';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.fresh) {
+      return 'fresh';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.normal) {
+      return 'normal';
+    }
+    if (hours < TIME_IN_STAGE_THRESHOLDS.stale) {
+      return 'stale';
+    }
+    return 'breach';
+  }
+
+  stageLabel(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    switch (stage) {
+      case 'awaiting':
+        return 'Awaiting';
+      case 'drafts':
+        return 'Draft';
+      case 'preparing':
+        return 'Preparing';
+      case 'ready':
+        return 'Ready';
+      default:
+        return '—';
+    }
+  }
+
+  stageBadgeLabel(id: 'awaiting' | 'drafts' | 'preparing' | 'ready'): string {
+    switch (id) {
+      case 'awaiting':
+        return 'AWAITING';
+      case 'drafts':
+        return 'DRAFT';
+      case 'preparing':
+        return 'PREPARING';
+      case 'ready':
+        return 'READY';
+    }
+  }
+
+  inboxBody(pill: ActionInboxPill): string {
+    // Strip the leading numeric count because the badge already shows it —
+    // keeps the row visually balanced without duplicating the number.
+    return pill.label.replace(/^\d+\s+/, '');
+  }
+
+  onPriorityChange(value: string): void {
+    const next = (value === 'HIGH' || value === 'MEDIUM' || value === 'LOW')
+      ? value
+      : 'all';
+    this.priorityFilter.set(next);
+  }
+
+  onWarehouseChange(value: string): void {
+    this.warehouseFilter.set(value || 'all');
+  }
+
+  onSortChange(value: string): void {
+    this.sortOrder.set(value === 'newest' ? 'newest' : 'oldest');
+  }
+
+  stageDotClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? '' : `ops-stage-dot--${stage}`;
+  }
+
+  stageClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? '' : `ops-row--${stage}`;
+  }
+
+  actionClass(row: PackageQueueItem): string {
+    const stage = this.getFulfillmentStage(row);
+    return stage === 'excluded' ? 'pfq-action--awaiting' : `pfq-action--${stage}`;
+  }
+
+  ageClass(row: PackageQueueItem): string {
+    const days = this.ageInDays(row.create_dtime ?? row.request_date);
+    if (days === null) {
+      return '';
+    }
+    if (days >= 14) {
+      return 'ops-age--old';
+    }
+    if (days <= 3) {
+      return 'ops-age--fresh';
+    }
+    return '';
+  }
+
+  private ageInDays(value: string | null | undefined): number | null {
+    const now = this.nowTick();
+    if (!value) {
+      return null;
+    }
+    const then = new Date(value).getTime();
+    if (Number.isNaN(then)) {
+      return null;
+    }
+    const diffMs = now - then;
+    return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+  }
+
+  private rowWarehouseId(row: PackageQueueItem): string | null {
+    const warehouseId = row.current_package?.source_warehouse_id;
+    return typeof warehouseId === 'number' && warehouseId > 0
+      ? String(warehouseId)
+      : null;
+  }
+
+  private priorityBucket(row: PackageQueueItem): 'HIGH' | 'MEDIUM' | 'LOW' | null {
+    switch (String(row.urgency_ind ?? '').toUpperCase()) {
+      case 'C':
+      case 'H':
+        return 'HIGH';
+      case 'M':
+        return 'MEDIUM';
+      case 'L':
+        return 'LOW';
+      default:
+        return null;
+    }
+  }
+
+  private rowTimestamp(row: PackageQueueItem): number | null {
+    const value = row.create_dtime ?? row.request_date;
+    if (!value) {
+      return null;
+    }
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private isFulfillmentFilter(token: string): token is FulfillmentFilter {
+    return FULFILLMENT_FILTERS.has(token);
   }
 
   hasUnread(filter: FulfillmentFilter): boolean {
@@ -250,11 +644,30 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   filterAriaLabel(label: string, filter: FulfillmentFilter): string {
+    const count = this.filterChipCounts()[filter] ?? 0;
     const unread = this.unreadCount(filter);
+    const base = `${label}, ${count} ${count === 1 ? 'request' : 'requests'}`;
     if (!unread) {
-      return label;
+      return base;
     }
-    return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+    return `${base}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+  }
+
+  setPage(page: number): void {
+    const clamped = Math.max(1, Math.min(this.totalPages(), page));
+    this.page.set(clamped);
+  }
+
+  nextPage(): void {
+    this.setPage(this.currentPage() + 1);
+  }
+
+  prevPage(): void {
+    this.setPage(this.currentPage() - 1);
+  }
+
+  trackByPage(_index: number, value: number | 'ellipsis'): string {
+    return typeof value === 'number' ? `p-${value}` : `e-${_index}`;
   }
 
   private isOutOfContractRow(row: PackageQueueItem): boolean {
@@ -286,7 +699,6 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   getFulfillmentStage(row: PackageQueueItem): FulfillmentStage {
     const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
-    const rowStatus = String(row.status_code ?? '').trim().toUpperCase();
     const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
 
     // TODO(FR05.08-FE-DEFENSIVE-FILTER): sunset after backend contract confirmed
@@ -319,6 +731,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         this.warnOutOfContractRows(rows);
         this.items.set(rows);
         this.loadError.set(null);
+        this.page.set(1);
         this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },

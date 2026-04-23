@@ -1,79 +1,93 @@
 <div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">verified_user</mat-icon>
-        Operations / Eligibility Review
+  <header class="ops-queue-hero" aria-label="Page header">
+    <div class="ops-queue-hero__lead">
+      <p class="ops-queue-hero__eyebrow">
+        <span>Operations</span>
+        <span class="ops-queue-hero__sep" aria-hidden="true">·</span>
+        <span>Eligibility Review</span>
       </p>
-      <h1 class="ops-hero__title">Eligibility Review</h1>
-      <p class="ops-hero__copy">
+      <h1 class="ops-queue-hero__title">Eligibility Review</h1>
+      <p class="ops-queue-hero__copy">
         Work the queue of requests awaiting an eligibility decision and record auditable approvals or rejections.
       </p>
-      <app-ops-status-chip label="Awaiting Eligibility Action" tone="info" />
+      <div class="ops-queue-hero__context">
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--status" aria-live="polite">
+          <span class="ops-queue-hero__pill-dot" aria-hidden="true"></span>
+          <span>Awaiting review</span>
+          <span class="ops-queue-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ activeQueueCount() }} in queue</strong>
+        </span>
+        <span class="ops-queue-hero__pill ops-queue-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong>{{ lastRefreshedLabel() }}</strong>
+        </span>
+      </div>
     </div>
 
-    <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('critical')">
-        <mat-icon>priority_high</mat-icon>
-        Critical Only
+    <div class="ops-queue-hero__actions">
+      <button
+        type="button"
+        class="ops-queue-hero__btn ops-queue-hero__btn--primary"
+        (click)="setFilter('critical')"
+        aria-label="Show critical requests only">
+        <mat-icon aria-hidden="true">priority_high</mat-icon>
+        <span>Critical Only</span>
       </button>
     </div>
   </header>
 
-  <section class="ops-kpi-grid" aria-label="Eligibility summary">
-    @for (metric of metrics(); track metric.label) {
-      <button class="ops-kpi-card" type="button" (click)="openMetric(metric)">
-        <span class="ops-kpi-card__label">{{ metric.label }}</span>
-        <span class="ops-kpi-card__value">{{ metric.value }}</span>
-        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
-      </button>
-    }
-  </section>
+  <app-ops-metric-strip
+    [items]="metricStrip()"
+    (itemClick)="openMetricTile($event)"
+    aria-label="Eligibility summary"
+  ></app-ops-metric-strip>
 
-  <div class="ops-grid ops-grid--split">
-    <section class="ops-panel">
+  <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
           <h2 class="ops-section__title">Awaiting action</h2>
           <p class="ops-section__copy">Filter by urgency and open a request to record an eligibility decision.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredRequests().length }} request{{ filteredRequests().length === 1 ? '' : 's' }}
+        </span>
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search eligibility queue">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by tracking number, agency, event, or notes"
-              [attr.maxlength]="searchMaxLength"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
+        <label class="ops-queue-search" aria-label="Search eligibility queue">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by tracking number, agency, event, or notes"
+            [attr.maxlength]="searchMaxLength"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
 
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter review queue">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                [class.ops-chip--unread]="hasUnread(filter.value)"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                <span>{{ filter.label }}</span>
-                @if (hasUnread(filter.value)) {
-                  <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
-                }
-              </button>
-            }
-          </div>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter review queue">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              [class.ops-chip--unread]="hasUnread(filter.value)"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+              @if (hasUnread(filter.value)) {
+                <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+              }
+            </button>
+          }
         </div>
 
         @if (loading()) {
@@ -97,7 +111,8 @@
           <div class="ops-row-list">
             @for (request of filteredRequests(); track trackByRequestId($index, request)) {
               <article
-                class="ops-row ops-row--interactive"
+                class="ops-row ops-row--interactive ops-queue-row"
+                [class]="rowStageClass(request)"
                 tabindex="0"
                 role="button"
                 (click)="openReview(request)"
@@ -109,20 +124,40 @@
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                   </div>
-                  <div class="ops-row__meta">
-                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ request.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatOperationsLineCount(request.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
+                  <p class="ops-row__party">{{ partyLabel(request) }}</p>
+                  <p class="ops-row__meta">
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="meta-item">
+                      <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span>Created {{ formatOperationsDateTime(requestTimestamp(request)) }}</span>
-                  </div>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(requestTimestamp(request))" tone="neutral" [showDot]="false"></app-ops-status-chip>
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="ops-queue-row__next">
+                  <div class="ops-queue-row__pills">
+                    <span class="ops-stage-pill" [class]="stagePillClass(request)">
+                      <span class="ops-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(request) }}
+                    </span>
+                    <span class="ops-time-pill" [class]="timePillClass(request)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatOperationsAge(requestTimestamp(request)) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ops-action"
+                    [class]="actionClass(request)"
+                    [attr.aria-label]="actionLabel(request) + ' ' + (request.tracking_no ?? ('Request #' + request.reliefrqst_id))"
+                    (click)="openReview(request); $event.stopPropagation()">
+                    <span>{{ actionLabel(request) }}</span>
+                  </button>
                 </div>
               </article>
             }
@@ -131,79 +166,67 @@
       </div>
     </section>
 
-    <aside class="ops-grid">
+    <aside class="ops-queue-sidebar" aria-label="Queue context and guidance">
       <div class="ops-callout ops-callout--info" role="note">
         <mat-icon aria-hidden="true">visibility</mat-icon>
         <span>This queue is visible only to users with eligibility review permissions.</span>
       </div>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Context</p>
-            <h2 class="ops-section__title">Queue signals</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Context</p>
+          <h2 class="ops-queue-side-card__title">Queue signals</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Shown</span>
-              <p class="ops-summary-card__value">{{ summary().total }}</p>
+        <div class="ops-queue-glance">
+          <div class="ops-queue-glance__row ops-queue-glance__row--total">
+            <span class="ops-queue-glance__label">Shown</span>
+            <span class="ops-queue-glance__value ops-queue-glance__value--lg">{{ summary().total }}</span>
+          </div>
+          <div class="ops-queue-glance__grid">
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Newest</span>
+              <span class="ops-queue-glance__value">{{ summary().newest?.tracking_no ?? 'Pending' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Newest</span>
-              <p class="ops-summary-card__value">{{ summary().newest?.tracking_no ?? 'Pending' }}</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Oldest</span>
+              <span class="ops-queue-glance__value">{{ summary().oldest?.tracking_no ?? 'Pending' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Oldest</span>
-              <p class="ops-summary-card__value">{{ summary().oldest?.tracking_no ?? 'Pending' }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Route</span>
-              <p class="ops-summary-card__value">Eligibility lane</p>
+            <div class="ops-queue-glance__cell">
+              <span class="ops-queue-glance__label">Route</span>
+              <span class="ops-queue-glance__value ops-queue-glance__value--info">Eligibility lane</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Decision flow</p>
-            <h2 class="ops-section__title">How to work the queue</h2>
-          </div>
+      <section class="ops-queue-side-card">
+        <div class="ops-queue-side-card__header">
+          <p class="ops-queue-side-card__eyebrow">Decision flow</p>
+          <h2 class="ops-queue-side-card__title">How to work the queue</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Open a request awaiting action</p>
-                <div class="ops-timeline__meta">
-                  <span>Use the detail screen to inspect the evidence and item list.</span>
-                </div>
-              </div>
+        <ul class="ops-queue-tips" role="list">
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--info" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Open a request awaiting action</p>
+              <p class="ops-queue-tips__meta">Use the detail screen to inspect the evidence and item list.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Record an approve, reject, or ineligible decision</p>
-                <div class="ops-timeline__meta">
-                  <span>Rejected or ineligible decisions require a reason before submission.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--warning" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Record an approve, reject, or ineligible decision</p>
+              <p class="ops-queue-tips__meta">Rejected or ineligible decisions require a reason before submission.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Decided requests leave this queue</p>
-                <div class="ops-timeline__meta">
-                  <span>Approved requests move to fulfillment; rejected or ineligible requests exit the workflow.</span>
-                </div>
-              </div>
+          </li>
+          <li class="ops-queue-tips__item">
+            <span class="ops-queue-tips__dot ops-queue-tips__dot--success" aria-hidden="true"></span>
+            <div class="ops-queue-tips__body">
+              <p class="ops-queue-tips__title">Decided requests leave this queue</p>
+              <p class="ops-queue-tips__meta">Approved requests move to fulfillment; rejected or ineligible requests exit the workflow.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

@@ -172,6 +172,77 @@ describe('EligibilityReviewQueueComponent', () => {
     expect(ids).toEqual([12, 13, 14]);
   });
 
+  it('sets the matching filter when a metric card is clicked', () => {
+    operationsService.getEligibilityQueue.and.returnValue(of({
+      results: [
+        buildSummary({ reliefrqst_id: 31, urgency_ind: 'C' }),
+        buildSummary({ reliefrqst_id: 32, urgency_ind: 'H' }),
+      ],
+    }));
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const cards = host.querySelectorAll<HTMLElement>('.ops-flow-strip__card--interactive');
+    expect(cards.length).toBeGreaterThanOrEqual(3);
+
+    const criticalCard = Array.from(cards).find((card) => card.textContent?.includes('Critical'));
+    expect(criticalCard).toBeDefined();
+    criticalCard!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.activeFilter()).toBe('critical');
+  });
+
+  it('marks the selected interactive metric tile as active', () => {
+    operationsService.getEligibilityQueue.and.returnValue(of({
+      results: [
+        buildSummary({ reliefrqst_id: 51, urgency_ind: 'C' }),
+        buildSummary({ reliefrqst_id: 52, urgency_ind: 'H' }),
+      ],
+    }));
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    fixture.componentInstance.setFilter('critical');
+    fixture.detectChanges();
+
+    const criticalMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Critical');
+    const highMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'High');
+    const oldestMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Oldest Waiting (h)');
+
+    expect(criticalMetric?.active).toBeTrue();
+    expect(highMetric?.active).toBeFalse();
+    expect(oldestMetric?.active).toBeFalse();
+  });
+
+  it('activates a metric card when Enter or Space is pressed on the focused element', () => {
+    operationsService.getEligibilityQueue.and.returnValue(of({
+      results: [buildSummary({ reliefrqst_id: 41, urgency_ind: 'H' })],
+    }));
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const cards = host.querySelectorAll<HTMLElement>('.ops-flow-strip__card--interactive');
+    const highCard = Array.from(cards).find((card) => card.textContent?.includes('High'));
+    expect(highCard).toBeDefined();
+
+    highCard!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.activeFilter()).toBe('high');
+
+    fixture.componentInstance.setFilter('all');
+    fixture.detectChanges();
+
+    highCard!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.activeFilter()).toBe('high');
+  });
+
   it('falls back to request_date when create_dtime is invalid instead of treating the row as brand new', () => {
     spyOn(Date, 'now').and.returnValue(Date.parse('2026-04-12T12:00:00Z'));
     operationsService.getEligibilityQueue.and.returnValue(of({

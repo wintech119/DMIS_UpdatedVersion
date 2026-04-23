@@ -169,23 +169,49 @@ class TenancyAccessTests(SimpleTestCase):
         target_opt_in.return_value = True
         self.assertFalse(can_access_tenant(context, 42, write=True))
 
-    @override_settings(NATIONAL_PHASE_WINDOW_ADMIN_CODES=["OFFICE-OF-DISASTER-P", "ODPEM-NEOC"])
-    def test_phase_window_config_allowed_for_odpem_and_neoc(self) -> None:
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        NATIONAL_PHASE_WINDOW_ADMIN_CODES=[
+            "OFFICE-OF-DISASTER-P",
+            "ODPEM-NEOC",
+        ]
+    )
+    def test_phase_window_config_requires_direct_odpem_national_membership(self) -> None:
         odpem_context = TenantContext(
             requested_tenant_id=27,
             active_tenant_id=27,
             active_tenant_code="OFFICE-OF-DISASTER-P",
             active_tenant_type="NATIONAL",
-            memberships=(),
+            memberships=(
+                TenantMembership(
+                    tenant_id=27,
+                    tenant_code="OFFICE-OF-DISASTER-P",
+                    tenant_name="ODPEM National",
+                    tenant_type="NATIONAL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
             can_read_all_tenants=False,
             can_act_cross_tenant=False,
         )
         neoc_context = TenantContext(
             requested_tenant_id=2,
-            active_tenant_id=2,
-            active_tenant_code="ODPEM-NEOC",
+            active_tenant_id=27,
+            active_tenant_code="OFFICE-OF-DISASTER-P",
             active_tenant_type="NATIONAL",
-            memberships=(),
+            memberships=(
+                TenantMembership(
+                    tenant_id=2,
+                    tenant_code="ODPEM-NEOC",
+                    tenant_name="ODPEM NEOC",
+                    tenant_type="NEOC",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
             can_read_all_tenants=True,
             can_act_cross_tenant=True,
         )
@@ -194,14 +220,42 @@ class TenancyAccessTests(SimpleTestCase):
             active_tenant_id=3,
             active_tenant_code="ODPEM-LOGISTICS",
             active_tenant_type="NATIONAL",
-            memberships=(),
+            memberships=(
+                TenantMembership(
+                    tenant_id=3,
+                    tenant_code="ODPEM-LOGISTICS",
+                    tenant_name="ODPEM Logistics",
+                    tenant_type="NATIONAL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
             can_read_all_tenants=False,
             can_act_cross_tenant=False,
         )
+        stale_env_neoc_context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=2,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL_LEVEL",
+            memberships=(
+                TenantMembership(
+                    tenant_id=2,
+                    tenant_code="ODPEM-NEOC",
+                    tenant_name="ODPEM NEOC",
+                    tenant_type="NATIONAL_LEVEL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=True,
+        )
 
         self.assertTrue(can_manage_phase_window_config(odpem_context))
-        self.assertTrue(can_manage_phase_window_config(neoc_context))
+        self.assertFalse(can_manage_phase_window_config(neoc_context))
         self.assertFalse(can_manage_phase_window_config(other_context))
+        self.assertFalse(can_manage_phase_window_config(stale_env_neoc_context))
 
     @patch("api.tenancy._tenant_by_id")
     @patch("api.tenancy.list_user_tenant_memberships")

@@ -1,94 +1,221 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { BreakpointObserver } from '@angular/cdk/layout';
+import { DecimalPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  afterEveryRender,
   computed,
+  effect,
+  inject,
   input,
   output,
+  viewChildren,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import {
+  MAT_BOTTOM_SHEET_DATA,
+  MatBottomSheet,
+  MatBottomSheetModule,
+  MatBottomSheetRef,
+} from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { AllocationCandidate, AllocationItemGroup } from '../../models/operations.model';
+import {
+  AllocationItemGroup,
+  AlternateWarehouseOption,
+  WarehouseAllocationCard,
+} from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
-import { formatSourceType } from '../../models/operations-status.util';
 import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
-
-interface WarehouseGroup {
-  name: string;
-  inventoryId: number;
-  totalAvailable: number;
-  batchCount: number;
-  candidates: AllocationCandidate[];
-}
+import { WarehouseAllocationCardComponent } from './warehouse-allocation-card.component';
 
 interface WarehouseSelectOption {
   label: string;
   value: string;
 }
 
-const COMPLIANCE_LABELS: Record<string, string> = {
-  donation_source: 'Donation source',
-  transfer_source: 'Transfer source',
-  fifo: 'FIFO recommended',
-  fefo: 'FEFO recommended',
-  allocation_order_override: 'Order override',
-  insufficient_on_hand_stock: 'Insufficient compliant stock',
-};
+interface AddWarehouseSheetData {
+  alternates: AlternateWarehouseOption[];
+  issuanceOrder: string;
+  loadedCount: number;
+}
+
+/**
+ * Mobile bottom-sheet for the "Add next warehouse" affordance. Co-located with
+ * FulfillmentItemDetailComponent by design (no net-new top-level component
+ * file). Emits the selected warehouse_id back via MatBottomSheetRef.
+ */
+@Component({
+  selector: 'app-add-warehouse-bottom-sheet',
+  standalone: true,
+  imports: [DecimalPipe, MatButtonModule, MatIconModule, MatBottomSheetModule],
+  template: `
+    <div class="bs" role="dialog" aria-labelledby="add-wh-title">
+      <h3 id="add-wh-title" class="bs__title">Add another warehouse</h3>
+      <ul class="bs__list" role="list">
+        @for (alt of data.alternates; track alt.warehouse_id; let idx = $index) {
+          <li>
+            <button
+              mat-stroked-button
+              type="button"
+              class="bs__row"
+              (click)="onSelect(alt.warehouse_id)">
+              <span class="bs__eyebrow">
+                +{{ data.loadedCount + idx }} · {{ data.issuanceOrder }}
+              </span>
+              <span class="bs__name">{{ alt.warehouse_name }}</span>
+              <span class="bs__meta">
+                {{ alt.available_qty | number:'1.0-4' }} avail · suggests
+                {{ alt.suggested_qty | number:'1.0-4' }}
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    </div>
+  `,
+  styles: [
+    `
+      .bs {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+      }
+      .bs__title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: var(--weight-semibold, 600);
+        color: var(--color-text-primary, #37352f);
+      }
+      .bs__list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .bs__row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 100%;
+        padding: 10px 12px;
+        min-height: 48px;
+        text-align: left;
+      }
+      .bs__eyebrow {
+        font-size: 0.62rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--color-text-secondary, #787774);
+      }
+      .bs__name {
+        font-size: 0.92rem;
+        font-weight: var(--weight-semibold, 600);
+        color: var(--color-text-primary, #37352f);
+      }
+      .bs__meta {
+        font-size: 0.78rem;
+        color: var(--color-text-secondary, #787774);
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class AddWarehouseBottomSheetComponent {
+  private readonly sheetRef = inject(MatBottomSheetRef<AddWarehouseBottomSheetComponent, number>);
+  readonly data = inject<AddWarehouseSheetData>(MAT_BOTTOM_SHEET_DATA);
+
+  onSelect(warehouseId: number): void {
+    this.sheetRef.dismiss(warehouseId);
+  }
+}
 
 @Component({
   selector: 'app-fulfillment-item-detail',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatSelectModule, OpsStockAvailabilityStateComponent],
+  imports: [
+    DecimalPipe,
+    MatButtonModule,
+    MatBottomSheetModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatMenuModule,
+    MatSelectModule,
+    MatTooltipModule,
+    ReactiveFormsModule,
+    OpsStockAvailabilityStateComponent,
+    WarehouseAllocationCardComponent,
+  ],
   template: `
     <div class="detail">
       <!-- Item header row: name + badges + actions grouped together -->
       <div class="detail__header">
-        <div>
+        <div class="detail__title">
           <h3 class="detail__name">{{ item().item_name || ('Item ' + item().item_id) }}</h3>
           <p class="detail__code">{{ item().item_code || ('Item ID ' + item().item_id) }}</p>
         </div>
         <div class="detail__actions">
           <span class="detail__badge detail__badge--method" [attr.data-rule]="item().issuance_order">
+            <mat-icon aria-hidden="true">schedule</mat-icon>
             {{ item().issuance_order }}
           </span>
+          <button
+            type="button"
+            class="detail__help-btn"
+            [matTooltip]="methodTooltip()"
+            matTooltipPosition="below"
+            [attr.aria-label]="'About ' + item().issuance_order + ' allocation rule'">
+            <mat-icon aria-hidden="true">help_outline</mat-icon>
+          </button>
           @if (store().isRuleBypassedForItem(item().item_id)) {
             <span class="detail__badge detail__badge--warning">Bypass</span>
           }
           @if (isOverridden()) {
             <span class="detail__badge detail__badge--override">Overridden</span>
           }
-          @if (warehouseSelectOptions().length > 1) {
-            <mat-form-field appearance="outline" class="detail__warehouse-select">
-              <mat-label>Source</mat-label>
-              <mat-select
-                [ngModel]="effectiveWarehouse()"
-                (ngModelChange)="onWarehouseOverride($event)"
-                [disabled]="readOnly()"
-                panelClass="detail-warehouse-panel"
-                [attr.aria-label]="'Source warehouse for ' + (item().item_name || 'this item')">
-                @for (wh of warehouseSelectOptions(); track wh.value) {
-                  <mat-option [value]="wh.value">
-                    {{ wh.label }}
-                  </mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-          }
-          <button
-            class="detail__text-btn"
-            type="button"
-            [disabled]="readOnly()"
-            (click)="store().clearItemSelection(item().item_id)">
-            Clear selection
-          </button>
-          <span class="detail__divider"></span>
-          <button class="detail__text-btn" type="button" (click)="back.emit()">Manual override</button>
+          <div class="detail__text-actions">
+            <button
+              class="detail__text-btn"
+              type="button"
+              [disabled]="readOnly()"
+              (click)="store().clearItemSelection(item().item_id)">
+              Clear selection
+            </button>
+            <span class="detail__divider" aria-hidden="true"></span>
+            <button class="detail__text-btn" type="button" (click)="back.emit()">Manual override</button>
+          </div>
         </div>
       </div>
+
+      <!-- Preferred source (per-item override) — compact row above the stack -->
+      @if (warehouseSelectOptions().length > 1) {
+        <div class="detail__preferred">
+          <mat-form-field appearance="outline" class="detail__warehouse-select">
+            <mat-label>Preferred source</mat-label>
+            <mat-select
+              [formControl]="preferredWarehouseControl"
+              panelClass="detail-warehouse-panel"
+              [attr.aria-label]="'Preferred source warehouse for ' + (item().item_name || 'this item')">
+              @for (wh of warehouseSelectOptions(); track wh.value) {
+                <mat-option [value]="wh.value">
+                  {{ wh.label }}
+                </mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        </div>
+      }
 
       <!-- 5 Metric cards — the operator's story -->
       <div class="detail__metrics">
@@ -102,7 +229,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         <div class="metric-card"
           [class.metric-card--warning-tint]="totalAvailableHere() > 0 && totalAvailableHere() < remainingQty()"
           [class.metric-card--critical-tint]="totalAvailableHere() === 0 && remainingQty() > 0">
-          <span class="metric-card__label">Available Here</span>
+          <span class="metric-card__label">Available</span>
           <span class="metric-card__value"
             [class.metric-card__value--accent]="totalAvailableHere() >= remainingQty()"
             [class.metric-card__value--warning]="totalAvailableHere() > 0 && totalAvailableHere() < remainingQty()"
@@ -166,7 +293,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </p>
       }
 
-      <!-- Already-issued informational banner — precedes warehouse picker. -->
+      <!-- Already-issued informational banner — precedes the stack. -->
       @if (item().fully_issued) {
         <p class="detail__notice detail__notice--info" role="status">
           <mat-icon aria-hidden="true">info</mat-icon>
@@ -175,91 +302,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </p>
       }
 
-      <!-- Multi-warehouse continuation callout — only when backend recommends it. -->
-      @if (continuationVisible()) {
-        <section
-          class="detail__continuation"
-          role="region"
-          [attr.aria-label]="'Multi-warehouse continuation for ' + (item().item_name || 'this item')">
-          <header class="detail__continuation-head">
-            <mat-icon aria-hidden="true">call_split</mat-icon>
-            <div>
-              <h4 class="detail__continuation-title">
-                @if (continuationHasShortfall()) {
-                  {{ continuationShortfall() | number:'1.0-4' }} units still need coverage
-                } @else {
-                  Other eligible warehouses available
-                }
-              </h4>
-              <p class="detail__continuation-copy">
-                @if (continuationHasShortfall()) {
-                  Add another warehouse below to keep building this item's allocation. Your current
-                  selections will be preserved.
-                } @else {
-                  Add another eligible warehouse below to allocate from multiple sources while
-                  keeping the current {{ item().issuance_order }} rule order.
-                }
-              </p>
-            </div>
-            @if (continuationLoading()) {
-              <span class="detail__continuation-loading" aria-live="polite">
-                <mat-icon aria-hidden="true">progress_activity</mat-icon>
-                Recalculating&hellip;
-              </span>
-            }
-          </header>
-
-          <ul class="detail__alternate-list" role="list">
-            @for (alt of visibleAlternateWarehouses(); track alt.warehouse_id) {
-              <li class="detail__alternate-card" role="listitem">
-                <div class="detail__alternate-head">
-                  <span class="detail__alternate-name">{{ alt.warehouse_name }}</span>
-                  @if (!continuationHasShortfall()) {
-                    <span class="detail__alternate-badge detail__alternate-badge--ok">
-                      <mat-icon aria-hidden="true">check_circle</mat-icon>
-                      Eligible
-                    </span>
-                  } @else if (alt.can_fully_cover) {
-                    <span class="detail__alternate-badge detail__alternate-badge--ok">
-                      <mat-icon aria-hidden="true">check_circle</mat-icon>
-                      Fully covers shortfall
-                    </span>
-                  } @else {
-                    <span class="detail__alternate-badge detail__alternate-badge--partial">
-                      <mat-icon aria-hidden="true">timelapse</mat-icon>
-                      Partial cover
-                    </span>
-                  }
-                </div>
-                <dl class="detail__alternate-figures">
-                  <div>
-                    <dt>Available</dt>
-                    <dd>{{ alt.available_qty | number:'1.0-4' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Suggested</dt>
-                    <dd>{{ alt.suggested_qty | number:'1.0-4' }}</dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  matButton="outlined"
-                  color="primary"
-                  class="detail__alternate-action"
-                  [disabled]="readOnly() || addingWarehouse()"
-                  (click)="onAddWarehouse(alt.warehouse_id)">
-                  <mat-icon aria-hidden="true">add</mat-icon>
-                  Add this warehouse
-                </button>
-              </li>
-            }
-          </ul>
-        </section>
-      }
-
-      <!-- Available Warehouses -->
-      <p class="detail__section-eyebrow">Available Warehouses</p>
-
+      <!-- Ranked warehouse card stack -->
       @if (itemAvailabilityIssue(); as issue) {
         <app-ops-stock-availability-state
           [kind]="issue.kind"
@@ -267,113 +310,81 @@ const COMPLIANCE_LABELS: Record<string, string> = {
           [itemName]="item().item_name || null"
           [remainingQty]="item().remaining_qty" />
       } @else {
-        @for (wh of warehouseGroups(); track wh.inventoryId) {
-          <div class="warehouse-card">
-            <div class="warehouse-card__header">
-              <mat-icon class="warehouse-card__icon" aria-hidden="true">warehouse</mat-icon>
-              <div>
-                <strong class="warehouse-card__name">{{ wh.name }}</strong>
-                <span class="warehouse-card__meta">
-                  {{ wh.totalAvailable | number:'1.0-2' }} available &middot; {{ wh.batchCount }} batch{{ wh.batchCount === 1 ? '' : 'es' }}
-                </span>
-              </div>
-            </div>
+        <section class="detail__stack" [attr.aria-label]="'Ranked warehouses for ' + (item().item_name || 'this item')">
+          @for (card of rankedStackCards(); track card.warehouse_id) {
+            <app-warehouse-allocation-card
+              [warehouse]="card"
+              [itemRequestedQty]="item().request_qty"
+              [allocatedQty]="allocatedQtyFor(card)"
+              [remainingQtyForItem]="remainingForCard(card)"
+              [itemShortfallQty]="shortfallString()"
+              [readOnly]="readOnly() || !!item().fully_issued"
+              [canRemove]="card.rank > 0"
+              [isOverrideRisk]="isOverrideRiskFor(card)"
+              (qtyChange)="onCardQty(card, $event)"
+              (removeCard)="onRemoveCard($event)" />
+          }
+        </section>
 
-            <div class="warehouse-card__table-wrap">
-              <table class="warehouse-table">
-                <thead>
-                  <tr>
-                    <th>Batch / Lot</th>
-                    <th>Source</th>
-                    <th>Batch Date</th>
-                    <th>Expiry</th>
-                    <th class="col-num">Available</th>
-                    <th class="col-num">Reserved</th>
-                    <th>Qty to reserve</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of wh.candidates; track c.batch_id + '-' + c.source_type + '-' + (c.source_record_id ?? '')) {
-                    <tr [class.row--selected]="store().getSelectedQtyForCandidate(item().item_id, c) > 0">
-                      <td>
-                        <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
-                        @if (c.compliance_markers?.length) {
-                          <div class="marker-list">
-                            @for (m of c.compliance_markers; track m) {
-                              <span class="marker-chip">{{ formatMarker(m) }}</span>
-                            }
-                          </div>
-                        }
-                      </td>
-                      <td>{{ formatSource(c.source_type) }}</td>
-                      <td>{{ c.batch_date ? (c.batch_date | date:'MMM d, y') : 'N/A' }}</td>
-                      <td>{{ c.expiry_date ? (c.expiry_date | date:'MMM d, y') : 'N/A' }}</td>
-                      <td class="col-num">{{ c.available_qty | number:'1.0-4' }}</td>
-                      <td class="col-num">{{ c.reserved_qty | number:'1.0-4' }}</td>
-                      <td>
-                        <input
-                          class="qty-input"
-                          type="number"
-                          min="0"
-                          step="any"
-                          [disabled]="readOnly() || !!item().fully_issued"
-                          [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
-                          (ngModelChange)="onQtyChange(c, $event)"
-                          [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
-                        />
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
-        }
-
-        <!-- Mobile cards -->
-        <div class="mobile-cards">
-          @for (c of item().candidates; track c.inventory_id + '-' + c.batch_id + '-' + c.source_type + '-' + (c.source_record_id ?? '')) {
-            <div class="mobile-card">
-              <div class="mobile-card__header">
-                <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
-                <span class="detail__badge">{{ formatSource(c.source_type) }}</span>
-              </div>
-              <div class="mobile-card__meta">
-                <span>{{ c.warehouse_name || ('Inventory ' + c.inventory_id) }}</span>
-              </div>
-              <div class="mobile-card__fields">
-                <div class="mobile-card__field">
-                  <span>Available</span>
-                  <strong>{{ c.available_qty | number:'1.0-4' }}</strong>
-                </div>
-                <div class="mobile-card__field">
-                  <span>Reserved</span>
-                  <strong>{{ c.reserved_qty | number:'1.0-4' }}</strong>
-                </div>
-              </div>
-              <label class="mobile-card__input">
-                <span>Qty To Reserve</span>
-                <input
-                  class="qty-input"
-                  type="number"
-                  min="0"
-                  step="any"
-                  [disabled]="readOnly() || !!item().fully_issued"
-                  [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
-                  (ngModelChange)="onQtyChange(c, $event)"
-                />
-              </label>
-            </div>
+        <!-- Add-next warehouse affordance -->
+        <div class="detail__add-row">
+          @if (isNarrow()) {
+            <button
+              type="button"
+              class="detail__add-btn"
+              [disabled]="readOnly() || visibleAlternateWarehouses().length === 0 || addingWarehouse()"
+              (click)="openBottomSheet()">
+              <mat-icon aria-hidden="true">add</mat-icon>
+              <span class="detail__add-btn-label">
+                Add another warehouse
+                @if (visibleAlternateWarehouses().length > 0) {
+                  <span class="detail__add-btn-count"
+                    >({{ visibleAlternateWarehouses().length }} available)</span
+                  >
+                }
+              </span>
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="detail__add-btn"
+              [matMenuTriggerFor]="addMenu"
+              [disabled]="readOnly() || visibleAlternateWarehouses().length === 0 || addingWarehouse()">
+              <mat-icon aria-hidden="true">add</mat-icon>
+              <span class="detail__add-btn-label">
+                Add another warehouse
+                @if (visibleAlternateWarehouses().length > 0) {
+                  <span class="detail__add-btn-count"
+                    >({{ visibleAlternateWarehouses().length }} available)</span
+                  >
+                }
+              </span>
+            </button>
+            <mat-menu #addMenu="matMenu" class="detail__add-menu">
+              @for (alt of visibleAlternateWarehouses(); track alt.warehouse_id; let idx = $index) {
+                <button mat-menu-item type="button" (click)="onAddWarehouse(alt.warehouse_id)">
+                  <span class="detail__add-row-eyebrow">
+                    +{{ (store().loadedWarehousesByItem()[item().item_id]?.length ?? 0) + idx }} · {{ item().issuance_order }}
+                  </span>
+                  <span class="detail__add-row-name">{{ alt.warehouse_name }}</span>
+                  <span class="detail__add-row-meta">
+                    {{ alt.available_qty | number:'1.0-4' }} avail · suggests {{ alt.suggested_qty | number:'1.0-4' }}
+                  </span>
+                </button>
+              }
+            </mat-menu>
           }
         </div>
-      }
 
-      @if (store().isRuleBypassedForItem(item().item_id)) {
-        <p class="detail__notice detail__notice--warning" role="status">
-          <mat-icon aria-hidden="true">policy</mat-icon>
-          This selection no longer matches the system's {{ item().issuance_order }} recommendation.
-          Capture an override reason in the next step.
-        </p>
+        <!-- Aggregate summary / shortfall bar (4 states) -->
+        <footer
+          class="detail__summary"
+          [attr.data-state]="aggregateState()"
+          role="status"
+          aria-live="polite">
+          <mat-icon aria-hidden="true">{{ summaryIcon() }}</mat-icon>
+          <span class="detail__summary-text">{{ summaryCopy() }}</span>
+        </footer>
       }
     </div>
   `,
@@ -390,19 +401,34 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .detail__title {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1 1 auto;
     }
 
     .detail__name {
       margin: 0;
-      font-size: 1.1rem;
-      font-weight: var(--weight-semibold);
+      font-size: 1.35rem;
+      font-weight: var(--weight-bold, 700);
+      line-height: 1.2;
+      letter-spacing: -0.005em;
       color: var(--color-text-primary);
+      overflow-wrap: anywhere;
     }
 
     .detail__code {
-      margin: 2px 0 0;
+      margin: 0;
       font-size: 0.78rem;
+      font-family: var(--font-family-mono,
+        ui-monospace, "SF Mono", "Roboto Mono", "Menlo", "Consolas", monospace);
       color: var(--color-text-secondary);
+      letter-spacing: 0.02em;
     }
 
     .detail__actions {
@@ -416,14 +442,23 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     .detail__badge {
       display: inline-flex;
       align-items: center;
-      padding: 2px 8px;
+      gap: 4px;
+      padding: 3px 9px;
       border-radius: var(--radius-pill, 999px);
-      font-size: 0.65rem;
+      font-size: 0.68rem;
       font-weight: var(--weight-semibold);
       letter-spacing: 0.1em;
       text-transform: uppercase;
       background: #e8e8e8;
       color: var(--color-text-secondary);
+      line-height: 1.4;
+    }
+
+    .detail__badge mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      line-height: 14px;
     }
 
     .detail__badge--method[data-rule='FEFO'] {
@@ -432,13 +467,13 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     }
 
     .detail__badge--method[data-rule='FIFO'] {
-      background: color-mix(in srgb, var(--color-accent, #6366f1) 12%, white);
-      color: var(--color-accent, #6366f1);
+      background: #eef0ff;
+      color: var(--color-accent, #4f46e5);
     }
 
     .detail__badge--warning {
       background: #fde8b1;
-      color: #6e4200;
+      color: var(--color-warning-text, #6e4200);
     }
 
     .detail__badge--override {
@@ -446,30 +481,69 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: #0c4a6e;
     }
 
+    .detail__help-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      margin-left: -2px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    .detail__help-btn:hover,
+    .detail__help-btn:focus-visible {
+      background: rgba(55, 53, 47, 0.06);
+      color: var(--color-text-primary);
+    }
+
+    .detail__help-btn:focus-visible {
+      outline: 2px solid var(--color-focus, #1d4ed8);
+      outline-offset: 1px;
+    }
+
+    .detail__help-btn mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      line-height: 18px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .detail__help-btn {
+        transition: none;
+      }
+    }
+
+    .detail__text-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 4px;
+      padding-left: 10px;
+      border-left: 1px solid rgba(55, 53, 47, 0.14);
+    }
+
+    .detail__preferred {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .detail__warehouse-select {
-      width: 140px;
-      font-size: 0.68rem;
-      --mat-form-field-container-height: 32px;
-      --mat-form-field-container-vertical-padding: 4px;
-      --mat-select-trigger-text-size: 0.68rem;
+      width: 220px;
+      font-size: 0.78rem;
+      --mat-form-field-container-height: 40px;
     }
 
     .detail__warehouse-select ::ng-deep .mat-mdc-form-field-subscript-wrapper {
       display: none;
-    }
-
-    .detail__warehouse-select ::ng-deep .mat-mdc-select-value-text {
-      font-size: 0.68rem;
-    }
-
-    .detail__warehouse-select ::ng-deep .mat-mdc-floating-label {
-      font-size: 0.68rem;
-    }
-
-    .detail__warehouse-select ::ng-deep .mat-mdc-form-field-infix {
-      padding-top: 6px;
-      padding-bottom: 4px;
-      min-height: 32px;
     }
 
     .detail__text-btn {
@@ -487,6 +561,12 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       text-decoration: underline;
     }
 
+    .detail__text-btn:focus-visible {
+      outline: 2px solid var(--color-focus, #1d4ed8);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
     .detail__text-btn:disabled {
       opacity: 0.4;
       cursor: default;
@@ -499,7 +579,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       background: #d5d5d2;
     }
 
-    /* ── Metrics — white cards that pop off the warm page ── */
+    /* ── Metrics ── */
     .detail__metrics {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -540,19 +620,19 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     }
 
     .metric-card__value--accent {
-      color: #0f766e;
+      color: var(--color-success, #0f766e);
     }
 
     .metric-card__value--warning {
-      color: #6e4200;
+      color: var(--color-warning, #6e4200);
     }
 
     .metric-card__value--success {
-      color: #286a36;
+      color: var(--color-success, #286a36);
     }
 
     .metric-card__value--danger {
-      color: #8c1d13;
+      color: var(--color-danger, #8c1d13);
     }
 
     /* ── Conditional background tints ── */
@@ -568,23 +648,21 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       background: rgba(237, 247, 239, 0.5);
     }
 
-    /* ── Active card (Reserving with value > 0) — intentionally no border accent ── */
-
     /* ── Status card ── */
     .metric-card__value--status[data-status='not_started'] {
-      color: #787774;
+      color: var(--color-text-secondary, #787774);
     }
 
     .metric-card__value--status[data-status='partial'] {
-      color: #6e4200;
+      color: var(--color-warning, #6e4200);
     }
 
     .metric-card__value--status[data-status='filled'] {
-      color: #286a36;
+      color: var(--color-success, #286a36);
     }
 
     .metric-card__value--status[data-status='over_allocated'] {
-      color: #8c1d13;
+      color: var(--color-danger, #8c1d13);
     }
 
     .metric-card__value--status[data-status='fully_issued'] {
@@ -625,40 +703,29 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     }
 
     .metric-card__bar-fill[data-status='partial'] {
-      background: #d97706;
+      background: var(--color-warning, #d97706);
     }
 
     .metric-card__bar-fill[data-status='filled'] {
-      background: #059669;
+      background: var(--color-success, #059669);
     }
 
     .metric-card__bar-fill[data-status='over_allocated'] {
-      background: #dc3545;
-      animation: bar-pulse 1.5s ease-in-out infinite;
+      background: var(--color-danger, #dc3545);
     }
 
     .metric-card__bar-fill[data-status='fully_issued'] {
       background: #2563eb;
     }
 
-    @keyframes bar-pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
-    }
-
     @media (prefers-reduced-motion: reduce) {
-      .metric-card {
-        transition: none;
-      }
+      .metric-card,
       .metric-card__bar-fill {
         transition: none;
       }
-      .metric-card__bar-fill[data-status='over_allocated'] {
-        animation: none;
-      }
     }
 
-    /* ── Inline notice — compact, no heavy left-border ── */
+    /* ── Inline notice ── */
     .detail__notice {
       display: flex;
       align-items: center;
@@ -691,328 +758,156 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: #17447f;
     }
 
-    /* ── Section eyebrow ── */
-    .detail__section-eyebrow {
-      margin: 4px 0 0;
-      font-size: 0.68rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: var(--color-text-secondary);
-      font-weight: var(--weight-semibold);
-    }
-
-    /* ── Warehouse cards ── */
-    .warehouse-card {
-      border-radius: 8px;
-      border: 1px solid rgba(55, 53, 47, 0.14);
-      background: #ffffff;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(55, 53, 47, 0.06);
-    }
-
-    .warehouse-card__header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 10px;
-      border-bottom: 1px solid #ebebeb;
-    }
-
-    .warehouse-card__icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-      color: var(--color-text-secondary);
-    }
-
-    .warehouse-card__name {
-      display: block;
-      font-size: 0.78rem;
-      color: var(--color-text-primary);
-    }
-
-    .warehouse-card__meta {
-      display: block;
-      font-size: 0.65rem;
-      color: var(--color-text-secondary);
-    }
-
-    .warehouse-card__table-wrap {
-      overflow-x: auto;
-    }
-
-    .warehouse-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    .warehouse-table th,
-    .warehouse-table td {
-      padding: 5px 7px;
-      border-bottom: 1px solid #f0f0ee;
-      text-align: left;
-      vertical-align: middle;
-      font-size: 0.78rem;
-    }
-
-    .warehouse-table th {
-      padding: 4px 7px;
-      font-size: 0.58rem;
-      font-weight: var(--weight-semibold);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--color-text-secondary);
-      background: #fafaf9;
-    }
-
-    .warehouse-table .col-num {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .row--selected {
-      background: color-mix(in srgb, var(--color-success, #10b981) 7%, white);
-    }
-
-    .marker-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-top: 3px;
-    }
-
-    .marker-chip {
-      padding: 1px 6px;
-      border-radius: var(--radius-pill, 999px);
-      background: var(--color-bg-info, #eff6ff);
-      color: var(--color-info, #1e3a8a);
-      font-size: 0.6rem;
-      font-weight: var(--weight-medium);
-    }
-
-    .qty-input {
-      width: 100%;
-      max-width: 76px;
-      padding: 3px 6px;
-      border: 1px solid #ddddd9;
-      border-radius: 5px;
-      font: inherit;
-      font-size: 0.78rem;
-      font-variant-numeric: tabular-nums;
-      background: #ffffff;
-    }
-
-    .qty-input:focus {
-      outline: 2px solid var(--color-focus-ring, #1565c0);
-      outline-offset: 1px;
-      border-color: transparent;
-    }
-
-    /* ── Mobile cards ── */
-    .mobile-cards {
-      display: none;
-    }
-
-    .mobile-card {
-      padding: 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(55, 53, 47, 0.14);
-      background: #ffffff;
-    }
-
-    .mobile-card__header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .mobile-card__meta {
-      margin: 3px 0;
-      font-size: 0.75rem;
-      color: var(--color-text-secondary);
-    }
-
-    .mobile-card__fields {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin: 8px 0;
-    }
-
-    .mobile-card__field {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.82rem;
-    }
-
-    .mobile-card__field span {
-      color: var(--color-text-secondary);
-    }
-
-    .mobile-card__input {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .mobile-card__input span {
-      color: var(--color-text-secondary);
-      font-size: 0.78rem;
-    }
-
-    /* ── Continuation callout (multi-warehouse) ── */
-    .detail__continuation {
+    /* ── Ranked stack ── */
+    .detail__stack {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      padding: 14px 16px;
-      border-radius: 10px;
-      border: 1px solid var(--color-border-warning, rgba(217, 119, 6, 0.32));
-      background: var(--color-surface-warning, rgba(254, 243, 199, 0.5));
     }
 
-    .detail__continuation-head {
+    /* ── Add-next row ── */
+    .detail__add-row {
       display: flex;
-      align-items: flex-start;
-      gap: 10px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
     }
 
-    .detail__continuation-head mat-icon {
-      color: var(--color-text-warning, #b45309);
-      flex-shrink: 0;
-    }
-
-    .detail__continuation-title {
-      margin: 0 0 2px;
-      font-size: 0.95rem;
-      font-weight: var(--weight-semibold, 600);
-      color: var(--color-text-primary, #37352F);
-    }
-
-    .detail__continuation-copy {
-      margin: 0;
-      font-size: 0.82rem;
-      color: var(--color-text-secondary, #787774);
-    }
-
-    .detail__continuation-loading {
-      margin-left: auto;
-      display: inline-flex;
+    /*
+     * Full-width dashed-border add-another-warehouse affordance.
+     * Intentionally NOT a mat-stroked-button — the ghost/dashed look matches the
+     * frozen mockup and does not use Material's pill-sized stroked-button token.
+     */
+    .detail__add-btn {
+      display: flex;
       align-items: center;
-      gap: 4px;
-      font-size: 0.78rem;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 16px;
+      border: 1.5px dashed
+        color-mix(in srgb, var(--color-text-secondary, #787774) 40%, #d6d3cb);
+      border-radius: 12px;
+      background: transparent;
       color: var(--color-text-secondary, #787774);
+      font-size: 0.9rem;
+      font-weight: var(--weight-medium, 500);
+      cursor: pointer;
+      transition: border-color 160ms ease, background-color 160ms ease,
+        color 160ms ease;
     }
 
-    .detail__continuation-loading mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-      animation: detail-continuation-spin 1.2s linear infinite;
+    .detail__add-btn mat-icon {
+      flex-shrink: 0;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
     }
 
-    @keyframes detail-continuation-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+    .detail__add-btn-label {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .detail__add-btn-count {
+      color: var(--color-text-secondary, #787774);
+      font-weight: var(--weight-regular, 400);
+      font-size: 0.82rem;
+    }
+
+    .detail__add-btn:hover:not([disabled]),
+    .detail__add-btn:focus-visible:not([disabled]) {
+      border-color: var(--color-text-primary, #37352f);
+      color: var(--color-text-primary, #37352f);
+      background: color-mix(
+        in srgb,
+        var(--color-surface-subtle, #f7f6f3) 60%,
+        transparent
+      );
+    }
+
+    .detail__add-btn:focus-visible {
+      outline: 2px solid var(--color-focus-ring, #1565c0);
+      outline-offset: 2px;
+    }
+
+    .detail__add-btn[disabled] {
+      cursor: not-allowed;
+      opacity: 0.55;
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .detail__continuation-loading mat-icon {
-        animation: none;
-        transform: none;
+      .detail__add-btn {
+        transition: none;
       }
     }
 
-    .detail__alternate-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .detail__alternate-card {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 12px;
-      background: #ffffff;
-      border-radius: 8px;
-      border: 1px solid rgba(55, 53, 47, 0.1);
-    }
-
-    .detail__alternate-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .detail__alternate-name {
-      font-size: 0.88rem;
-      font-weight: var(--weight-semibold, 600);
-      color: var(--color-text-primary, #37352F);
-    }
-
-    .detail__alternate-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 8px;
-      font-size: 0.7rem;
-      font-weight: var(--weight-semibold, 600);
-      border-radius: 999px;
-      white-space: nowrap;
-    }
-
-    .detail__alternate-badge mat-icon {
-      font-size: 13px;
-      width: 13px;
-      height: 13px;
-    }
-
-    .detail__alternate-badge--ok {
-      background: var(--color-surface-success, rgba(34, 197, 94, 0.12));
-      color: var(--color-text-success, #166534);
-    }
-
-    .detail__alternate-badge--partial {
-      background: var(--color-surface-warning, rgba(217, 119, 6, 0.12));
-      color: var(--color-text-warning, #b45309);
-    }
-
-    .detail__alternate-figures {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin: 0;
-    }
-
-    .detail__alternate-figures div {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .detail__alternate-figures dt {
-      margin: 0;
-      font-size: 0.7rem;
+    .detail__add-row-eyebrow {
+      display: block;
+      font-size: 0.6rem;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
       color: var(--color-text-secondary, #787774);
     }
 
-    .detail__alternate-figures dd {
-      margin: 0;
-      font-size: 0.92rem;
+    .detail__add-row-name {
+      display: block;
+      font-size: 0.88rem;
       font-weight: var(--weight-semibold, 600);
-      color: var(--color-text-primary, #37352F);
+      color: var(--color-text-primary, #37352f);
     }
 
-    .detail__alternate-action {
-      align-self: flex-start;
+    .detail__add-row-meta {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    /* ── Aggregate summary ── */
+    .detail__summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      border: 1px solid transparent;
+    }
+
+    .detail__summary mat-icon {
+      flex-shrink: 0;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    .detail__summary-text {
+      flex: 1 1 auto;
+    }
+
+    .detail__summary[data-state='draft'] {
+      background: #f7f6f3;
+      color: var(--color-text-secondary, #787774);
+      border-color: #eae7dd;
+    }
+
+    .detail__summary[data-state='filled'] {
+      background: color-mix(in srgb, var(--color-success, #286a36) 8%, white);
+      color: var(--color-success, #286a36);
+      border-color: color-mix(in srgb, var(--color-success, #286a36) 28%, #eae7dd);
+    }
+
+    .detail__summary[data-state='compliant_partial'] {
+      background: color-mix(in srgb, var(--color-success, #286a36) 6%, white);
+      color: var(--color-success, #286a36);
+      border-color: color-mix(in srgb, var(--color-success, #286a36) 20%, #eae7dd);
+    }
+
+    .detail__summary[data-state='non_compliant'] {
+      background: color-mix(in srgb, var(--color-warning, #d97706) 10%, white);
+      color: var(--color-warning, #6e4200);
+      border-color: color-mix(in srgb, var(--color-warning, #d97706) 32%, #eae7dd);
     }
 
     /* ── Responsive ── */
@@ -1031,21 +926,29 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         flex-direction: column;
       }
 
+      .detail__name {
+        font-size: 1.2rem;
+      }
+
+      .detail__text-actions {
+        margin-left: 0;
+        padding-left: 0;
+        border-left: none;
+      }
+
+      /* When the text-actions lose their left rule, the inner vertical
+         separator between the two buttons floats without context — drop it
+         so the narrow-layout reads cleanly. */
+      .detail__text-actions .detail__divider {
+        display: none;
+      }
+
       .detail__metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .metric-card--status {
         grid-column: 1 / -1;
-      }
-
-      .warehouse-card__table-wrap {
-        display: none;
-      }
-
-      .mobile-cards {
-        display: grid;
-        gap: 8px;
       }
     }
   `],
@@ -1056,14 +959,33 @@ export class FulfillmentItemDetailComponent {
   readonly readOnly = input(false);
   readonly store = input.required<OperationsWorkspaceStateService>();
   readonly back = output<void>();
-  readonly itemAvailabilityIssue = computed(() => this.store().getItemAvailabilityIssue(this.item()));
+
+  private readonly breakpointObserver = inject(BreakpointObserver);
+  private readonly bottomSheet = inject(MatBottomSheet);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly cardComponents = viewChildren(WarehouseAllocationCardComponent);
+  private previousCardCount = 0;
+
+  /** True when viewport is narrower than 520px — bottom sheet replaces menu. */
+  private readonly narrowState = toSignal(
+    this.breakpointObserver.observe('(max-width: 519px)'),
+    { initialValue: { matches: false, breakpoints: {} } },
+  );
+  readonly isNarrow = computed(() => this.narrowState().matches);
+
+  readonly itemAvailabilityIssue = computed(() =>
+    this.store().getItemAvailabilityIssue(this.item()),
+  );
 
   readonly effectiveWarehouse = computed(() =>
     this.store().effectiveWarehouseForItem(this.item().item_id),
   );
+  readonly preferredWarehouseControl = new FormControl<string>('', { nonNullable: true });
 
   readonly isOverridden = computed(() => {
-    const defaultId = this.item().source_warehouse_id != null ? String(this.item().source_warehouse_id) : '';
+    const defaultId = this.item().source_warehouse_id != null
+      ? String(this.item().source_warehouse_id)
+      : '';
     const effective = this.effectiveWarehouse();
     return !!defaultId && !!effective && effective !== defaultId;
   });
@@ -1071,10 +993,16 @@ export class FulfillmentItemDetailComponent {
   readonly warehouseSelectOptions = computed<WarehouseSelectOption[]>(() => {
     const options = new Map<string, string>();
     for (const candidate of this.item().candidates) {
-      options.set(String(candidate.inventory_id), candidate.warehouse_name || `Warehouse ${candidate.inventory_id}`);
+      options.set(
+        String(candidate.inventory_id),
+        candidate.warehouse_name || `Warehouse ${candidate.inventory_id}`,
+      );
     }
     for (const alternate of this.item().alternate_warehouses ?? []) {
-      options.set(String(alternate.warehouse_id), alternate.warehouse_name || `Warehouse ${alternate.warehouse_id}`);
+      options.set(
+        String(alternate.warehouse_id),
+        alternate.warehouse_name || `Warehouse ${alternate.warehouse_id}`,
+      );
     }
     const effectiveWarehouseId = this.effectiveWarehouse();
     if (effectiveWarehouseId) {
@@ -1102,13 +1030,17 @@ export class FulfillmentItemDetailComponent {
     this.store().getUncoveredQtyForItem(this.item().item_id),
   );
 
+  readonly shortfallString = computed(() => String(this.shortfallQty()));
+
   readonly fillRatio = computed(() => {
     const remaining = this.remainingQty();
     if (remaining <= 0) return 1;
     return Math.min(this.reservingQty() / remaining, 1);
   });
 
-  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated' | 'fully_issued'>(() => {
+  readonly fillStatus = computed<
+    'not_started' | 'partial' | 'filled' | 'over_allocated' | 'fully_issued'
+  >(() => {
     if (this.item().fully_issued) return 'fully_issued';
     const remaining = this.remainingQty();
     const reserving = this.reservingQty();
@@ -1126,6 +1058,27 @@ export class FulfillmentItemDetailComponent {
       case 'over_allocated': return 'Over-Allocated';
       case 'fully_issued': return 'Already Issued';
     }
+  });
+
+  /**
+   * Plain-language explanation of the item's issuance rule, surfaced via a
+   * Material tooltip on the help-icon button next to the method badge. Works
+   * on hover and keyboard focus (MatTooltip shows on focus for a11y). Falls
+   * back to a neutral sentence when the backend reports an unrecognised rule
+   * so the help affordance never renders an empty tooltip.
+   */
+  readonly methodTooltip = computed(() => {
+    // Normalise casing/whitespace so legacy payloads like ' fefo ' still
+    // render the correct help copy instead of falling through to the generic
+    // fallback sentence.
+    const rule = String(this.item().issuance_order ?? '').trim().toUpperCase();
+    if (rule === 'FEFO') {
+      return 'FEFO (First Expiring, First Out): batches with the earliest expiry date are issued first to minimise spoilage.';
+    }
+    if (rule === 'FIFO') {
+      return 'FIFO (First In, First Out): the oldest received stock is issued first to rotate inventory.';
+    }
+    return 'Allocation rule for this item.';
   });
 
   readonly availabilityHint = computed<string | null>(() => {
@@ -1147,7 +1100,39 @@ export class FulfillmentItemDetailComponent {
       : 'Increase reservation to cover';
   });
 
-  // ── Continuation (multi-warehouse) computed signals ──
+  // ── Stack and add-next computed signals ──
+
+  readonly rankedStackCards = computed<WarehouseAllocationCard[]>(() => {
+    const item = this.item();
+    const cards = [...(item.warehouse_cards ?? [])];
+    const presentIds = new Set(cards.map((c) => c.warehouse_id));
+
+    // Merge any transient warehouses the user added that aren't yet represented
+    // in the backend's rank-ordered cards. These typically come from
+    // alternate_warehouses that were added before the next preview round-trip.
+    // Marked `pending: true` so the card can render a loading affordance until
+    // the backend's preview POST returns authoritative batch detail.
+    const loaded = this.store().loadedWarehousesByItem()[item.item_id] ?? [];
+    const alternates = item.alternate_warehouses ?? [];
+    let trailingRank = cards.length;
+    for (const warehouseId of loaded) {
+      if (presentIds.has(warehouseId)) continue;
+      const alt = alternates.find((a) => a.warehouse_id === warehouseId);
+      cards.push({
+        warehouse_id: warehouseId,
+        warehouse_name: alt?.warehouse_name ?? `Warehouse ${warehouseId}`,
+        rank: trailingRank,
+        issuance_order: item.issuance_order,
+        total_available: alt?.available_qty ?? '0',
+        suggested_qty: alt?.suggested_qty ?? '0',
+        batches: [],
+        pending: true,
+      });
+      presentIds.add(warehouseId);
+      trailingRank += 1;
+    }
+    return cards;
+  });
 
   readonly visibleAlternateWarehouses = computed(() => {
     const item = this.item();
@@ -1156,98 +1141,194 @@ export class FulfillmentItemDetailComponent {
       return alternates;
     }
     const loaded = new Set(this.store().loadedWarehousesByItem()[item.item_id] ?? []);
-    return alternates.filter((alt) => !loaded.has(alt.warehouse_id));
+    const stackIds = new Set(this.rankedStackCards().map((c) => c.warehouse_id));
+    return alternates.filter((alt) => !loaded.has(alt.warehouse_id) && !stackIds.has(alt.warehouse_id));
   });
-
-  readonly continuationVisible = computed(() => {
-    if (this.readOnly()) return false;
-    return this.visibleAlternateWarehouses().length > 0;
-  });
-
-  readonly continuationHasShortfall = computed(() => this.continuationShortfall() > 0);
-
-  readonly continuationShortfall = computed(() => {
-    const item = this.item();
-    const effective = item.effective_remaining_qty ?? item.remaining_shortfall_qty ?? '0';
-    const parsed = Number.parseFloat(String(effective));
-    return Number.isFinite(parsed) ? parsed : 0;
-  });
-
-  readonly continuationLoading = computed(
-    () => this.store().previewLoadingByItem()[this.item().item_id] ?? false,
-  );
 
   readonly addingWarehouse = computed(
     () => this.store().addingWarehouseByItem()[this.item().item_id] ?? false,
   );
 
-  readonly warehouseGroups = computed<WarehouseGroup[]>(() => {
-    const candidates = this.item().candidates;
-    const map = new Map<number, WarehouseGroup>();
-    const insertionIndexByInventoryId = new Map<number, number>();
-
-    for (const c of candidates) {
-      const key = c.inventory_id;
-      if (!map.has(key)) {
-        insertionIndexByInventoryId.set(key, insertionIndexByInventoryId.size);
-        map.set(key, {
-          name: c.warehouse_name || `Inventory ${c.inventory_id}`,
-          inventoryId: c.inventory_id,
-          totalAvailable: 0,
-          batchCount: 0,
-          candidates: [],
-        });
+  readonly maxRankWithQty = computed(() => {
+    let maxRank = -1;
+    for (const card of this.rankedStackCards()) {
+      if (this.allocatedQtyFor(card) > 0 && card.rank > maxRank) {
+        maxRank = card.rank;
       }
-      const group = map.get(key)!;
-      group.totalAvailable += Number(c.available_qty) || 0;
-      group.batchCount += 1;
-      group.candidates.push(c);
     }
-
-    // Respect the backend's FEFO/FIFO warehouse ranking when the
-    // `warehouse_cards` payload is present. Cards provide the canonical
-    // rank for each inventory_id; any loaded warehouse not covered by
-    // the ranking falls to the end but keeps its relative insertion order.
-    const rankByInventoryId = new Map<number, number>();
-    for (const card of this.item().warehouse_cards ?? []) {
-      rankByInventoryId.set(card.warehouse_id, card.rank);
-    }
-    const unranked = Number.MAX_SAFE_INTEGER;
-    return [...map.values()].sort((left, right) => {
-      const leftRank = rankByInventoryId.get(left.inventoryId) ?? unranked;
-      const rightRank = rankByInventoryId.get(right.inventoryId) ?? unranked;
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-      return (
-        (insertionIndexByInventoryId.get(left.inventoryId) ?? unranked)
-        - (insertionIndexByInventoryId.get(right.inventoryId) ?? unranked)
-      );
-    });
+    return maxRank;
   });
 
-  onQtyChange(candidate: AllocationCandidate, value: number | string): void {
-    const parsed = Number.parseFloat(String(value ?? '0'));
-    this.store().setCandidateQuantity(
-      this.item().item_id,
-      candidate,
-      Number.isFinite(parsed) ? parsed : 0,
+  // ── Aggregate summary ──
+
+  readonly aggregateState = computed<
+    'draft' | 'filled' | 'compliant_partial' | 'non_compliant'
+  >(() => {
+    // Delegate to the store helper (single source of truth). The per-card
+    // `isOverrideRiskFor` heuristic remains a presentational hint; the
+    // canonical fill-state classification lives in
+    // OperationsWorkspaceStateService.getItemFillStatus, which combines the
+    // backend override_required flag with the workspace's own
+    // isRuleBypassedForItem signature check.
+    const item = this.item();
+    const base = this.store().getItemFillStatus(item.item_id);
+    if (base !== 'non_compliant') {
+      // Preserve the pre-commit UX safety net: a higher-rank card zeroed while
+      // a lower-rank card has qty should surface as non_compliant even during
+      // transitional states where the store's canonical check has not yet
+      // caught up.
+      const hasLocalOverrideRisk = this.rankedStackCards().some((card) =>
+        this.isOverrideRiskFor(card),
+      );
+      if (hasLocalOverrideRisk) {
+        return 'non_compliant';
+      }
+    }
+    return base;
+  });
+
+  readonly summaryIcon = computed(() => {
+    switch (this.aggregateState()) {
+      case 'filled': return 'check_circle';
+      case 'compliant_partial': return 'check_circle_outline';
+      case 'non_compliant': return 'warning';
+      default: return 'info';
+    }
+  });
+
+  readonly summaryCopy = computed(() => {
+    const item = this.item();
+    const reserving = this.reservingQty();
+    const remaining = this.remainingQty();
+    const shortfall = Math.max(0, remaining - reserving);
+    const primary = this.rankedStackCards()[0]?.warehouse_name ?? 'the primary warehouse';
+    const warehouseCount = this.rankedStackCards().filter(
+      (c) => this.allocatedQtyFor(c) > 0,
+    ).length;
+    switch (this.aggregateState()) {
+      case 'draft':
+        return `Nothing allocated yet. Start by reserving from ${primary} or add another warehouse.`;
+      case 'filled':
+        return `Fully covered — ${this.formatNumber(reserving)} of ${this.formatNumber(remaining)} reserved across ${warehouseCount} warehouse${warehouseCount === 1 ? '' : 's'}.`;
+      case 'compliant_partial':
+        return `Compliant partial — ${this.formatNumber(shortfall)} short. No more compliant stock available; proceed to review or add stock later.`;
+      case 'non_compliant':
+      default:
+        // Use the backend flag to produce a consistent message; avoid referencing
+        // item name to keep copy short.
+        return `Non-compliant allocation — reason required in the next step.${item.issuance_order ? ' (reason required for issuance order)' : ''}`;
+    }
+  });
+
+  constructor() {
+    this.preferredWarehouseControl.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => this.onWarehouseOverride(value));
+
+    effect(() => {
+      const effectiveWarehouse = this.effectiveWarehouse();
+      if (this.preferredWarehouseControl.value !== effectiveWarehouse) {
+        this.preferredWarehouseControl.setValue(effectiveWarehouse, { emitEvent: false });
+      }
+      if (this.readOnly()) {
+        if (this.preferredWarehouseControl.enabled) {
+          this.preferredWarehouseControl.disable({ emitEvent: false });
+        }
+      } else if (this.preferredWarehouseControl.disabled) {
+        this.preferredWarehouseControl.enable({ emitEvent: false });
+      }
+    });
+
+    // After each render, if the card stack grew, focus the new card's qty input
+    // so keyboard users land in the right place after adding a warehouse.
+    // Uses viewChildren() for scoped, DOM-agnostic access rather than a global
+    // querySelectorAll (which would escape this component's DOM boundary).
+    afterEveryRender(() => {
+      const count = this.rankedStackCards().length;
+      if (count > this.previousCardCount && this.previousCardCount > 0) {
+        const cards = this.cardComponents();
+        const last = cards[cards.length - 1];
+        last?.focusQtyInput();
+      }
+      this.previousCardCount = count;
+    });
+  }
+
+  // ── Interaction handlers ──
+
+  allocatedQtyFor(card: WarehouseAllocationCard): number {
+    return this.store().getItemWarehouseAllocatedQty(this.item().item_id, card.warehouse_id);
+  }
+
+  remainingForCard(card: WarehouseAllocationCard): number {
+    const remaining = this.remainingQty();
+    const reserving = this.reservingQty();
+    return Math.max(0, remaining - reserving + this.allocatedQtyFor(card));
+  }
+
+  isOverrideRiskFor(card: WarehouseAllocationCard): boolean {
+    // A card is at risk when a higher-ranked card with qty sits above it and
+    // this card itself is empty — a pre-commit heuristic mirroring the
+    // backend's override gate.
+    if (this.allocatedQtyFor(card) > 0 || this.usableQtyFor(card) <= 0) {
+      return false;
+    }
+    return this.rankedStackCards().some(
+      (candidate) => candidate.rank > card.rank && this.allocatedQtyFor(candidate) > 0,
     );
   }
 
-  formatMarker(marker: string): string {
-    return COMPLIANCE_LABELS[marker] ?? marker.replace(/_/g, ' ');
+  onCardQty(card: WarehouseAllocationCard, qty: number): void {
+    this.store().setItemWarehouseQty(this.item().item_id, card.warehouse_id, qty);
   }
 
-  onWarehouseOverride(warehouseId: string): void {
-    this.store().updateItemWarehouse(this.item().item_id, warehouseId);
+  onRemoveCard(warehouseId: number): void {
+    this.store().removeItemWarehouse(this.item().item_id, warehouseId);
   }
 
   onAddWarehouse(warehouseId: number): void {
     this.store().addItemWarehouse(this.item().item_id, warehouseId);
   }
 
-  formatSource(sourceType: string): string {
-    return formatSourceType(sourceType);
+  onWarehouseOverride(warehouseId: string): void {
+    this.store().updateItemWarehouse(this.item().item_id, warehouseId);
+  }
+
+  openBottomSheet(): void {
+    const alternates = this.visibleAlternateWarehouses();
+    if (!alternates.length) {
+      return;
+    }
+    const loadedCount = this.store().loadedWarehousesByItem()[this.item().item_id]?.length ?? 0;
+    const ref = this.bottomSheet.open(AddWarehouseBottomSheetComponent, {
+      data: {
+        alternates,
+        issuanceOrder: this.item().issuance_order,
+        loadedCount,
+      } as AddWarehouseSheetData,
+    });
+    ref
+      .afterDismissed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((warehouseId) => {
+        if (typeof warehouseId === 'number' && warehouseId > 0) {
+          this.onAddWarehouse(warehouseId);
+        }
+      });
+  }
+
+  private formatNumber(value: number): string {
+    if (!Number.isFinite(value)) return '0';
+    const rounded = Math.round(value * 10_000) / 10_000;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  }
+
+  private usableQtyFor(card: WarehouseAllocationCard): number {
+    const allocatable = Number(card.allocatable_available_qty);
+    if (Number.isFinite(allocatable) && allocatable > 0) {
+      return allocatable;
+    }
+    const total = Number(card.total_available);
+    return Number.isFinite(total) && total > 0 ? total : 0;
   }
 }

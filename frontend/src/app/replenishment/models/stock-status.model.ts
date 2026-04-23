@@ -2,6 +2,50 @@ export type EventPhase = 'SURGE' | 'STABILIZED' | 'BASELINE';
 export type SeverityLevel = 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK';
 export type FreshnessLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type DisplaySeverity = 'CRITICAL' | 'WARNING' | 'GOOD';
+export type DisplayStatus =
+  | 'DRAFT'
+  | 'MODIFIED'
+  | 'SUBMITTED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'IN_PROGRESS'
+  | 'FULFILLED'
+  | 'SUPERSEDED'
+  | 'UNKNOWN';
+
+export interface PhaseWindowEntry {
+  event_id: number | null;
+  phase: EventPhase;
+  scope: string;
+  applies_globally: boolean;
+  demand_hours: number;
+  planning_hours: number;
+  source?: string;
+  config_id?: number | null;
+  authoritative_tenant?: {
+    tenant_id?: number;
+    tenant_code?: string;
+    tenant_name?: string;
+  } | null;
+  justification?: string | null;
+  audit?: Record<string, unknown> | null;
+}
+
+/**
+ * Wire-level response from `/api/v1/replenishment/events/{eventId}/phase-windows`.
+ * Backend emits `phase_windows` as a list; the service boundary projects it into
+ * the `windows` record for convenient per-phase lookup by the dialog and templates.
+ */
+export interface PhaseWindowsResponse {
+  event_id: number;
+  scope: string;
+  applies_globally: boolean;
+  phase_windows: PhaseWindowEntry[];
+  windows: Record<EventPhase, PhaseWindows>;
+  manageable_by_active_tenant: boolean;
+}
+
 export interface StockStatusItem {
   item_id: number;
   item_name?: string;
@@ -72,10 +116,15 @@ export interface PhaseWindows {
   safety_factor: number;
 }
 
+/**
+ * Frontend fallback for Product Backlog v3.2 phase windows (FR02.04).
+ * Prefer backend values from `/phase-windows`; these only apply when the service
+ * has not yet resolved the effective configuration for the active event.
+ */
 export const PHASE_WINDOWS: Record<EventPhase, PhaseWindows> = {
-  SURGE: { demand_hours: 6, planning_hours: 72, safety_factor: 1.5 },
-  STABILIZED: { demand_hours: 72, planning_hours: 168, safety_factor: 1.25 },
-  BASELINE: { demand_hours: 720, planning_hours: 720, safety_factor: 1.1 }
+  SURGE: { demand_hours: 6, planning_hours: 24, safety_factor: 1.5 },
+  STABILIZED: { demand_hours: 72, planning_hours: 72, safety_factor: 1.25 },
+  BASELINE: { demand_hours: 720, planning_hours: 168, safety_factor: 1.1 }
 };
 
 export function calculateSeverity(timeToStockoutHours: number | null): SeverityLevel {

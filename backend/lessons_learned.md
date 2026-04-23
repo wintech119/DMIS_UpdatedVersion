@@ -132,3 +132,78 @@ create_role_notifications(
 
 ### Closeout Expectation
 - If a change touches workflow outcomes whose labels appear in the freeze but whose state effects are incomplete, call out the design gap explicitly in the closeout instead of treating current code behavior as the requirement.
+
+## Item Allocation Discovery Must Stay Item-Scoped
+
+### Symptom
+- Allocation discovery exposed a package-level `source_warehouse_id` contract that could outrank the true FEFO/FIFO warehouse for a specific item and could present continuation warehouses in quantity order instead of item-rule order.
+
+### Root Cause
+- The backend already had item-level FEFO/FIFO ranking internally, but the public contract still treated a shared package/source warehouse as the main selector and reduced continuation to a secondary convenience list.
+- Draft reload logic and continuation previews then had to infer rank from mixed fields instead of one canonical item-scoped warehouse list.
+
+### Invariant
+- Package allocation discovery is item-scoped: the canonical warehouse order must be computed per item from FEFO/FIFO applicability before any default or continuation selection is exposed.
+
+### Correct Architectural Rule
+- Treat `warehouse_cards` as the authoritative ranked warehouse contract for an item, and derive recommendation, continuation, and draft rehydration from that rank order.
+- Package-level or request-level source warehouse fields may survive only as convenience aliases or downstream summaries; they must not be the authority for multi-warehouse item selection.
+- For continuation-only warehouses that are loaded outside the aggregate stock list, placeholder labels must stay fallback-only; authoritative warehouse metadata should come from the batch candidates when available.
+
+### Regression Tests That Must Exist
+- Package options recommend different rank-0 warehouses for different items when FEFO/FIFO rules differ.
+- Continuation warehouses follow the same ranked FEFO/FIFO order exposed in `warehouse_cards`, not quantity-first order.
+- Draft-aware previews that pull in additional selected warehouses preserve pre-draft batch visibility while still computing suggestions from allocatable quantities.
+- Continuation-only warehouses loaded through `additional_warehouse_ids` preserve the real warehouse name from batch metadata instead of surfacing a synthetic placeholder label.
+
+### Closeout Expectation
+- If a change touches allocation discovery, continuation, or draft warehouse rehydration, mention this lesson in the closeout and confirm the ranked-warehouse regression tests were run.
+
+## Allocation Enforcement Must Reuse The Ranked Item Contract
+
+### Symptom
+- Save-time FEFO/FIFO enforcement could be bypassed by submitting only a caller-chosen warehouse subset, and execution-linked package options could still return the old compat bootstrap shape instead of the ranked item contract.
+
+### Root Cause
+- The backend had already frozen `warehouse_cards` as the canonical per-item ranking contract, but commit-time validation still derived its comparison set from selected/default warehouses and the execution-link package options branch still short-circuited into the needs-list compat payload.
+
+### Invariant
+- The backend must evaluate allocation compliance against the full per-item ranked warehouse universe, not only the warehouses the caller selected.
+
+### Correct Architectural Rule
+- Save-time override detection and approval-required logic must reuse the same FEFO/FIFO-ranked item universe that powers item allocation discovery, so omitting a better-ranked warehouse cannot bypass `allocation_order_override`.
+- Execution-linked package options may enrich the ranked response with compatibility metadata, but they must not downgrade item groups back to the old compat-only allocation shape.
+- Submitted source warehouses and requested destination warehouses must be validated against the caller's tenant write scope before override detection, execution-link branches, or commit helpers can run.
+
+### Regression Tests That Must Exist
+- Submitting only a lower-ranked warehouse while a better-ranked warehouse still has stock triggers `allocation_order_override`.
+- Ranked multi-warehouse continuation remains compliant.
+- Intentional partial fulfillment remains compliant when the submitted rows follow rank order and simply stop early.
+- Execution-linked package options expose `warehouse_cards`, recommendation metadata, shortfall, and continuation fields just like non-execution-linked requests.
+- Out-of-scope submitted source or destination warehouses are rejected before override detection or allocation commit helpers run.
+
+### Closeout Expectation
+- If a change touches allocation enforcement or execution-linked package allocation options, mention this lesson in the closeout and confirm the ranked-allocation enforcement regressions were run.
+
+## Caught Legacy Database Errors Need Savepoint Isolation
+
+### Symptom
+- A test using PostgreSQL failed later in the workflow with `current transaction is aborted` even though the original legacy lookup error had been caught and the code attempted to continue.
+
+### Root Cause
+- Optional legacy table probes and best-effort lookups caught `DatabaseError` without wrapping the risky query in a nested `transaction.atomic()` savepoint.
+- PostgreSQL marks the surrounding transaction as aborted after many database errors; catching the Python exception alone does not restore transaction usability.
+
+### Invariant
+- Any intentionally tolerated `DatabaseError` inside an active workflow transaction must be isolated in a savepoint before it is caught and converted to a fallback result.
+
+### Correct Architectural Rule
+- For optional raw SQL or legacy ORM probes that may fail due schema drift or unavailable legacy tables, wrap the probe in `transaction.atomic()` and catch the error outside that nested block.
+- Keep the fallback explicit and narrow; do not let optional metadata lookups poison authoritative workflow writes.
+
+### Regression Tests That Must Exist
+- Workflow contract tests that exercise optional legacy lookups must continue to perform later ORM writes and reads in the same request path.
+- API contract tests that mock service calls should isolate rate-limit active-event probes rather than requiring database access from `SimpleTestCase`.
+
+### Closeout Expectation
+- If a change catches `DatabaseError` around legacy SQL or unmanaged legacy models, mention this lesson in the closeout and confirm a PostgreSQL-backed test covered the continuation path.

@@ -47,6 +47,10 @@
   // ── Status severity colors ──
   --color-critical: #dc3545;
   --color-warning: #d97706;
+  // --color-warning-text is the AA-compliant dark-amber used for text/icon
+  // against warning-tinted backgrounds (the #d97706 fill fails AA on amber
+  // fills like #fde8b1 / color-mix(... --color-warning 14%, white)).
+  --color-warning-text: #6e4200;
   --color-watch: #b45309;
   --color-success: #059669;
   --color-info: #1e3a8a;

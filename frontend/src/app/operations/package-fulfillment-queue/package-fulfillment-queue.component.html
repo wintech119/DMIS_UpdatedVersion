@@ -1,60 +1,138 @@
-<div class="ops-page-shell">
-  <header class="ops-hero">
-    <div>
-      <p class="ops-hero__eyebrow">
-        <mat-icon aria-hidden="true">inventory_2</mat-icon>
-        Operations / Package Fulfillment
+<div class="ops-page-shell pfq-shell">
+  <header class="pfq-hero" aria-label="Page header">
+    <div class="pfq-hero__lead">
+      <p class="pfq-hero__eyebrow">
+        <span>Operations</span>
+        <span class="pfq-hero__sep" aria-hidden="true">·</span>
+        <span>Package Fulfillment</span>
       </p>
-      <h1 class="ops-hero__title">Package Fulfillment Queue</h1>
-      <p class="ops-hero__copy">
-        Active work queue for stock reservation, packing, and dispatch preparation.
+      <h1 class="pfq-hero__title">Package Fulfillment Queue</h1>
+      <p class="pfq-hero__copy">
+        Active work queue for stock reservation, packing, and dispatch handoff. Dispatched and received packages move to the Dispatch queue.
       </p>
-      <app-ops-status-chip label="Active Work" tone="warning" />
+      <div class="pfq-hero__context">
+        <span class="pfq-hero__pill pfq-hero__pill--status">
+          <span class="pfq-hero__pill-dot" aria-hidden="true"></span>
+          <span>Active work</span>
+          <span class="pfq-hero__pill-sep" aria-hidden="true">·</span>
+          <strong><span aria-live="polite" aria-atomic="true">{{ activeQueueCount() }}</span> in queue</strong>
+        </span>
+        <span class="pfq-hero__pill pfq-hero__pill--meta">
+          <mat-icon aria-hidden="true">schedule</mat-icon>
+          <span>Updated</span>
+          <strong aria-live="polite">just now</strong>
+        </span>
+        <span class="pfq-hero__warehouse">
+          Default warehouse: <strong>{{ defaultWarehouseLabel() }}</strong>
+        </span>
+      </div>
     </div>
-
-    <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="setFilter('drafts')">
-        <mat-icon>drafts</mat-icon>
-        Show Drafts
-      </button>
-      <button mat-stroked-button type="button" (click)="refreshQueue()">
-        <mat-icon>refresh</mat-icon>
-        Refresh Queue
+    <div class="pfq-hero__actions">
+      @if (filterChipCounts().drafts > 0) {
+        <button
+          type="button"
+          class="pfq-hero__btn pfq-hero__btn--ghost"
+          (click)="setFilter('drafts')"
+          aria-label="Show my drafts">
+          <span>Show my drafts</span>
+          <span class="pfq-hero__pill-sep" aria-hidden="true">·</span>
+          <strong>{{ filterChipCounts().drafts }}</strong>
+        </button>
+      }
+      <button
+        type="button"
+        class="pfq-hero__btn pfq-hero__btn--primary"
+        (click)="refreshQueue()"
+        aria-label="Refresh queue">
+        <mat-icon aria-hidden="true">refresh</mat-icon>
+        <span>Refresh queue</span>
       </button>
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="queueMetrics()" />
+  @if (!loading() && !errored() && actionInbox().length > 0) {
+    <section class="pfq-inbox" aria-label="Your action inbox">
+      <p class="pfq-inbox__eyebrow">Your action inbox</p>
+      <div class="pfq-inbox__pills">
+        @for (pill of actionInbox(); track pill.token) {
+          <button
+            type="button"
+            class="pfq-inbox__pill"
+            [class]="'pfq-inbox__pill--' + pill.severity"
+            (click)="onInboxClick(pill)"
+            [attr.aria-label]="'Filter queue to ' + pill.label">
+            <span class="pfq-inbox__badge">{{ pill.count }}</span>
+            <span class="pfq-inbox__label">{{ inboxBody(pill) }}</span>
+            <mat-icon class="pfq-inbox__chev" aria-hidden="true">chevron_right</mat-icon>
+          </button>
+        }
+      </div>
+      <a
+        class="pfq-inbox__link"
+        routerLink="/operations/dispatch"
+        aria-label="Open Dispatch Queue in a new view">
+        <span>Open Dispatch Queue</span>
+        <mat-icon aria-hidden="true">open_in_new</mat-icon>
+      </a>
+    </section>
+  }
 
-  <div class="ops-grid ops-grid--split">
-    <section class="ops-panel">
-      <div class="ops-panel__header">
-        <div>
-          <p class="ops-section__eyebrow">Queue</p>
-          <h2 class="ops-section__title">Fulfillment Work Queue</h2>
-          <p class="ops-section__copy">Search and filter requests that are awaiting fulfillment, saved as drafts, preparing, or ready to commit. Dispatched and received packages move on to the Dispatch queue.</p>
+  <div class="pfq-metrics" role="group" aria-label="Queue metrics">
+    @for (stat of queueStats(); track stat.id) {
+      <button
+        type="button"
+        class="ops-queue-tile pfq-metric"
+        [class]="'pfq-metric--' + stat.id"
+        [class.pfq-metric--active]="activeFilter() === stat.id"
+        [attr.aria-pressed]="activeFilter() === stat.id"
+        [attr.aria-label]="'Filter queue to ' + stat.label.toLowerCase() + ', ' + stat.value + (stat.value === 1 ? ' package' : ' packages')"
+        (click)="setFilter(stat.id)">
+        <div class="pfq-metric__top">
+          <span class="pfq-metric__label">{{ stat.label }}</span>
+          <span class="pfq-metric__badge" [class]="'pfq-metric__badge--' + stat.id">
+            <span class="pfq-metric__badge-dot" aria-hidden="true"></span>
+            {{ stageBadgeLabel(stat.id) }}
+          </span>
         </div>
-        <span class="ops-table-shell__meta">{{ filteredItems().length }} request{{ filteredItems().length === 1 ? '' : 's' }}</span>
+        <p class="pfq-metric__value">{{ stat.value }}</p>
+        <p class="pfq-metric__note">{{ stat.note }}</p>
+      </button>
+    }
+  </div>
+
+  <div class="ops-grid ops-grid--split pfq-split">
+    <section class="ops-panel pfq-panel">
+      <div class="pfq-panel__header">
+        <div class="pfq-panel__heading">
+          <p class="ops-section__eyebrow">Queue</p>
+          <h2 class="pfq-panel__title">Fulfillment Work Queue</h2>
+          <p class="pfq-panel__copy">
+            Search and filter requests awaiting fulfillment, saved as drafts, preparing, or ready to commit.
+          </p>
+        </div>
+        <span class="pfq-panel__meta">{{ filteredItems().length }} requests</span>
       </div>
 
-      <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search fulfillment queue">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by tracking number, agency, event, or notes"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter queue by fulfillment stage">
+      <div class="pfq-panel__body">
+        <label class="pfq-search" aria-label="Search fulfillment queue">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            maxlength="200"
+            placeholder="Search by tracking number, agency, event, or notes"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
+
+        <div class="pfq-toolbar">
+          <div class="pfq-chips" role="radiogroup" aria-label="Filter queue by fulfillment stage">
             @for (filter of filterOptions; track filter.value) {
               <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                [class.ops-chip--unread]="hasUnread(filter.value)"
+                class="pfq-chip"
+                [class.pfq-chip--active]="activeFilter() === filter.value"
+                [class.pfq-chip--unread]="hasUnread(filter.value)"
                 type="button"
                 role="radio"
                 [attr.aria-checked]="activeFilter() === filter.value"
@@ -62,12 +140,44 @@
                 [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
                 (click)="setFilter(filter.value)"
                 (keydown)="onFilterKeydown($event, $index)">
-                <span>{{ filter.label }}</span>
+                <span class="pfq-chip__label">{{ filter.label }}</span>
+                <span class="pfq-chip__count" aria-hidden="true">{{ filterChipCounts()[filter.value] }}</span>
                 @if (hasUnread(filter.value)) {
-                  <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+                  <span class="pfq-chip__unread" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
                 }
               </button>
             }
+          </div>
+
+          <div class="pfq-selects" role="group" aria-label="Queue sort and scope">
+            <label class="pfq-select">
+              <span class="pfq-select__label">Priority:</span>
+              <select class="pfq-select__control" [value]="priorityFilter()" (change)="onPriorityChange($any($event.target).value)">
+                <option value="all">All</option>
+                <option value="HIGH">High</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="LOW">Low</option>
+              </select>
+              <mat-icon aria-hidden="true">expand_more</mat-icon>
+            </label>
+            <label class="pfq-select">
+              <span class="pfq-select__label">Warehouse:</span>
+              <select class="pfq-select__control" [value]="warehouseFilter()" (change)="onWarehouseChange($any($event.target).value)">
+                <option value="all">All</option>
+                @for (option of warehouseOptions(); track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
+              </select>
+              <mat-icon aria-hidden="true">expand_more</mat-icon>
+            </label>
+            <label class="pfq-select">
+              <span class="pfq-select__label">Sort:</span>
+              <select class="pfq-select__control" [value]="sortOrder()" (change)="onSortChange($any($event.target).value)">
+                <option value="oldest">Oldest first</option>
+                <option value="newest">Newest first</option>
+              </select>
+              <mat-icon aria-hidden="true">expand_more</mat-icon>
+            </label>
           </div>
         </div>
 
@@ -83,149 +193,205 @@
             (action)="refreshQueue()"
           />
         } @else if (filteredItems().length === 0) {
-          <dmis-empty-state
-            icon="inbox"
-            title="No active fulfillment work"
-            message="Nothing is awaiting reservation or draft work right now. New requests approved for fulfillment will appear here."
-          />
+          <div class="pfq-empty">
+            <dmis-empty-state
+              icon="inbox"
+              title="No active fulfillment work"
+              message="Dispatched and received packages have moved on to the Dispatch queue. New approved requests will appear here."
+            />
+          </div>
         } @else {
-          <div class="ops-row-list">
-            @for (row of filteredItems(); track trackByRequestId($index, row)) {
+          <div class="pfq-rows" role="list">
+            @for (row of pagedItems(); track trackByRequestId($index, row)) {
               <article
-                class="ops-row ops-row--interactive"
-                tabindex="0"
-                role="button"
-                (click)="fulfillRequest(row)"
-                (keydown.enter)="fulfillRequest(row)"
-                (keydown.space)="fulfillRequest(row); $event.preventDefault()">
-                <div class="ops-row__lead">
-                  <div class="ops-row__header">
-                    <p class="ops-row__title">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</p>
-                    <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
-                    <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
-                    @if (row.package_status) {
-                      <app-ops-status-chip [label]="formatPackageStatus(row.package_status, row.current_package?.execution_status ?? row.execution_status)" [tone]="chipTone(getPackageTone(row.package_status, row.current_package?.execution_status ?? row.execution_status))" />
-                    }
-                    @if (isLocked(row)) {
-                      <app-ops-status-chip label="Locked" tone="success" />
-                    }
-                    @if (isDraft(row)) {
-                      <app-ops-status-chip label="Resume Draft" tone="info" />
-                    }
-                    @if (isOverridePending(row)) {
-                      <app-ops-status-chip label="Override Pending" tone="warning" />
-                    }
-                    @if (isReady(row)) {
-                      <app-ops-status-chip label="Ready" tone="success" />
-                    }
-                  </div>
-                  <div class="ops-row__meta">
-                    <span>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ row.event_name ?? 'No event linked' }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ formatLineCount(row.item_count) }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}</span>
+                class="ops-queue-row pfq-row"
+                [class]="stageClass(row)"
+                role="listitem">
+                <!--
+                  Full-row activator: a real <button> that covers the entire
+                  card and provides the primary click/Enter/Space semantics.
+                  It sits visually behind the inner content so the row's
+                  existing layout is unchanged, and above the card surface so
+                  pointer + keyboard users can always activate "open this
+                  request". The stage CTA button below is layered above with
+                  its own handler for a discoverable secondary affordance.
+                -->
+                <button
+                  type="button"
+                  class="pfq-row__activator"
+                  [attr.aria-label]="'Open request ' + (row.tracking_no ?? ('REQ-' + row.reliefrqst_id)) + ', stage ' + stageLabel(row)"
+                  (click)="fulfillRequest(row)">
+                </button>
+                <div class="pfq-row__lead">
+                  <div class="pfq-row__title">
+                    <span class="pfq-row__id">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>
                     @if (row.current_package?.tracking_no; as pkgNo) {
-                      <span aria-hidden="true">|</span>
-                      <span>Pkg {{ pkgNo }}</span>
+                      <span class="pfq-row__pkg">
+                        <span class="pfq-row__pkg-label">PKG</span>
+                        <span class="pfq-row__pkg-value">{{ pkgNo }}</span>
+                      </span>
                     }
+                    <span class="pfq-row__urgency" [class]="'pfq-row__urgency--' + getUrgencyTone(row.urgency_ind)">
+                      {{ formatUrgency(row.urgency_ind) }}
+                    </span>
+                    <span class="pfq-row__authority" [class]="'pfq-row__authority--' + getRequestTone(row.status_code)">
+                      <span class="pfq-row__authority-dot" aria-hidden="true"></span>
+                      {{ formatRequestStatus(row.status_code) }}
+                    </span>
                   </div>
+                  <p class="pfq-row__party">{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</p>
+                  <p class="pfq-row__meta">
+                    <span class="pfq-row__meta-item">
+                      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+                      <span>{{ row.event_name ?? 'No event linked' }}</span>
+                    </span>
+                    <span class="pfq-row__meta-item">
+                      <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                      <span>{{ formatLineCount(row.item_count) }}</span>
+                    </span>
+                    @if (row.current_package?.destination_warehouse_name; as wh) {
+                      <span class="pfq-row__meta-item">
+                        <mat-icon aria-hidden="true">apartment</mat-icon>
+                        <span>{{ wh }}</span>
+                      </span>
+                    }
+                    <span class="pfq-row__meta-sep" aria-hidden="true">·</span>
+                    <span>Created {{ formatDateTime(row.create_dtime ?? row.request_date) }}</span>
+                  </p>
                 </div>
 
-                <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatAge(row.create_dtime ?? row.request_date)" tone="neutral" [showDot]="false" />
-                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                <div class="pfq-row__next">
+                  <div class="pfq-row__pills">
+                    <span class="pfq-stage-pill" [class]="'pfq-stage-pill--' + getFulfillmentStage(row)">
+                      <span class="pfq-stage-pill__dot" aria-hidden="true"></span>
+                      {{ stageLabel(row) }}
+                    </span>
+                    <span class="pfq-time-pill" [class]="'pfq-time-pill--' + timeInStageTone(row)">
+                      <mat-icon aria-hidden="true">schedule</mat-icon>
+                      <span>{{ formatAge(row.create_dtime ?? row.request_date) }} in stage</span>
+                    </span>
+                  </div>
+                  <button
+                  type="button"
+                  class="pfq-action"
+                  [class]="actionClass(row)"
+                  [attr.aria-label]="nextActionAriaLabel(row)"
+                  (click)="fulfillRequest(row)">
+                    <span>{{ nextAction(row).label }}</span>
+                  </button>
                 </div>
               </article>
             }
           </div>
+
+          @if (filteredItems().length > 0) {
+            <footer class="pfq-pager" role="navigation" aria-label="Queue pagination">
+              <span class="pfq-pager__range">
+                Showing <strong>{{ pageRange().start }}&ndash;{{ pageRange().end }}</strong> of
+                <strong>{{ pageRange().total }}</strong> · Page
+                <strong>{{ currentPage() }}</strong> of <strong>{{ totalPages() }}</strong>
+              </span>
+              @if (totalPages() > 1) {
+                <div class="pfq-pager__nav">
+                  <button
+                    type="button"
+                    class="pfq-pager__btn"
+                    [disabled]="currentPage() === 1"
+                    (click)="prevPage()"
+                    aria-label="Previous page">&lsaquo;</button>
+                  @for (n of visiblePages(); track trackByPage($index, n)) {
+                    @if (n === 'ellipsis') {
+                      <span class="pfq-pager__ellipsis" aria-hidden="true">…</span>
+                    } @else {
+                      <button
+                        type="button"
+                        class="pfq-pager__btn"
+                        [class.pfq-pager__btn--active]="n === currentPage()"
+                        [attr.aria-current]="n === currentPage() ? 'page' : null"
+                        (click)="setPage(n)">{{ n }}</button>
+                    }
+                  }
+                  <button
+                    type="button"
+                    class="pfq-pager__btn"
+                    [disabled]="currentPage() === totalPages()"
+                    (click)="nextPage()"
+                    aria-label="Next page">&rsaquo;</button>
+                </div>
+              }
+            </footer>
+          }
         }
       </div>
     </section>
 
-    <aside class="ops-grid">
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Workload</p>
-            <h2 class="ops-section__title">Queue metrics</h2>
-          </div>
+    <aside class="pfq-sidebar" aria-label="Queue workload and guidance">
+      <section class="pfq-side-card">
+        <div class="pfq-side-card__header">
+          <p class="pfq-side-card__eyebrow">Workload</p>
+          <h2 class="pfq-side-card__title">Queue at a glance</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Total shown</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().total }}</p>
+        <div class="pfq-glance">
+          <div class="pfq-glance__row pfq-glance__row--total">
+            <span class="pfq-glance__label">Total shown</span>
+            <span class="pfq-glance__value pfq-glance__value--lg">{{ filterChipCounts().all }}</span>
+          </div>
+          <div class="pfq-glance__grid">
+            <div class="pfq-glance__cell">
+              <span class="pfq-glance__label">Awaiting</span>
+              <span class="pfq-glance__value pfq-glance__value--awaiting">{{ filterChipCounts().awaiting }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Awaiting</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().awaiting }}</p>
+            <div class="pfq-glance__cell">
+              <span class="pfq-glance__label">Drafts</span>
+              <span class="pfq-glance__value pfq-glance__value--drafts">{{ filterChipCounts().drafts }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Drafts</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().drafts }}</p>
+            <div class="pfq-glance__cell">
+              <span class="pfq-glance__label">Preparing</span>
+              <span class="pfq-glance__value pfq-glance__value--preparing">{{ filterChipCounts().preparing }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Preparing</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().preparing }}</p>
-            </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Ready</span>
-              <p class="ops-summary-card__value">{{ sidebarSummary().ready }}</p>
+            <div class="pfq-glance__cell">
+              <span class="pfq-glance__label">Ready</span>
+              <span class="pfq-glance__value pfq-glance__value--ready">{{ filterChipCounts().ready }}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="ops-card">
-        <div class="ops-card__header">
-          <div>
-            <p class="ops-section__eyebrow">Guidance</p>
-            <h2 class="ops-section__title">What to do next</h2>
-          </div>
+      <section class="pfq-side-card">
+        <div class="pfq-side-card__header">
+          <p class="pfq-side-card__eyebrow">Guidance</p>
+          <h2 class="pfq-side-card__title">What to do next</h2>
         </div>
-        <div class="ops-card__body">
-          <div class="ops-timeline">
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Awaiting requests need stock reserved.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a request to begin batch selection and quantity allocation.</span>
-                </div>
-              </div>
+        <ul class="pfq-tips" role="list">
+          <li class="pfq-tips__item">
+            <span class="pfq-tips__dot" aria-hidden="true"></span>
+            <div class="pfq-tips__body">
+              <p class="pfq-tips__title">Awaiting requests need stock reserved</p>
+              <p class="pfq-tips__meta">Open an awaiting request to begin batch selection and quantity allocation. FEFO is applied by default.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #92400e;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Draft packages can be resumed from the queue.</p>
-                <div class="ops-timeline__meta">
-                  <span>Open a draft row to continue reservation work without starting over.</span>
-                </div>
-              </div>
+          </li>
+          <li class="pfq-tips__item">
+            <span class="pfq-tips__dot" aria-hidden="true"></span>
+            <div class="pfq-tips__body">
+              <p class="pfq-tips__title">Drafts resume where you left off</p>
+              <p class="pfq-tips__meta">Saved package work keeps line-level picks and warehouse choices. Resume a draft to continue allocation.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #7c3aed;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Preparing packages are being committed.</p>
-                <div class="ops-timeline__meta">
-                  <span>Review selections, add override notes if needed, then lock the package.</span>
-                </div>
-              </div>
+          </li>
+          <li class="pfq-tips__item">
+            <span class="pfq-tips__dot" aria-hidden="true"></span>
+            <div class="pfq-tips__body">
+              <p class="pfq-tips__title">Preparing packages are being committed</p>
+              <p class="pfq-tips__meta">Review selections, add override notes if needed, then lock the package.</p>
             </div>
-            <div class="ops-timeline__step">
-              <span class="ops-timeline__dot" style="background: #065f46;"></span>
-              <div class="ops-timeline__content">
-                <p class="ops-timeline__title">Ready packages hand off to Dispatch.</p>
-                <div class="ops-timeline__meta">
-                  <span>Once committed, the package appears in the Dispatch Queue for handoff. Dispatched and received packages move out of this active-work queue.</span>
-                </div>
-              </div>
+          </li>
+          <li class="pfq-tips__item">
+            <span class="pfq-tips__dot" aria-hidden="true"></span>
+            <div class="pfq-tips__body">
+              <p class="pfq-tips__title">Ready packages hand off to Dispatch</p>
+              <p class="pfq-tips__meta">Committed packages appear in the Dispatch Queue for handoff.</p>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </aside>
   </div>

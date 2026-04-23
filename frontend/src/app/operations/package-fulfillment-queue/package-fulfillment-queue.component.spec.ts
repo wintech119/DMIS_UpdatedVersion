@@ -2,12 +2,17 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { PackageQueueItem, PackageSummary } from '../models/operations.model';
 import { OperationsService } from '../services/operations.service';
+import {
+  getOperationsPackageTone,
+  getOperationsRequestTone,
+  getOperationsUrgencyTone,
+} from '../operations-display.util';
 import { PackageFulfillmentQueueComponent } from './package-fulfillment-queue.component';
 
 describe('PackageFulfillmentQueueComponent', () => {
@@ -91,6 +96,15 @@ describe('PackageFulfillmentQueueComponent', () => {
         { provide: AuthRbacService, useValue: authStub },
         { provide: OperationsService, useValue: operationsService },
         { provide: Router, useValue: router },
+        // The redesigned template includes a `routerLink` to the Dispatch
+        // Queue. The `RouterLink` directive injects `ActivatedRoute` even
+        // for absolute URLs, so we stub the minimal shape it reads from
+        // without pulling in the full router (which would clash with the
+        // spy `Router` above).
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { url: [] }, url: of([]) },
+        },
       ],
     }).compileComponents();
   });
@@ -223,5 +237,250 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(component.errored()).toBeFalse();
     expect(component.loadError()).toBeNull();
     expect(component.filteredItems().length).toBe(1);
+  });
+
+  it('routes metric-strip clicks through setFilter with the mapped token', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 10, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 11,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.onMetricClick({ label: 'Drafts', value: '1', interactive: true, token: 'drafts' });
+    expect(component.activeFilter()).toBe('drafts');
+
+    component.onMetricClick({ label: 'All', value: '2', interactive: true, token: 'all' });
+    expect(component.activeFilter()).toBe('all');
+  });
+
+  it('ignores metric-strip clicks with unexpected filter tokens', () => {
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.setFilter('drafts');
+    component.onMetricClick({ label: 'Invalid', value: '1', interactive: true, token: 'not-a-filter' });
+
+    expect(component.activeFilter()).toBe('drafts');
+  });
+
+  it('derives activeQueueCount from queueStats', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 70, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 71,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 72,
+            current_package: buildPackageSummary({ status_code: 'DISPATCHED' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const statsTotal = component.queueStats().reduce((total, stat) => total + stat.value, 0);
+    expect(component.activeQueueCount()).toBe(statsTotal);
+    expect(component.activeQueueCount()).toBe(2);
+  });
+
+  it('applies priority, warehouse, and sort controls within filteredItems', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({
+            reliefrqst_id: 70,
+            urgency_ind: 'H',
+            create_dtime: '2026-04-11T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77070,
+              tracking_no: 'PKG-77070',
+              source_warehouse_id: 9002,
+              status_code: 'DRAFT',
+            }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 71,
+            urgency_ind: 'M',
+            create_dtime: '2026-04-09T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77071,
+              tracking_no: 'PKG-77071',
+              source_warehouse_id: 9001,
+              status_code: 'DRAFT',
+            }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 72,
+            urgency_ind: 'L',
+            create_dtime: '2026-04-10T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77072,
+              tracking_no: 'PKG-77072',
+              source_warehouse_id: 9002,
+              status_code: 'DRAFT',
+            }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.warehouseOptions()).toEqual([
+      { value: '9001', label: 'Warehouse 9001' },
+      { value: '9002', label: 'Warehouse 9002' },
+    ]);
+
+    component.onPriorityChange('HIGH');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([70]);
+
+    component.onPriorityChange('all');
+    component.onWarehouseChange('9001');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([71]);
+
+    component.onWarehouseChange('all');
+    component.onSortChange('newest');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([70, 72, 71]);
+  });
+
+  it('syncs queueMetrics.active with the lower filter chip selection (shared source of truth)', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 20, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 21,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.setFilter('preparing');
+    const preparingActive = component.queueMetrics().find((m) => m.token === 'preparing')?.active;
+    const othersActive = component.queueMetrics().filter((m) => m.token !== 'preparing').map((m) => m.active);
+    expect(preparingActive).toBeTrue();
+    expect(othersActive.every((a) => a === false)).toBeTrue();
+
+    component.setFilter('ready');
+    const readyActive = component.queueMetrics().find((m) => m.token === 'ready')?.active;
+    const preparingAfter = component.queueMetrics().find((m) => m.token === 'preparing')?.active;
+    expect(readyActive).toBeTrue();
+    expect(preparingAfter).toBeFalse();
+  });
+
+  it('produces identical filteredItems whether filter is set from the top strip or the chip row', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 30, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({
+            reliefrqst_id: 31,
+            current_package: buildPackageSummary({ status_code: 'DRAFT' }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 32,
+            current_package: buildPackageSummary({ status_code: 'COMMITTED' }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.onMetricClick({ label: 'Drafts', value: '1', interactive: true, token: 'drafts' });
+    const viaMetric = component.filteredItems().map((r) => r.reliefrqst_id);
+
+    component.setFilter('all');
+    component.setFilter('drafts');
+    const viaChip = component.filteredItems().map((r) => r.reliefrqst_id);
+
+    expect(viaMetric).toEqual(viaChip);
+    expect(viaChip).toEqual([31]);
+  });
+
+  it('resolves the redesigned queue tone palette for APPROVED / LOW / MEDIUM / DRAFT', () => {
+    expect(getOperationsRequestTone('APPROVED_FOR_FULFILLMENT')).toBe('success');
+    expect(getOperationsUrgencyTone('L')).toBe('review');
+    expect(getOperationsUrgencyTone('M')).toBe('warning');
+    expect(getOperationsPackageTone('DRAFT')).toBe('muted');
+    expect(getOperationsPackageTone('A')).toBe('muted');
+  });
+
+  it('renders each row as a non-interactive listitem with a real <button> activator for a11y', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [buildQueueItem({ reliefrqst_id: 51, tracking_no: 'RQ-51' })],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const article = host.querySelector('article.pfq-row') as HTMLElement;
+    expect(article).not.toBeNull();
+    // The article is the listitem container — it must not be the focusable
+    // activator (no tabindex, no button/link role, no click/keydown handlers).
+    expect(article.getAttribute('role')).toBe('listitem');
+    expect(article.hasAttribute('tabindex')).toBeFalse();
+
+    const activator = article.querySelector(
+      'button.pfq-row__activator',
+    ) as HTMLButtonElement;
+    expect(activator).not.toBeNull();
+    expect(activator.type).toBe('button');
+    expect(activator.getAttribute('aria-label') ?? '').toContain('Open request');
+    expect(activator.getAttribute('aria-label') ?? '').toContain('RQ-51');
+  });
+
+  it('activates fulfillRequest when the full-row activator button is clicked', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [buildQueueItem({ reliefrqst_id: 52, tracking_no: 'RQ-52' })],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    fixture.detectChanges();
+
+    router.navigate.calls.reset();
+
+    const host: HTMLElement = fixture.nativeElement;
+    const activator = host.querySelector(
+      'button.pfq-row__activator',
+    ) as HTMLButtonElement;
+    expect(activator).not.toBeNull();
+    activator.click();
+
+    expect(router.navigate).toHaveBeenCalledWith([
+      '/operations/package-fulfillment',
+      52,
+    ]);
   });
 });

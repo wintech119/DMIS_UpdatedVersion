@@ -47,21 +47,21 @@ export class TimeToStockoutComponent {
     }
 
     if (hours === 0) {
-      return `${minutes}m until stockout`;
+      return `${minutes}m`;
     }
 
     if (hours < 24) {
-      return `${hours}h ${minutes}m until stockout`;
+      return `${hours}h ${minutes}m`;
     }
 
     const days = Math.floor(hours / 24);
     const remainingHours = hours % 24;
 
     if (days === 1) {
-      return `1d ${remainingHours}h until stockout`;
+      return `1d ${remainingHours}h`;
     }
 
-    return `${days}d ${remainingHours}h until stockout`;
+    return `${days}d ${remainingHours}h`;
   }
 
   getSeverityClass(): string {

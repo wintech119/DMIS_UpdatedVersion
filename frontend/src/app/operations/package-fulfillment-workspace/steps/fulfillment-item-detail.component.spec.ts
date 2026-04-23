@@ -1,22 +1,96 @@
+import { BreakpointObserver } from '@angular/cdk/layout';
 import { TestBed } from '@angular/core/testing';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { of } from 'rxjs';
 
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
+import { WarehouseAllocationCardComponent } from './warehouse-allocation-card.component';
 import {
   AllocationCandidate,
   AllocationItemGroup,
   WarehouseAllocationCard,
 } from '../../models/operations.model';
 
+/**
+ * Spec for FulfillmentItemDetailComponent under the FR05.06 redesign.
+ *
+ * Covers:
+ *   - Ranked stack renders in backend rank order
+ *   - Stack is de-duped with transient loaded warehouses appended
+ *   - Add-next menu disabled when no alternates remain
+ *   - Aggregate summary transitions across 4 states (draft / filled /
+ *     compliant_partial / non_compliant)
+ *   - Fully-issued guardrail still renders Already-Issued banner and disables
+ *     inputs (regression from prior spec)
+ *   - Stock-availability issue path renders the shared empty state
+ */
 describe('FulfillmentItemDetailComponent', () => {
+  // Allocation state helpers — per-warehouse qty keyed by itemId|warehouseId.
+  const qtyByItemWarehouse = new Map<string, number>();
+  const makeKey = (itemId: number, warehouseId: number) => `${itemId}|${warehouseId}`;
+  // Shared ref updated by render() so getItemFillStatus can mirror the real
+  // service's logic (requires request_qty / remaining_qty / override_required
+  // off the current item).
+  let currentItemForFake: AllocationItemGroup | null = null;
+
   const storeStub = {
-    getItemAvailabilityIssue: jasmine.createSpy('getItemAvailabilityIssue'),
+    getItemAvailabilityIssue: jasmine.createSpy('getItemAvailabilityIssue').and.returnValue(null),
     getItemValidationMessage: jasmine.createSpy('getItemValidationMessage').and.returnValue(null),
     isRuleBypassedForItem: jasmine.createSpy('isRuleBypassedForItem').and.returnValue(false),
-    getSelectedTotalForItem: jasmine.createSpy('getSelectedTotalForItem').and.returnValue(0),
-    getUncoveredQtyForItem: jasmine.createSpy('getUncoveredQtyForItem').and.returnValue(42),
+    getSelectedTotalForItem: jasmine.createSpy('getSelectedTotalForItem').and.callFake((itemId: number) => {
+      let total = 0;
+      for (const [k, v] of qtyByItemWarehouse) {
+        if (k.startsWith(`${itemId}|`)) total += v;
+      }
+      return total;
+    }),
+    getItemFillStatus: jasmine
+      .createSpy('getItemFillStatus')
+      .and.callFake(
+        (
+          itemId: number,
+        ): 'draft' | 'filled' | 'compliant_partial' | 'non_compliant' => {
+          const item = currentItemForFake;
+          if (!item || item.item_id !== itemId) {
+            return 'draft';
+          }
+          // Precedence matches operations-workspace-state.service.ts:
+          // non_compliant > filled > compliant_partial > draft.
+          if (
+            item.override_required ||
+            storeStub.isRuleBypassedForItem(itemId)
+          ) {
+            return 'non_compliant';
+          }
+          let total = 0;
+          for (const [k, v] of qtyByItemWarehouse) {
+            if (k.startsWith(`${itemId}|`)) total += v;
+          }
+          if (total <= 0) {
+            return 'draft';
+          }
+          const requested =
+            parseFloat(item.remaining_qty ?? item.request_qty ?? '0') || 0;
+          if (total + 0.0001 >= requested) {
+            return 'filled';
+          }
+          return 'compliant_partial';
+        },
+      ),
+    getUncoveredQtyForItem: jasmine.createSpy('getUncoveredQtyForItem').and.returnValue(0),
     clearItemSelection: jasmine.createSpy('clearItemSelection'),
     getSelectedQtyForCandidate: jasmine.createSpy('getSelectedQtyForCandidate').and.returnValue(0),
     setCandidateQuantity: jasmine.createSpy('setCandidateQuantity'),
+    setItemWarehouseQty: jasmine
+      .createSpy('setItemWarehouseQty')
+      .and.callFake((itemId: number, warehouseId: number, qty: number) => {
+        qtyByItemWarehouse.set(makeKey(itemId, warehouseId), qty);
+      }),
+    getItemWarehouseAllocatedQty: jasmine
+      .createSpy('getItemWarehouseAllocatedQty')
+      .and.callFake((itemId: number, warehouseId: number) =>
+        qtyByItemWarehouse.get(makeKey(itemId, warehouseId)) ?? 0,
+      ),
     effectiveWarehouseForItem: jasmine.createSpy('effectiveWarehouseForItem').and.returnValue(''),
     updateItemWarehouse: jasmine.createSpy('updateItemWarehouse'),
     addItemWarehouse: jasmine.createSpy('addItemWarehouse'),
@@ -46,436 +120,430 @@ describe('FulfillmentItemDetailComponent', () => {
     warehouse_cards: [],
   };
 
-  function buildItemWithAlternates(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
+  function makeWarehouseCard(
+    warehouseId: number,
+    warehouseName: string,
+    rank: number,
+    overrides: Partial<WarehouseAllocationCard> = {},
+  ): WarehouseAllocationCard {
     return {
-      ...baseItem,
-      continuation_recommended: true,
-      alternate_warehouses: [
-        {
-          warehouse_id: 101,
-          warehouse_name: 'Kingston Central',
-          available_qty: '20',
-          suggested_qty: '10',
-          can_fully_cover: false,
-        },
-        {
-          warehouse_id: 102,
-          warehouse_name: 'Spanish Town',
-          available_qty: '50',
-          suggested_qty: '42',
-          can_fully_cover: true,
-        },
-        {
-          warehouse_id: 103,
-          warehouse_name: 'Montego Bay',
-          available_qty: '15',
-          suggested_qty: '15',
-          can_fully_cover: false,
-        },
-      ],
+      warehouse_id: warehouseId,
+      warehouse_name: warehouseName,
+      rank,
+      issuance_order: 'FIFO',
+      total_available: '100',
+      suggested_qty: '0',
+      batches: [],
       ...overrides,
     };
   }
 
+  function makeCandidate(warehouseId: number, batchId: number, warehouseName: string): AllocationCandidate {
+    return {
+      batch_id: batchId,
+      inventory_id: warehouseId,
+      item_id: 44,
+      usable_qty: '50',
+      reserved_qty: '0',
+      available_qty: '50',
+      source_type: 'ON_HAND',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      warehouse_name: warehouseName,
+      batch_no: `BT-${batchId}`,
+    };
+  }
+
+  /**
+   * Build a BreakpointObserver stub so the component's isNarrow signal stays
+   * in desktop mode (matches === false) unless a test overrides it.
+   */
+  function breakpointStub(matches = false) {
+    return {
+      observe: () => of({ matches, breakpoints: { '(max-width: 519px)': matches } }),
+      isMatched: () => matches,
+    };
+  }
+
+  async function render(
+    item: AllocationItemGroup,
+    {
+      loadedWarehousesByItem = {},
+      uncoveredQty = 0,
+      addingByItem = {},
+      previewByItem = {},
+      isNarrow = false,
+    }: {
+      loadedWarehousesByItem?: Record<number, number[]>;
+      uncoveredQty?: number;
+      addingByItem?: Record<number, boolean>;
+      previewByItem?: Record<number, boolean>;
+      isNarrow?: boolean;
+    } = {},
+  ) {
+    currentItemForFake = item;
+    storeStub.getUncoveredQtyForItem.and.returnValue(uncoveredQty);
+    storeStub.loadedWarehousesByItem.and.returnValue(loadedWarehousesByItem);
+    storeStub.addingWarehouseByItem.and.returnValue(addingByItem);
+    storeStub.previewLoadingByItem.and.returnValue(previewByItem);
+
+    await TestBed.configureTestingModule({
+      imports: [FulfillmentItemDetailComponent, NoopAnimationsModule],
+      providers: [{ provide: BreakpointObserver, useValue: breakpointStub(isNarrow) }],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+    fixture.componentRef.setInput('item', item);
+    fixture.componentRef.setInput('store', storeStub as never);
+    fixture.detectChanges();
+    return fixture;
+  }
+
   beforeEach(() => {
+    qtyByItemWarehouse.clear();
+    currentItemForFake = null;
     storeStub.getItemAvailabilityIssue.calls.reset();
     storeStub.getItemAvailabilityIssue.and.returnValue(null);
+    storeStub.isRuleBypassedForItem.calls.reset();
+    storeStub.isRuleBypassedForItem.and.returnValue(false);
+    storeStub.getItemFillStatus.calls.reset();
     storeStub.addItemWarehouse.calls.reset();
+    storeStub.setItemWarehouseQty.calls.reset();
+    storeStub.getItemWarehouseAllocatedQty.calls.reset();
     storeStub.loadedWarehousesByItem.and.returnValue({});
     storeStub.previewLoadingByItem.and.returnValue({});
     storeStub.addingWarehouseByItem.and.returnValue({});
-  });
-
-  it('renders the shared warehouse availability state when the selected item has no candidates', async () => {
-    storeStub.getItemAvailabilityIssue.and.returnValue({ kind: 'no-candidates', scope: 'item' });
-
-    await TestBed.configureTestingModule({
-      imports: [FulfillmentItemDetailComponent],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-    fixture.componentRef.setInput('item', baseItem);
-    fixture.componentRef.setInput('store', storeStub as never);
-    fixture.detectChanges();
-
-    const text = fixture.nativeElement.textContent.replace(/\s+/g, ' ').trim();
-    expect(text).toContain('Portable Water Container is not stocked in an available warehouse');
-    expect(text).not.toContain('Qty to reserve');
-  });
-
-  it('excludes already-loaded warehouses from the alternate cards', async () => {
-    storeStub.loadedWarehousesByItem.and.returnValue({ 44: [101] });
-    const item = buildItemWithAlternates();
-
-    await TestBed.configureTestingModule({
-      imports: [FulfillmentItemDetailComponent],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-    fixture.componentRef.setInput('item', item);
-    fixture.componentRef.setInput('store', storeStub as never);
-    fixture.detectChanges();
-
-    const cards = fixture.nativeElement.querySelectorAll('.detail__alternate-card') as NodeListOf<HTMLElement>;
-    expect(cards.length).toBe(2);
-    const cardText = Array.from(cards).map((c) => c.textContent ?? '').join(' ');
-    expect(cardText).not.toContain('Kingston Central');
-    expect(cardText).toContain('Spanish Town');
-    expect(cardText).toContain('Montego Bay');
-  });
-
-  it('calls addItemWarehouse with the correct id when the visible Add this warehouse button is clicked', async () => {
-    storeStub.loadedWarehousesByItem.and.returnValue({ 44: [101] });
-    const item = buildItemWithAlternates();
-
-    await TestBed.configureTestingModule({
-      imports: [FulfillmentItemDetailComponent],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-    fixture.componentRef.setInput('item', item);
-    fixture.componentRef.setInput('store', storeStub as never);
-    fixture.detectChanges();
-
-    const cards = fixture.nativeElement.querySelectorAll('.detail__alternate-card') as NodeListOf<HTMLElement>;
-    expect(cards.length).toBe(2);
-    const firstVisibleCard = cards[0];
-    expect((firstVisibleCard.textContent ?? '')).toContain('Spanish Town');
-    const button = firstVisibleCard.querySelector('button') as HTMLButtonElement;
-    button.click();
-
-    expect(storeStub.addItemWarehouse).toHaveBeenCalledTimes(1);
-    expect(storeStub.addItemWarehouse).toHaveBeenCalledWith(44, 102);
-  });
-
-  it('renders continuation title with effective_remaining_qty and updated copy', async () => {
-    const item = buildItemWithAlternates({
-      remaining_shortfall_qty: '42',
-      effective_remaining_qty: '17',
-      alternate_warehouses: [
-        {
-          warehouse_id: 102,
-          warehouse_name: 'Spanish Town',
-          available_qty: '50',
-          suggested_qty: '17',
-          can_fully_cover: true,
-        },
-      ],
+    storeStub.getUncoveredQtyForItem.and.returnValue(0);
+    storeStub.getSelectedTotalForItem.and.callFake((itemId: number) => {
+      let total = 0;
+      for (const [k, v] of qtyByItemWarehouse) {
+        if (k.startsWith(`${itemId}|`)) total += v;
+      }
+      return total;
     });
-
-    await TestBed.configureTestingModule({
-      imports: [FulfillmentItemDetailComponent],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-    fixture.componentRef.setInput('item', item);
-    fixture.componentRef.setInput('store', storeStub as never);
-    fixture.detectChanges();
-
-    const title = fixture.nativeElement.querySelector('.detail__continuation-title') as HTMLElement;
-    expect(title).toBeTruthy();
-    const titleText = (title.textContent ?? '').trim();
-    expect(titleText).toContain('17');
-    expect(titleText).toContain('still need coverage');
-    expect(titleText).not.toContain('after this warehouse');
   });
 
-  it('shows eligible warehouse continuation cards even when shortfall is already covered', async () => {
-    const item = buildItemWithAlternates({
-      continuation_recommended: false,
-      remaining_shortfall_qty: '0',
-      effective_remaining_qty: '0',
-      alternate_warehouses: [
-        {
-          warehouse_id: 102,
-          warehouse_name: 'Spanish Town',
-          available_qty: '50',
-          suggested_qty: '0',
-          can_fully_cover: true,
-        },
-      ],
-    });
-
-    await TestBed.configureTestingModule({
-      imports: [FulfillmentItemDetailComponent],
-    }).compileComponents();
-
-    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-    fixture.componentRef.setInput('item', item);
-    fixture.componentRef.setInput('store', storeStub as never);
-    fixture.detectChanges();
-
-    const title = fixture.nativeElement.querySelector('.detail__continuation-title') as HTMLElement;
-    const badge = fixture.nativeElement.querySelector('.detail__alternate-badge') as HTMLElement;
-    expect(title.textContent ?? '').toContain('Other eligible warehouses available');
-    expect(badge.textContent ?? '').toContain('Eligible');
-  });
-
-  /**
-   * Regression tests for the multi-warehouse stacked layout added in the
-   * Stock-Aware Selection redesign. Before this change, the step seeded one
-   * warehouse per item and drove everything through a single dropdown; the
-   * new layout groups candidates by warehouse and honours the FEFO/FIFO rank
-   * supplied by the backend via `warehouse_cards`.
-   */
-  describe('stacked warehouse card layout', () => {
-    function makeCandidate(
-      warehouseId: number,
-      batchId: number,
-      warehouseName: string,
-      availableQty: string,
-    ): AllocationCandidate {
-      return {
-        batch_id: batchId,
-        inventory_id: warehouseId,
-        item_id: 44,
-        usable_qty: availableQty,
-        reserved_qty: '0',
-        available_qty: availableQty,
-        source_type: 'ON_HAND',
-        can_expire_flag: false,
-        issuance_order: 'FIFO',
-        warehouse_name: warehouseName,
-        batch_no: `BT-${batchId}`,
-      };
-    }
-
-    function makeWarehouseCard(
-      warehouseId: number,
-      warehouseName: string,
-      rank: number,
-    ): WarehouseAllocationCard {
-      return {
-        warehouse_id: warehouseId,
-        warehouse_name: warehouseName,
-        rank,
-        issuance_order: 'FIFO',
-        total_available: '100',
-        suggested_qty: '0',
-        batches: [],
-      };
-    }
-
-    it('renders one warehouse card per unique inventory_id grouped from candidates', async () => {
+  describe('ranked stack', () => {
+    it('renders cards in backend rank order from warehouse_cards', async () => {
       const item: AllocationItemGroup = {
         ...baseItem,
-        candidates: [
-          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
-          makeCandidate(9001, 1002, 'ODPEM Kingston', '10'),
-          makeCandidate(9002, 2001, 'ODPEM Montego Bay', '15'),
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
+          makeWarehouseCard(9003, 'ODPEM Portland', 2),
         ],
       };
 
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
+      const fixture = await render(item);
+      const names = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          '.wh-card__name',
+        ) as NodeListOf<HTMLElement>,
+      ).map((el) => (el.textContent ?? '').trim());
+      expect(names).toEqual(['ODPEM Kingston', 'ODPEM Montego Bay', 'ODPEM Portland']);
+    });
 
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', item);
-      fixture.componentRef.setInput('store', storeStub as never);
-      fixture.detectChanges();
+    it('appends transient loaded warehouses that are not yet in warehouse_cards (de-duped)', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [
+          {
+            warehouse_id: 9002,
+            warehouse_name: 'ODPEM Montego Bay',
+            available_qty: '25',
+            suggested_qty: '10',
+            can_fully_cover: false,
+          },
+          {
+            warehouse_id: 9003,
+            warehouse_name: 'ODPEM Portland',
+            available_qty: '15',
+            suggested_qty: '5',
+            can_fully_cover: false,
+          },
+        ],
+      };
 
+      const fixture = await render(item, { loadedWarehousesByItem: { 44: [9002] } });
       const cards = fixture.nativeElement.querySelectorAll(
-        '.warehouse-card',
-      ) as NodeListOf<HTMLElement>;
+        'app-warehouse-allocation-card',
+      );
+      // Kingston (backend) + Montego Bay (transient, loaded) = 2 cards; Portland stays in the add menu.
       expect(cards.length).toBe(2);
-      // Both Kingston batches land inside the first group.
-      expect(cards[0].querySelectorAll('tbody tr').length).toBe(2);
-      expect(cards[0].textContent).toContain('ODPEM Kingston');
-      expect(cards[0].textContent).toContain('2 batches');
-      // Montego Bay has one batch and renders as the second group.
-      expect(cards[1].querySelectorAll('tbody tr').length).toBe(1);
-      expect(cards[1].textContent).toContain('ODPEM Montego Bay');
+      const names = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          '.wh-card__name',
+        ) as NodeListOf<HTMLElement>,
+      ).map((el) => (el.textContent ?? '').trim());
+      expect(names).toEqual(['ODPEM Kingston', 'ODPEM Montego Bay']);
     });
+  });
 
-    it('orders the warehouse cards by the backend-supplied FEFO/FIFO rank', async () => {
-      // Insertion order of candidates puts 9002 first, but the card rank says
-      // 9001 is the primary. The stacked layout must follow the rank.
+  describe('add-next affordance', () => {
+    it('disables the Add-next button when no alternate warehouses remain', async () => {
       const item: AllocationItemGroup = {
         ...baseItem,
-        candidates: [
-          makeCandidate(9002, 2001, 'ODPEM Montego Bay', '15'),
-          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [],
+      };
+
+      const fixture = await render(item);
+      const button = fixture.nativeElement.querySelector(
+        '.detail__add-row button',
+      ) as HTMLButtonElement;
+      expect(button).toBeTruthy();
+      expect(button.disabled).toBeTrue();
+    });
+
+    it('shows the mat-menu trigger on desktop viewports', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [
+          {
+            warehouse_id: 9002,
+            warehouse_name: 'ODPEM Montego Bay',
+            available_qty: '20',
+            suggested_qty: '10',
+            can_fully_cover: false,
+          },
         ],
+      };
+
+      const fixture = await render(item, { isNarrow: false });
+      const trigger = fixture.nativeElement.querySelector(
+        '.detail__add-row button',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeTruthy();
+      expect(trigger.disabled).toBeFalse();
+      // In desktop mode the mat-menu trigger is wired; on narrow it's a plain
+      // click-handler. We verify the label is consistent across both modes.
+      expect(trigger.textContent).toContain('Add another warehouse');
+      expect(trigger.textContent).toContain('1 available');
+    });
+
+    it('uses the bottom-sheet path on narrow viewports (<520px)', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [
+          {
+            warehouse_id: 9002,
+            warehouse_name: 'ODPEM Montego Bay',
+            available_qty: '20',
+            suggested_qty: '10',
+            can_fully_cover: false,
+          },
+        ],
+      };
+
+      const fixture = await render(item, { isNarrow: true });
+      // In narrow mode the Add-next button is a plain button (no matMenuTriggerFor).
+      const trigger = fixture.nativeElement.querySelector(
+        '.detail__add-row button',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeTruthy();
+      expect(trigger.getAttribute('aria-haspopup')).not.toBe('menu');
+    });
+
+    it('focuses the newly added warehouse qty input after subsequent additions', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+        alternate_warehouses: [
+          {
+            warehouse_id: 9002,
+            warehouse_name: 'ODPEM Montego Bay',
+            available_qty: '20',
+            suggested_qty: '10',
+            can_fully_cover: false,
+          },
+          {
+            warehouse_id: 9003,
+            warehouse_name: 'ODPEM Portland',
+            available_qty: '10',
+            suggested_qty: '5',
+            can_fully_cover: false,
+          },
+        ],
+      };
+      const focusSpy = spyOn(
+        WarehouseAllocationCardComponent.prototype,
+        'focusQtyInput',
+      ).and.stub();
+
+      const fixture = await render(item);
+      await fixture.whenStable();
+      expect(focusSpy).not.toHaveBeenCalled();
+
+      fixture.componentRef.setInput('item', {
+        ...item,
         warehouse_cards: [
           makeWarehouseCard(9001, 'ODPEM Kingston', 0),
           makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
         ],
-      };
-
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
-
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', item);
-      fixture.componentRef.setInput('store', storeStub as never);
+      });
       fixture.detectChanges();
+      await fixture.whenStable();
 
-      const cardNames = Array.from(
-        fixture.nativeElement.querySelectorAll(
-          '.warehouse-card__name',
-        ) as NodeListOf<HTMLElement>,
-      ).map((el) => (el.textContent ?? '').trim());
-      expect(cardNames).toEqual(['ODPEM Kingston', 'ODPEM Montego Bay']);
-    });
-
-    it('sends unranked warehouses to the end while preserving their insertion order', async () => {
-      const item: AllocationItemGroup = {
-        ...baseItem,
-        candidates: [
-          // Ranked card is listed second in the candidates array.
-          makeCandidate(9004, 4001, 'ODPEM Portland', '8'),
-          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
-          makeCandidate(9003, 3001, 'ODPEM St. Ann', '5'),
+      fixture.componentRef.setInput('item', {
+        ...item,
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
+          makeWarehouseCard(9003, 'ODPEM Portland', 2),
         ],
-        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
-      };
-
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
-
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', item);
-      fixture.componentRef.setInput('store', storeStub as never);
+      });
       fixture.detectChanges();
+      await fixture.whenStable();
 
-      const cardNames = Array.from(
-        fixture.nativeElement.querySelectorAll(
-          '.warehouse-card__name',
-        ) as NodeListOf<HTMLElement>,
-      ).map((el) => (el.textContent ?? '').trim());
-      // Ranked warehouse first, then the two unranked ones in first-seen order.
-      expect(cardNames[0]).toBe('ODPEM Kingston');
-      expect(cardNames.slice(1)).toEqual(['ODPEM Portland', 'ODPEM St. Ann']);
+      expect(focusSpy).toHaveBeenCalledTimes(2);
     });
   });
 
-  /**
-   * Regression tests for the "fully issued" UX guardrail. When a prior package
-   * dispatch has already satisfied `reliefrqst_item.issue_qty >= request_qty`,
-   * the backend now returns `fully_issued: true` and the Stock-Aware Selection
-   * step must surface that state clearly (chip + disabled inputs + info banner)
-   * instead of letting the operator hit a misleading "Over-Allocated" toast on
-   * any new reservation attempt. See plan `jolly-zooming-flame.md`.
-   */
-  describe('fully_issued UX guardrail', () => {
-    function makeFullyIssuedCandidate(): AllocationCandidate {
+  describe('aggregate summary (4 states)', () => {
+    function withCards(): AllocationItemGroup {
       return {
-        batch_id: 258,
-        inventory_id: 9001,
-        item_id: 44,
-        usable_qty: '60',
-        reserved_qty: '0',
-        available_qty: '60',
-        source_type: 'ON_HAND',
-        can_expire_flag: false,
-        issuance_order: 'FIFO',
-        warehouse_name: 'ODPEM Marcus Garvey',
-        batch_no: 'HADR-2-58',
+        ...baseItem,
+        request_qty: '42',
+        remaining_qty: '42',
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0, { total_available: '50', suggested_qty: '42' }),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1, { total_available: '30', suggested_qty: '0' }),
+        ],
       };
     }
 
-    function buildFullyIssuedItem(): AllocationItemGroup {
-      return {
+    it('draft — nothing reserved', async () => {
+      const fixture = await render(withCards());
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('draft');
+      expect((summary.textContent ?? '').toLowerCase()).toContain('nothing allocated');
+    });
+
+    it('filled — reservingQty >= remainingQty across ranked stack', async () => {
+      qtyByItemWarehouse.set(makeKey(44, 9001), 42);
+      const fixture = await render(withCards());
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('filled');
+      expect((summary.textContent ?? '').toLowerCase()).toContain('fully covered');
+    });
+
+    it('compliant_partial — partial qty, no override flags', async () => {
+      qtyByItemWarehouse.set(makeKey(44, 9001), 20);
+      qtyByItemWarehouse.set(makeKey(44, 9002), 5);
+      const fixture = await render(withCards());
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('compliant_partial');
+      expect((summary.textContent ?? '').toLowerCase()).toContain('compliant partial');
+    });
+
+    it('non_compliant — override flagged via item.override_required', async () => {
+      const fixture = await render({ ...withCards(), override_required: true });
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('non_compliant');
+      expect(summary.getAttribute('aria-live')).toBe('polite');
+    });
+
+    it('non_compliant — local override-risk heuristic when higher-rank qty exists and a rank-0 empty', async () => {
+      // Allocate to rank 1 only, leaving rank 0 empty — a classic override risk.
+      qtyByItemWarehouse.set(makeKey(44, 9002), 10);
+      storeStub.isRuleBypassedForItem.and.callFake((itemId: number) => itemId === 44);
+      const fixture = await render(withCards());
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('non_compliant');
+    });
+
+    it('does not flag override risk when the higher-ranked empty card has no usable stock', async () => {
+      const item: AllocationItemGroup = {
+        ...withCards(),
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0, {
+            total_available: '0',
+            suggested_qty: '0',
+          }),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1, {
+            total_available: '30',
+            suggested_qty: '10',
+          }),
+        ],
+      };
+      qtyByItemWarehouse.set(makeKey(44, 9002), 10);
+
+      const fixture = await render(item);
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('compliant_partial');
+    });
+  });
+
+  describe('regressions', () => {
+    it('renders the shared warehouse availability state when the selected item has no candidates', async () => {
+      storeStub.getItemAvailabilityIssue.and.returnValue({ kind: 'no-candidates', scope: 'item' });
+
+      const fixture = await render(baseItem);
+      const text = fixture.nativeElement.textContent.replace(/\s+/g, ' ').trim();
+      expect(text).toContain('Portable Water Container is not stocked in an available warehouse');
+      expect(fixture.nativeElement.querySelector('.detail__stack')).toBeNull();
+    });
+
+    it('caps card quantity to residual remaining_qty when prior issuance reduced the request', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        request_qty: '42',
+        issue_qty: '32',
+        remaining_qty: '10',
+        remaining_after_suggestion: '10',
+        remaining_shortfall_qty: '10',
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0, {
+            total_available: '50',
+            suggested_qty: '10',
+          }),
+        ],
+      };
+      qtyByItemWarehouse.set(makeKey(44, 9001), 6);
+
+      const fixture = await render(item);
+
+      expect(fixture.componentInstance.remainingForCard(item.warehouse_cards[0])).toBe(10);
+      const input = fixture.nativeElement.querySelector(
+        'app-warehouse-allocation-card input.wh-card__qty-input',
+      ) as HTMLInputElement;
+      expect(input.getAttribute('max')).toBe('10');
+    });
+
+    it('renders the already-issued info banner and read-only cards when fully_issued=true', async () => {
+      const item: AllocationItemGroup = {
         ...baseItem,
         request_qty: '40',
         issue_qty: '40',
         remaining_qty: '0',
         remaining_shortfall_qty: '0',
         fully_issued: true,
-        candidates: [makeFullyIssuedCandidate()],
+        candidates: [makeCandidate(9001, 258, 'ODPEM Marcus Garvey')],
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Marcus Garvey', 0)],
       };
-    }
 
-    it('renders "Already Issued" in the Status metric card when fully_issued is true', async () => {
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
+      const fixture = await render(item);
 
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', buildFullyIssuedItem());
-      fixture.componentRef.setInput('store', storeStub as never);
-      fixture.detectChanges();
-
-      const statusValue = fixture.nativeElement.querySelector(
-        '.metric-card__value--status',
-      ) as HTMLElement;
-      expect(statusValue).toBeTruthy();
-      expect(statusValue.getAttribute('data-status')).toBe('fully_issued');
-      expect((statusValue.textContent ?? '').trim()).toBe('Already Issued');
-    });
-
-    it('disables every qty-input when the item is fully_issued', async () => {
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
-
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      const item = buildFullyIssuedItem();
-      fixture.componentRef.setInput('item', item);
-      fixture.componentRef.setInput('store', storeStub as never);
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      const qtyInputs = fixture.nativeElement.querySelectorAll(
-        'input.qty-input',
-      ) as NodeListOf<HTMLInputElement>;
-      expect(qtyInputs.length).toBeGreaterThan(0);
-      qtyInputs.forEach((input) => {
-        expect(input.disabled).toBeTrue();
-      });
-    });
-
-    it('renders the already-issued info banner with the request/issue quantities', async () => {
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
-
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', buildFullyIssuedItem());
-      fixture.componentRef.setInput('store', storeStub as never);
-      fixture.detectChanges();
-
-      const banner = fixture.nativeElement.querySelector(
-        '.detail__notice--info',
-      ) as HTMLElement;
+      const banner = fixture.nativeElement.querySelector('.detail__notice--info') as HTMLElement;
       expect(banner).toBeTruthy();
       const text = (banner.textContent ?? '').replace(/\s+/g, ' ').trim();
       expect(text).toContain('This item is already fully issued');
       expect(text).toContain('40');
-      expect(text).toContain('Cancel the previous package');
-    });
 
-    it('does not render the info banner or disable inputs when fully_issued is false', async () => {
-      const item: AllocationItemGroup = {
-        ...baseItem,
-        candidates: [makeFullyIssuedCandidate()],
-      };
-
-      await TestBed.configureTestingModule({
-        imports: [FulfillmentItemDetailComponent],
-      }).compileComponents();
-
-      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
-      fixture.componentRef.setInput('item', item);
-      fixture.componentRef.setInput('store', storeStub as never);
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('.detail__notice--info')).toBeNull();
       const qtyInputs = fixture.nativeElement.querySelectorAll(
-        'input.qty-input',
+        'app-warehouse-allocation-card input.wh-card__qty-input',
       ) as NodeListOf<HTMLInputElement>;
       expect(qtyInputs.length).toBeGreaterThan(0);
-      qtyInputs.forEach((input) => {
-        expect(input.disabled).toBeFalse();
-      });
+      qtyInputs.forEach((input) => expect(input.disabled).toBeTrue());
+
       const statusValue = fixture.nativeElement.querySelector(
         '.metric-card__value--status',
       ) as HTMLElement;
-      expect((statusValue.textContent ?? '').trim()).not.toBe('Already Issued');
+      expect(statusValue.getAttribute('data-status')).toBe('fully_issued');
+      expect((statusValue.textContent ?? '').trim()).toBe('Already Issued');
     });
   });
 });

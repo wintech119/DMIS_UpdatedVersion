@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
-import { MatDialog } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { HttpErrorResponse, HttpHeaders } from '@angular/common/http';
+import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 
 import { StockStatusDashboardComponent } from './stock-status-dashboard.component';
@@ -9,11 +11,33 @@ import { AuthRbacService } from '../services/auth-rbac.service';
 import { DashboardData, DashboardDataService } from '../services/dashboard-data.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DmisNotificationService } from '../services/notification.service';
-import { ActiveEvent, ReplenishmentService, Warehouse } from '../services/replenishment.service';
-import { WarehouseStockGroup } from '../models/stock-status.model';
+import { ActiveEvent, ReplenishmentService, Warehouse, NeedsListDuplicateSummary } from '../services/replenishment.service';
+import {
+  PhaseWindowEntry,
+  PhaseWindowsResponse,
+  StockStatusItem,
+  WarehouseStockGroup
+} from '../models/stock-status.model';
 import { NeedsListResponse } from '../models/needs-list.model';
+import {
+  getFreshnessThresholdsForPhase,
+  phaseToIntervalMs,
+  toDisplaySeverity,
+  toDisplayStatus
+} from './utils/display-mappers';
+import { ScopePickerDialogComponent, ScopePickerDialogResult } from './dialogs/scope-picker-dialog.component';
+import {
+  DuplicateGuardDialogComponent,
+  DuplicateGuardDialogResult
+} from './dialogs/duplicate-guard-dialog.component';
+import { LowConfidenceAckDialogComponent } from './dialogs/low-confidence-ack-dialog.component';
+import { PhaseWindowsDialogComponent } from './dialogs/phase-windows-dialog.component';
 
 describe('StockStatusDashboardComponent', () => {
+  interface GateChainHost {
+    runGateChain: (warehouseId: number) => void;
+  }
+
   let fixture: ComponentFixture<StockStatusDashboardComponent>;
   let component: StockStatusDashboardComponent;
 
@@ -66,6 +90,46 @@ describe('StockStatusDashboardComponent', () => {
     };
   }
 
+  function createItem(id: number, name: string, overrides: Partial<StockStatusItem> = {}): StockStatusItem {
+    return {
+      item_id: id,
+      item_name: name,
+      item_code: `SKU-${id}`,
+      category: 'Supplies',
+      available_qty: 10,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 1,
+      gap_qty: 0,
+      severity: 'OK',
+      ...overrides
+    };
+  }
+
+  // Backend-shaped phase-windows response. The service projects `phase_windows`
+  // into the `windows` record at the boundary; specs seed both so callers that
+  // read either surface see consistent data.
+  function createPhaseWindowsResponse(
+    options: { manageable?: boolean } = {}
+  ): PhaseWindowsResponse {
+    const phaseWindows: PhaseWindowEntry[] = [
+      { event_id: 99, phase: 'SURGE', scope: 'global', applies_globally: true, demand_hours: 6, planning_hours: 24, source: 'backlog_default', config_id: null, authoritative_tenant: null, justification: null, audit: null },
+      { event_id: 99, phase: 'STABILIZED', scope: 'global', applies_globally: true, demand_hours: 72, planning_hours: 72, source: 'backlog_default', config_id: null, authoritative_tenant: null, justification: null, audit: null },
+      { event_id: 99, phase: 'BASELINE', scope: 'global', applies_globally: true, demand_hours: 720, planning_hours: 168, source: 'backlog_default', config_id: null, authoritative_tenant: null, justification: null, audit: null }
+    ];
+    return {
+      event_id: 99,
+      scope: 'global',
+      applies_globally: true,
+      phase_windows: phaseWindows,
+      windows: {
+        SURGE: { demand_hours: 6, planning_hours: 24, safety_factor: 1.5 },
+        STABILIZED: { demand_hours: 72, planning_hours: 72, safety_factor: 1.25 },
+        BASELINE: { demand_hours: 720, planning_hours: 168, safety_factor: 1.1 }
+      },
+      manageable_by_active_tenant: !!options.manageable
+    };
+  }
+
   beforeEach(async () => {
     localStorage.clear();
 
@@ -79,16 +143,27 @@ describe('StockStatusDashboardComponent', () => {
     );
     notificationService = jasmine.createSpyObj<DmisNotificationService>(
       'DmisNotificationService',
-      ['showNetworkError', 'showWarning', 'showSuccess']
+      ['showNetworkError', 'showWarning', 'showSuccess', 'showError']
     );
 
     replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
       'ReplenishmentService',
-      ['getActiveEvent', 'getAllWarehouses', 'listNeedsLists']
+      [
+        'getActiveEvent',
+        'getAllWarehouses',
+        'listNeedsLists',
+        'getPhaseWindows',
+        'updatePhaseWindow',
+        'checkActiveNeedsLists'
+      ]
     );
     replenishmentService.getActiveEvent.and.returnValue(of(event));
     replenishmentService.getAllWarehouses.and.returnValue(of(warehouses));
     replenishmentService.listNeedsLists.and.returnValue(of({ needs_lists: [], count: 0 }));
+    replenishmentService.getPhaseWindows.and.returnValue(
+      of(createPhaseWindowsResponse({ manageable: false }))
+    );
+    replenishmentService.checkActiveNeedsLists.and.returnValue(of([]));
 
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
@@ -116,11 +191,13 @@ describe('StockStatusDashboardComponent', () => {
             }
           }
         },
-        { provide: MatDialog, useValue: dialog },
       ]
-    }).overrideComponent(StockStatusDashboardComponent, {
-      set: { template: '' }
-    }).compileComponents();
+    })
+      .overrideProvider(MatDialog, { useValue: dialog })
+      .overrideComponent(StockStatusDashboardComponent, {
+        set: { template: '' }
+      })
+      .compileComponents();
 
     fixture = TestBed.createComponent(StockStatusDashboardComponent);
     component = fixture.componentInstance;
@@ -225,6 +302,7 @@ describe('StockStatusDashboardComponent', () => {
     secondRequest$.complete();
 
     expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
 
     firstRequest$.next(northData);
@@ -232,6 +310,58 @@ describe('StockStatusDashboardComponent', () => {
 
     expect(component.sortBy).toBe('severity');
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+  });
+
+  it('uses ascending severity order for the Worst first sort preset', () => {
+    dashboardDataService.getDashboardData.and.returnValue(
+      of(createDashboardData([createGroup(1, 'North Depot')]))
+    );
+
+    component.setSortPreset('severity_asc');
+
+    expect(component.sortPreset).toBe('severity_asc');
+    expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
+    expect(dashboardDataService.getDashboardData.calls.mostRecent().args[3]).toEqual(
+      jasmine.objectContaining({ sortBy: 'severity', sortDirection: 'asc' })
+    );
+  });
+
+  it('normalizes legacy descending severity state to Worst first ordering', () => {
+    localStorage.setItem('dmis_stock_filters', JSON.stringify({
+      categories: [],
+      severities: [],
+      sortBy: 'severity',
+      sortDirection: 'desc'
+    }));
+
+    component['loadFilterState']();
+
+    expect(component.sortBy).toBe('severity');
+    expect(component.sortDirection).toBe('asc');
+  });
+
+  it('filters warehouse cards by warehouse name without hiding the matched warehouse items', () => {
+    const north = {
+      ...createGroup(1, 'North Depot'),
+      items: [createItem(10, 'Water Purification Tablets', { item_code: 'WTR-10' })]
+    };
+    const south = {
+      ...createGroup(2, 'South Depot'),
+      items: [createItem(20, 'Emergency Rice', { item_code: 'RCE-20' })]
+    };
+    component.warehouseGroups = [north, south];
+
+    component.onSearchChange('south depot');
+
+    expect(component.visibleWarehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+    expect(component.filteredItemsFor(south).map(item => item.item_id)).toEqual([20]);
+    expect(component.filteredItemsFor(north)).toEqual([]);
+
+    component.onSearchChange('WTR-10');
+
+    expect(component.visibleWarehouseGroups.map(g => g.warehouse_id)).toEqual([1]);
+    expect(component.filteredItemsFor(north).map(item => item.item_id)).toEqual([10]);
   });
 
   it('does not allow review queue with action permission but no preview permission', () => {
@@ -396,6 +526,170 @@ describe('StockStatusDashboardComponent', () => {
     expect(component['toSummaryStatus']('RETURNED')).toBe('RETURNED');
   });
 
+  it('computes Action Inbox counts from FR02.93 status buckets', () => {
+    // 2 awaiting approval (SUBMITTED + PENDING_APPROVAL normalize to SUBMITTED).
+    // 3 drafts.
+    // 2 returned (RETURNED → MODIFIED, REJECTED → REJECTED, both fold into
+    // the "returned" inbox bucket).
+    // 1 APPROVED ignored.
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'A1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'SUBMITTED'
+      },
+      {
+        needs_list_id: 'A2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'PENDING_APPROVAL'
+      },
+      {
+        needs_list_id: 'D1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'D2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'D3',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      },
+      {
+        needs_list_id: 'R1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'RETURNED'
+      },
+      {
+        needs_list_id: 'R2',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'REJECTED'
+      },
+      {
+        needs_list_id: 'OK',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'APPROVED'
+      }
+    ];
+
+    expect(component.actionInbox).toEqual({
+      awaitingApproval: 2,
+      draftsInProgress: 3,
+      returned: 2,
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    });
+    expect(component.actionInboxTotal).toBe(7);
+  });
+
+  it('keeps unknown needs-list statuses out of actionable Action Inbox buckets', () => {
+    const warnSpy = spyOn(console, 'warn');
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'UNK',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'BACKEND_DRIFT' as never
+      }
+    ];
+
+    expect(component.actionInbox).toEqual({
+      awaitingApproval: 0,
+      draftsInProgress: 0,
+      returned: 0,
+      reviewQueueTarget: '/replenishment/needs-list-review'
+    });
+    expect(component.actionInboxTotal).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ep02:display-mapper]',
+      jasmine.objectContaining({ source: 'status', value: 'BACKEND_DRIFT' })
+    );
+  });
+
+  it('produces a zero-aware category rollup without divide-by-zero artifacts', () => {
+    // Items WITHOUT category fall into 'Uncategorized' (per pre-plan review
+    // requirement). Mixed severities exercise each bucket; a Water-only/
+    // all-good bucket asserts atRiskPct is 0 (not NaN / Infinity).
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [
+          { item_id: 1, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'CRITICAL', category: 'Food' },
+          { item_id: 2, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'WARNING', category: 'Food' },
+          { item_id: 3, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'OK', category: 'Water' },
+          { item_id: 4, available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0, gap_qty: 0, severity: 'CRITICAL' }
+        ],
+        critical_count: 2,
+        warning_count: 1,
+        watch_count: 0,
+        ok_count: 1
+      }
+    ];
+
+    const rollup = component.categoryRollup;
+    const byName = (name: string) => rollup.find((r) => r.name === name);
+
+    expect(byName('Food')).toEqual(
+      jasmine.objectContaining({ critical: 1, warning: 1, good: 0, atRisk: 2, total: 2, atRiskPct: 100 })
+    );
+    expect(byName('Water')).toEqual(
+      jasmine.objectContaining({ critical: 0, warning: 0, good: 1, atRisk: 0, total: 1, atRiskPct: 0 })
+    );
+    expect(byName('Uncategorized')).toEqual(
+      jasmine.objectContaining({ critical: 1, warning: 0, good: 0, atRisk: 1, total: 1, atRiskPct: 100 })
+    );
+
+    for (const row of rollup) {
+      expect(Number.isFinite(row.atRiskPct)).toBeTrue();
+      expect(row.atRiskPct).toBeGreaterThanOrEqual(0);
+      expect(row.atRiskPct).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('returns an empty category rollup when no items exist', () => {
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [],
+        critical_count: 0,
+        warning_count: 0,
+        watch_count: 0,
+        ok_count: 0
+      }
+    ];
+    expect(component.categoryRollup).toEqual([]);
+  });
+
   it('returns the full stock item name for item tooltips', () => {
     expect(component.getStockItemTooltip({
       item_id: 42,
@@ -457,5 +751,712 @@ describe('StockStatusDashboardComponent', () => {
 
     component['setCurrentUserRef']('EMP-456');
     expect(component['seenSubmitterUpdateKeys'].size).toBe(0);
+  });
+
+  // -- CTA gate chain --------------------------------------------------
+
+  function mockDialogRef<R>(result: R): jasmine.SpyObj<MatDialogRef<unknown, R>> {
+    const ref = jasmine.createSpyObj<MatDialogRef<unknown, R>>(
+      'MatDialogRef',
+      ['close', 'afterClosed']
+    );
+    ref.afterClosed.and.returnValue(of(result));
+    return ref;
+  }
+
+  it('routes hero, FAB, and warehouse-card triggers through a single CTA gate path', () => {
+    const runGateSpy = spyOn(component as unknown as GateChainHost, 'runGateChain').and.callFake(() => {
+      component.ctaInFlight.set(false);
+    });
+
+    component.generateNeedsListWithGates('hero', 1);
+    component.generateNeedsListWithGates('fab', 2);
+    component.generateNeedsListWithGates('warehouse-card', 3);
+
+    expect(runGateSpy).toHaveBeenCalledTimes(3);
+    expect(runGateSpy.calls.argsFor(0)[0]).toBe(1);
+    expect(runGateSpy.calls.argsFor(1)[0]).toBe(2);
+    expect(runGateSpy.calls.argsFor(2)[0]).toBe(3);
+  });
+
+  it('opens duplicate-guard dialog when checkActiveNeedsLists returns entries', () => {
+    const dialog = TestBed.inject(MatDialog) as jasmine.SpyObj<MatDialog>;
+    const dupRef = mockDialogRef<DuplicateGuardDialogResult>(undefined);
+    dialog.open.and.returnValue(dupRef as unknown as MatDialogRef<unknown>);
+
+    const duplicate: NeedsListDuplicateSummary = {
+      needs_list_id: 'NL-9',
+      needs_list_no: 'NL-000009',
+      status: 'SUBMITTED',
+      created_by: 'alice',
+      created_at: '2026-03-01T00:00:00Z',
+      warehouse_id: 1,
+      items_count: 3,
+      item_ids: [1, 2, 3]
+    };
+    replenishmentService.checkActiveNeedsLists.and.returnValue(of([duplicate]));
+
+    component.generateNeedsListWithGates('hero', 1);
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(dialog.open.calls.mostRecent().args[0]).toBe(DuplicateGuardDialogComponent);
+    const config = dialog.open.calls.mostRecent().args[1] as { data: { duplicates: NeedsListDuplicateSummary[]; phase: string } };
+    expect(config.data.duplicates).toEqual([duplicate]);
+    expect(config.data.phase).toBe('SURGE');
+  });
+
+  it('opens low-confidence dialog when the selected warehouse has LOW confidence', () => {
+    const dialog = TestBed.inject(MatDialog) as jasmine.SpyObj<MatDialog>;
+    const lowConfRef = mockDialogRef<boolean>(false);
+    dialog.open.and.returnValue(lowConfRef as unknown as MatDialogRef<unknown>);
+
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [
+          {
+            item_id: 42,
+            available_qty: 10,
+            inbound_strict_qty: 0,
+            burn_rate_per_hour: 0.5,
+            gap_qty: 0,
+            confidence: { level: 'LOW', reasons: ['Stale inventory'] }
+          }
+        ],
+        critical_count: 0,
+        warning_count: 0,
+        watch_count: 0,
+        ok_count: 0
+      }
+    ];
+    replenishmentService.checkActiveNeedsLists.and.returnValue(of([]));
+
+    component.generateNeedsListWithGates('warehouse-card', 1);
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(dialog.open.calls.mostRecent().args[0]).toBe(LowConfidenceAckDialogComponent);
+    const config = dialog.open.calls.mostRecent().args[1] as { data: { warehouseName: string; reasons: string[] } };
+    expect(config.data.warehouseName).toBe('North Depot');
+    expect(config.data.reasons).toContain('Stale inventory');
+  });
+
+  it('opens scope-picker dialog when hero CTA fires without a selected warehouse', () => {
+    const dialog = TestBed.inject(MatDialog) as jasmine.SpyObj<MatDialog>;
+    const scopeRef = mockDialogRef<ScopePickerDialogResult | undefined>(undefined);
+    dialog.open.and.returnValue(scopeRef as unknown as MatDialogRef<unknown>);
+
+    component.selectedWarehouseId = null;
+    component.selectedWarehouseIds = [];
+
+    component.generateNeedsListWithGates('hero');
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(dialog.open.calls.mostRecent().args[0]).toBe(ScopePickerDialogComponent);
+    expect(replenishmentService.checkActiveNeedsLists).not.toHaveBeenCalled();
+  });
+
+  // -- Safe poll loop --------------------------------------------------
+
+  it('safe poll loop does not schedule a timer when document is hidden', () => {
+    spyOnProperty(document, 'hidden', 'get').and.returnValue(true);
+    const timeoutSpy = spyOn(window, 'setTimeout').and.callThrough();
+
+    component['schedulePoll']();
+
+    expect(timeoutSpy).not.toHaveBeenCalled();
+    expect(component['pollTimer']).toBeNull();
+  });
+
+  it('safe poll loop honors 429 Retry-After before the next retry', () => {
+    spyOnProperty(document, 'hidden', 'get').and.returnValue(false);
+    const timeoutSpy = spyOn(window, 'setTimeout').and.callFake(() => 0 as unknown as ReturnType<typeof setTimeout>);
+    const error = new HttpErrorResponse({
+      status: 429,
+      headers: new HttpHeaders({ 'Retry-After': '45' })
+    });
+
+    component['onRefreshComplete'](error);
+
+    expect(timeoutSpy).toHaveBeenCalled();
+    expect(timeoutSpy.calls.mostRecent().args[1]).toBe(45_000);
+  });
+
+  // -- Phase windows ---------------------------------------------------
+
+  it('phase windows edit action is hidden when manageable_by_active_tenant is false', () => {
+    component.phaseWindows.set(createPhaseWindowsResponse({ manageable: false }));
+    expect(component.canManagePhaseWindows()).toBeFalse();
+
+    component.phaseWindows.set(createPhaseWindowsResponse({ manageable: true }));
+    expect(component.canManagePhaseWindows()).toBeTrue();
+  });
+
+  it('passes the active event id when fetching phase windows', () => {
+    replenishmentService.getPhaseWindows.calls.reset();
+    component.activeEvent = event;
+    component.loadPhaseWindows();
+
+    expect(replenishmentService.getPhaseWindows).toHaveBeenCalledWith(event.event_id);
+  });
+
+  it('does not call getPhaseWindows when no active event is resolved', () => {
+    replenishmentService.getPhaseWindows.calls.reset();
+    component.activeEvent = null;
+    component.loadPhaseWindows();
+
+    expect(replenishmentService.getPhaseWindows).not.toHaveBeenCalled();
+  });
+});
+
+describe('display-mappers (EP-02 dashboard)', () => {
+  it('returns backend-matching freshness thresholds for all phases', () => {
+    expect(getFreshnessThresholdsForPhase('SURGE')).toEqual({ highMaxHours: 2, mediumMaxHours: 4 });
+    expect(getFreshnessThresholdsForPhase('STABILIZED')).toEqual({ highMaxHours: 6, mediumMaxHours: 12 });
+    expect(getFreshnessThresholdsForPhase('BASELINE')).toEqual({ highMaxHours: 24, mediumMaxHours: 48 });
+  });
+
+  it('maps each phase to its polling interval in ms', () => {
+    expect(phaseToIntervalMs('SURGE')).toBe(300_000);
+    expect(phaseToIntervalMs('STABILIZED')).toBe(1_800_000);
+    expect(phaseToIntervalMs('BASELINE')).toBe(7_200_000);
+  });
+
+  it('warns via [ep02:display-mapper] when toDisplaySeverity gets an unknown value', () => {
+    const warnSpy = spyOn(console, 'warn');
+    const result = toDisplaySeverity('MYSTERY' as never);
+    expect(result).toBe('CRITICAL');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ep02:display-mapper]',
+      jasmine.objectContaining({ source: 'severity', value: 'MYSTERY' })
+    );
+  });
+
+  it('warns via [ep02:display-mapper] when toDisplayStatus gets an unknown value', () => {
+    const warnSpy = spyOn(console, 'warn');
+    const result = toDisplayStatus('MYSTERY_STATUS');
+    expect(result).toBe('UNKNOWN');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ep02:display-mapper]',
+      jasmine.objectContaining({ source: 'status', value: 'MYSTERY_STATUS' })
+    );
+  });
+
+  it('keeps known display status mappings aligned with FR02.93 buckets', () => {
+    expect(toDisplayStatus('DRAFT')).toBe('DRAFT');
+    expect(toDisplayStatus('RETURNED')).toBe('MODIFIED');
+    expect(toDisplayStatus('MODIFIED')).toBe('MODIFIED');
+    expect(toDisplayStatus('SUBMITTED')).toBe('SUBMITTED');
+    expect(toDisplayStatus('PENDING')).toBe('SUBMITTED');
+    expect(toDisplayStatus('PENDING_APPROVAL')).toBe('SUBMITTED');
+    expect(toDisplayStatus('UNDER_REVIEW')).toBe('SUBMITTED');
+    expect(toDisplayStatus('APPROVED')).toBe('APPROVED');
+    expect(toDisplayStatus('REJECTED')).toBe('REJECTED');
+    expect(toDisplayStatus('IN_PROGRESS')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('IN_PREPARATION')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('DISPATCHED')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('RECEIVED')).toBe('IN_PROGRESS');
+    expect(toDisplayStatus('FULFILLED')).toBe('FULFILLED');
+    expect(toDisplayStatus('COMPLETED')).toBe('FULFILLED');
+    expect(toDisplayStatus('CANCELLED')).toBe('SUPERSEDED');
+    expect(toDisplayStatus('SUPERSEDED')).toBe('SUPERSEDED');
+  });
+
+  it('keeps known display severity mappings aligned with dashboard buckets', () => {
+    expect(toDisplaySeverity('CRITICAL')).toBe('CRITICAL');
+    expect(toDisplaySeverity('WARNING')).toBe('WARNING');
+    expect(toDisplaySeverity('WATCH')).toBe('WARNING');
+    expect(toDisplaySeverity('OK')).toBe('GOOD');
+    expect(toDisplaySeverity(null)).toBe('GOOD');
+    expect(toDisplaySeverity(undefined)).toBe('GOOD');
+  });
+});
+
+describe('PhaseWindowsDialogComponent', () => {
+  let replSpy: jasmine.SpyObj<ReplenishmentService>;
+  let notifySpy: jasmine.SpyObj<DmisNotificationService>;
+  let dialogRefSpy: jasmine.SpyObj<MatDialogRef<PhaseWindowsDialogComponent, void>>;
+
+  const initialWindows = {
+    SURGE: { demand_hours: 6, planning_hours: 24, safety_factor: 1.5 },
+    STABILIZED: { demand_hours: 72, planning_hours: 72, safety_factor: 1.25 },
+    BASELINE: { demand_hours: 720, planning_hours: 168, safety_factor: 1.1 }
+  };
+  const DIALOG_EVENT_ID = 99;
+
+  beforeEach(async () => {
+    replSpy = jasmine.createSpyObj<ReplenishmentService>(
+      'ReplenishmentService',
+      ['updatePhaseWindow']
+    );
+    notifySpy = jasmine.createSpyObj<DmisNotificationService>(
+      'DmisNotificationService',
+      ['showError', 'showWarning', 'showSuccess', 'showNetworkError']
+    );
+    dialogRefSpy = jasmine.createSpyObj<MatDialogRef<PhaseWindowsDialogComponent, void>>(
+      'MatDialogRef',
+      ['close']
+    );
+
+    await TestBed.configureTestingModule({
+      imports: [PhaseWindowsDialogComponent],
+      providers: [
+        { provide: ReplenishmentService, useValue: replSpy },
+        { provide: DmisNotificationService, useValue: notifySpy },
+        { provide: MatDialogRef, useValue: dialogRefSpy },
+        {
+          provide: MAT_DIALOG_DATA,
+          useValue: { eventId: DIALOG_EVENT_ID, windows: initialWindows }
+        }
+      ]
+    }).compileComponents();
+  });
+
+  it('shows a permission warning and closes on 403 PUT response', () => {
+    const err = new HttpErrorResponse({ status: 403, error: { error: 'forbidden' } });
+    replSpy.updatePhaseWindow.and.returnValue(throwError(() => err));
+
+    const fixture = TestBed.createComponent(PhaseWindowsDialogComponent);
+    const dialogComponent = fixture.componentInstance;
+    // Change one value so the diff detection issues a PUT and provide a
+    // justification so the required validator passes.
+    dialogComponent.form.get('SURGE.demand_hours')?.setValue(8);
+    dialogComponent.form.get('justification')?.setValue('Storm intensified; shorter windows required.');
+
+    dialogComponent.save();
+
+    expect(replSpy.updatePhaseWindow).toHaveBeenCalledWith(
+      DIALOG_EVENT_ID,
+      'SURGE',
+      8,
+      24,
+      'Storm intensified; shorter windows required.'
+    );
+    expect(notifySpy.showWarning).toHaveBeenCalled();
+    const message = notifySpy.showWarning.calls.mostRecent().args[0];
+    expect(message).toMatch(/permission/i);
+    expect(dialogRefSpy.close).toHaveBeenCalledWith();
+  });
+
+  it('blocks save when the justification is missing or whitespace-only', () => {
+    const fixture = TestBed.createComponent(PhaseWindowsDialogComponent);
+    const dialogComponent = fixture.componentInstance;
+    dialogComponent.form.get('SURGE.demand_hours')?.setValue(8);
+    // Intentionally whitespace-only.
+    dialogComponent.form.get('justification')?.setValue('   ');
+
+    dialogComponent.save();
+
+    expect(replSpy.updatePhaseWindow).not.toHaveBeenCalled();
+    expect(dialogRefSpy.close).not.toHaveBeenCalled();
+    expect(dialogComponent.form.get('justification')?.hasError('required')).toBeTrue();
+  });
+
+  it('trims the justification before sending', () => {
+    replSpy.updatePhaseWindow.and.returnValue(of({}));
+
+    const fixture = TestBed.createComponent(PhaseWindowsDialogComponent);
+    const dialogComponent = fixture.componentInstance;
+    dialogComponent.form.get('STABILIZED.planning_hours')?.setValue(96);
+    dialogComponent.form.get('justification')?.setValue('  extended planning window  ');
+
+    dialogComponent.save();
+
+    expect(replSpy.updatePhaseWindow).toHaveBeenCalledWith(
+      DIALOG_EVENT_ID,
+      'STABILIZED',
+      72,
+      96,
+      'extended planning window'
+    );
+  });
+});
+
+// -------------------------------------------------------------------------
+// Display severity leakage regression test
+//
+// The full dashboard template renders status badges for every stock item.
+// Internal severity is a 4-bucket value (CRITICAL / WARNING / WATCH / OK) but
+// the display boundary must collapse WATCH → WARNING and OK → GOOD. This
+// test renders the real template with items deliberately carrying WATCH and
+// OK and asserts that no rendered badge contains those raw tokens.
+// -------------------------------------------------------------------------
+describe('StockStatusDashboardComponent display severity rendering', () => {
+  let fixture: ComponentFixture<StockStatusDashboardComponent>;
+  let component: StockStatusDashboardComponent;
+
+  const event: ActiveEvent = {
+    event_id: 99,
+    event_name: 'Storm',
+    status: 'ACTIVE',
+    phase: 'SURGE',
+    declaration_date: '2026-02-10T00:00:00Z'
+  };
+
+  beforeEach(async () => {
+    localStorage.clear();
+
+    const dashboardDataService = jasmine.createSpyObj<DashboardDataService>(
+      'DashboardDataService',
+      ['getDashboardData', 'invalidateCache']
+    );
+    dashboardDataService.getDashboardData.and.returnValue(
+      of({
+        groups: [],
+        as_of_datetime: '2026-02-11T00:00:00Z',
+        warnings: [],
+        totals: { items: 0, critical: 0, warning: 0, watch: 0, ok: 0 },
+        availableCategories: []
+      } as DashboardData)
+    );
+    const dataFreshnessService = jasmine.createSpyObj<DataFreshnessService>(
+      'DataFreshnessService',
+      ['onRefreshRequested$', 'updateFromWarehouseGroups', 'refreshComplete', 'clear']
+    );
+    dataFreshnessService.onRefreshRequested$.and.returnValue(new Subject<void>().asObservable());
+    const notificationService = jasmine.createSpyObj<DmisNotificationService>(
+      'DmisNotificationService',
+      ['showNetworkError', 'showWarning', 'showSuccess', 'showError']
+    );
+    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
+      'ReplenishmentService',
+      ['getActiveEvent', 'getAllWarehouses', 'listNeedsLists', 'getPhaseWindows', 'updatePhaseWindow', 'checkActiveNeedsLists']
+    );
+    replenishmentService.getActiveEvent.and.returnValue(of(event));
+    replenishmentService.getAllWarehouses.and.returnValue(of([
+      { warehouse_id: 1, warehouse_name: 'North Depot' }
+    ]));
+    replenishmentService.listNeedsLists.and.returnValue(of({ needs_lists: [], count: 0 }));
+    replenishmentService.getPhaseWindows.and.returnValue(of({
+      event_id: 99,
+      scope: 'global',
+      applies_globally: true,
+      phase_windows: [],
+      windows: {
+        SURGE: { demand_hours: 6, planning_hours: 24, safety_factor: 1.5 },
+        STABILIZED: { demand_hours: 72, planning_hours: 72, safety_factor: 1.25 },
+        BASELINE: { demand_hours: 720, planning_hours: 168, safety_factor: 1.1 }
+      },
+      manageable_by_active_tenant: false
+    } as PhaseWindowsResponse));
+    replenishmentService.checkActiveNeedsLists.and.returnValue(of([]));
+    const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    const appAccessService = jasmine.createSpyObj<AppAccessService>('AppAccessService', ['canAccessNavKey']);
+    appAccessService.canAccessNavKey.and.returnValue(false);
+    const authRbacService = jasmine.createSpyObj<AuthRbacService>('AuthRbacService', ['actorRef']);
+    authRbacService.actorRef.and.returnValue(null);
+    const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
+
+    await TestBed.configureTestingModule({
+      imports: [StockStatusDashboardComponent],
+      providers: [
+        { provide: ReplenishmentService, useValue: replenishmentService },
+        { provide: DashboardDataService, useValue: dashboardDataService },
+        { provide: DataFreshnessService, useValue: dataFreshnessService },
+        { provide: DmisNotificationService, useValue: notificationService },
+        { provide: Router, useValue: router },
+        { provide: AppAccessService, useValue: appAccessService },
+        { provide: AuthRbacService, useValue: authRbacService },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } }
+        }
+      ],
+      // Ignore unknown elements emitted by nested standalone components; this
+      // test only inspects the outer dashboard template output.
+      schemas: [NO_ERRORS_SCHEMA]
+    })
+      .overrideProvider(MatDialog, { useValue: dialog })
+      // Deliberately DO NOT override the template — we need the real DOM
+      // to inspect rendered badge text.
+      .compileComponents();
+
+    fixture = TestBed.createComponent(StockStatusDashboardComponent);
+    component = fixture.componentInstance;
+  });
+
+  function seedDashboardWithMixedSeverities(): void {
+    component.activeEvent = event;
+    component.allWarehouses = [{ warehouse_id: 1, warehouse_name: 'North Depot' }];
+    component.loading = false;
+    component.dataLoadedSuccessfully = true;
+    // Force the filters panel expanded so the severity chip listbox is in
+    // the DOM for querying.
+    component.filtersExpanded = true;
+    component.warehouseGroups = [
+      {
+        warehouse_id: 1,
+        warehouse_name: 'North Depot',
+        items: [
+          makeItem(1, 'Critical Item', 'CRITICAL'),
+          makeItem(2, 'Warning Item', 'WARNING'),
+          makeItem(3, 'Watch Item', 'WATCH'),
+          makeItem(4, 'OK Item', 'OK')
+        ],
+        critical_count: 1,
+        warning_count: 1,
+        watch_count: 1,
+        ok_count: 1
+      }
+    ];
+    component['reconcileWarehouseExpansion'](component.warehouseGroups);
+    renderChanges();
+  }
+
+  function makeItem(id: number, name: string, severity: 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK'): StockStatusItem {
+    return {
+      item_id: id,
+      item_name: name,
+      available_qty: 10,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0.5,
+      gap_qty: 0,
+      severity
+    };
+  }
+
+  function makeGroup(
+    id: number,
+    name: string,
+    counts: Partial<Pick<WarehouseStockGroup, 'critical_count' | 'warning_count' | 'watch_count' | 'ok_count'>>
+  ): WarehouseStockGroup {
+    const severity = counts.critical_count ? 'CRITICAL' : counts.warning_count ? 'WARNING' : 'OK';
+    return {
+      warehouse_id: id,
+      warehouse_name: name,
+      items: [makeItem(id, `${name} Item`, severity)],
+      critical_count: counts.critical_count ?? 0,
+      warning_count: counts.warning_count ?? 0,
+      watch_count: counts.watch_count ?? 0,
+      ok_count: counts.ok_count ?? 0
+    };
+  }
+
+  function seedDashboardWithGroups(groups: WarehouseStockGroup[]): void {
+    component.activeEvent = event;
+    component.allWarehouses = groups.map((group) => ({
+      warehouse_id: group.warehouse_id,
+      warehouse_name: group.warehouse_name
+    }));
+    component.loading = false;
+    component.dataLoadedSuccessfully = true;
+    component.warehouseGroups = groups;
+    component['reconcileWarehouseExpansion'](groups);
+    renderChanges();
+  }
+
+  function renderChanges(): void {
+    component['markForDashboardUpdate']();
+    fixture.detectChanges();
+  }
+
+  function warehouseDetails(name: string): HTMLDetailsElement {
+    const host = fixture.nativeElement as HTMLElement;
+    const details = Array.from(host.querySelectorAll<HTMLDetailsElement>('details.srd-wh-card'))
+      .find((el) => (el.textContent ?? '').includes(name));
+    expect(details).withContext(`Expected details card for ${name}`).toBeDefined();
+    return details as HTMLDetailsElement;
+  }
+
+  function dispatchDetailsToggle(details: HTMLDetailsElement, open: boolean): void {
+    details.open = open;
+    details.dispatchEvent(new Event('toggle'));
+  }
+
+  it('never renders raw WATCH or OK tokens in severity status chips', () => {
+    // First detectChanges runs ngOnInit → autoLoadDashboard → loadMultiWarehouseStatus
+    // which resets warehouseGroups from the mock service response. Seed the
+    // mixed-severity groups AFTER that lifecycle completes, then re-render.
+    fixture.detectChanges();
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    // Severity chip is the first app-ops-status-chip inside each desktop
+    // row's Status column (first td) and the first chip inside each mobile
+    // card header. Freshness chips sit in a later cell / position and are
+    // excluded by the :first-of-type / :first-child selector.
+    const severityChips = Array.from(
+      host.querySelectorAll<HTMLElement>(
+        'tr.srd-items-row > td:first-of-type app-ops-status-chip span.ops-chip,'
+          + ' .srd-items-card__header > app-ops-status-chip:first-of-type span.ops-chip'
+      )
+    );
+
+    expect(severityChips.length).toBeGreaterThan(0);
+
+    for (const chip of severityChips) {
+      const text = (chip.textContent ?? '').trim().toUpperCase();
+
+      // Display-boundary vocabulary is CRITICAL / WARNING / GOOD only.
+      expect(['CRITICAL', 'WARNING', 'GOOD']).toContain(text);
+      // Tone class must be one of the 3-bucket aliases (GOOD maps to `success` tone).
+      expect(chip.className).toMatch(/ops-chip--(critical|warning|success)/);
+      expect(chip.className).not.toMatch(/ops-chip--watch\b/);
+      expect(chip.className).not.toMatch(/ops-chip--ok\b/);
+    }
+
+    // The per-row bucket class must likewise be 3-bucket only.
+    const itemRows = Array.from(
+      host.querySelectorAll<HTMLElement>('tr.srd-items-row')
+    );
+    expect(itemRows.length).toBeGreaterThan(0);
+    for (const row of itemRows) {
+      expect(row.className).toMatch(/srd-items-row--(critical|warning|good)/);
+      expect(row.className).not.toMatch(/srd-items-row--watch\b/);
+      expect(row.className).not.toMatch(/srd-items-row--ok\b/);
+    }
+  });
+
+  it('initially expands critical warehouse detail cards', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { critical_count: 1 }),
+      makeGroup(2, 'South Depot', { warning_count: 1 })
+    ]);
+
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeFalse();
+  });
+
+  it('initially expands the warehouse card in single-warehouse view', () => {
+    fixture.detectChanges();
+    component.viewMode = 'single';
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { ok_count: 1 })
+    ]);
+
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+  });
+
+  it('keeps user-expanded warning and good warehouses open after change detection', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { ok_count: 1 }),
+      makeGroup(2, 'South Depot', { warning_count: 1 })
+    ]);
+
+    const goodDetails = warehouseDetails('North Depot');
+    const warningDetails = warehouseDetails('South Depot');
+    expect(goodDetails.open).toBeFalse();
+    expect(warningDetails.open).toBeFalse();
+
+    dispatchDetailsToggle(goodDetails, true);
+    dispatchDetailsToggle(warningDetails, true);
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeTrue();
+
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeTrue();
+    expect(warehouseDetails('South Depot').open).toBeTrue();
+  });
+
+  it('keeps a user-collapsed critical warehouse closed after change detection', () => {
+    fixture.detectChanges();
+    seedDashboardWithGroups([
+      makeGroup(1, 'North Depot', { critical_count: 1 }),
+      makeGroup(2, 'South Depot', { ok_count: 1 })
+    ]);
+
+    const criticalDetails = warehouseDetails('North Depot');
+    expect(criticalDetails.open).toBeTrue();
+
+    dispatchDetailsToggle(criticalDetails, false);
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeFalse();
+
+    fixture.detectChanges();
+    expect(warehouseDetails('North Depot').open).toBeFalse();
+  });
+
+  it('renders the severity filter chips with only CRITICAL / WARNING / GOOD labels', () => {
+    fixture.detectChanges();
+    // Filters panel is gated on `warehouseGroups.length > 0`; seed after
+    // ngOnInit so the chip-listbox is in the DOM when we query it.
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const chipLabels = Array.from(
+      host.querySelectorAll<HTMLElement>('.srd-toolbar__chips .srd-filter-chip__label')
+    )
+      .map((el) => (el.textContent ?? '').trim().toUpperCase())
+      // Drop category-filter chips by class — only severity-filter chips carry chip-critical/warning/good.
+      .filter((label) => label === 'CRITICAL' || label === 'WARNING' || label === 'GOOD' || label === 'WATCH' || label === 'OK');
+
+    expect(chipLabels).toContain('CRITICAL');
+    expect(chipLabels).toContain('WARNING');
+    expect(chipLabels).toContain('GOOD');
+    expect(chipLabels).not.toContain('WATCH');
+    expect(chipLabels).not.toContain('OK');
+  });
+
+  it('renders the mobile FAB when an event is active with warehouses', () => {
+    fixture.detectChanges();
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    // CSS toggles the FAB's display between desktop and narrow viewports,
+    // but the DOM element itself must always be rendered when there is an
+    // active event with warehouses — this is Kemar's one-tap field CTA.
+    const fab = host.querySelector<HTMLButtonElement>('button.stock-dashboard__fab');
+    expect(fab).not.toBeNull();
+    expect(fab?.disabled).toBeFalse();
+    expect((fab?.textContent ?? '').toLowerCase()).toContain('generate');
+  });
+
+  it('renders the Action Inbox pills with FR02.93 labels', () => {
+    fixture.detectChanges();
+    component.activeEvent = event;
+    component.myNeedsLists = [
+      {
+        needs_list_id: 'A1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'SUBMITTED'
+      },
+      {
+        needs_list_id: 'D1',
+        event_id: 99,
+        phase: 'SURGE',
+        items: [],
+        as_of_datetime: '2026-02-16T12:00:00Z',
+        status: 'DRAFT'
+      }
+    ];
+    renderChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const pillLabels = Array.from(
+      host.querySelectorAll<HTMLElement>('.srd-inbox__chips .srd-inbox__chip')
+    ).map((el) => (el.textContent ?? '').trim().toLowerCase());
+
+    expect(pillLabels.length).toBe(3);
+    expect(pillLabels.some((l) => l.includes('awaiting approval'))).toBeTrue();
+    expect(pillLabels.some((l) => l.includes('drafts in progress'))).toBeTrue();
+    expect(pillLabels.some((l) => l.includes('returned'))).toBeTrue();
+  });
+
+  it('renders risk-by-category bars without divide-by-zero artifacts', () => {
+    fixture.detectChanges();
+    seedDashboardWithMixedSeverities();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const categoryRows = Array.from(
+      host.querySelectorAll<HTMLElement>('.srd-categories__row')
+    );
+    expect(categoryRows.length).toBeGreaterThan(0);
+
+    for (const row of categoryRows) {
+      const pctText = (row.querySelector('.srd-categories__row-pct')?.textContent ?? '').trim();
+      // Percent label must NEVER read as NaN% / Infinity% even for all-good buckets.
+      expect(pctText).not.toContain('NaN');
+      expect(pctText).not.toContain('Infinity');
+    }
   });
 });

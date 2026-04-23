@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import models
 from django.utils import timezone
+
+from . import constants
 
 
 class AuditedModel(models.Model):
@@ -259,9 +263,9 @@ class OperationsConsolidationLeg(AuditedModel):
     class Meta:
         db_table = "operations_consolidation_leg"
         indexes = [
-            models.Index(fields=["package", "status_code"]),
-            models.Index(fields=["source_warehouse_id", "status_code"]),
-            models.Index(fields=["staging_warehouse_id", "status_code"]),
+            models.Index(fields=["package", "status_code"], name="ops_con_leg_pkg_status"),
+            models.Index(fields=["source_warehouse_id", "status_code"], name="ops_con_leg_src_status"),
+            models.Index(fields=["staging_warehouse_id", "status_code"], name="ops_con_leg_stage_status"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -280,7 +284,14 @@ class OperationsConsolidationLegItem(AuditedModel):
     )
     item_id = models.IntegerField()
     batch_id = models.IntegerField()
+    # Freeze schema calls this planned_qty. Keep quantity as the compatible
+    # stored column and expose planned_qty as a documented alias below.
     quantity = models.DecimalField(max_digits=15, decimal_places=4)
+    received_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    shortage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    overage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    damaged_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
+    variance_reason_text = models.CharField(max_length=500, blank=True, null=True)
     source_type = models.CharField(max_length=20, default="ON_HAND")
     source_record_id = models.IntegerField(blank=True, null=True)
     staging_batch_id = models.IntegerField(blank=True, null=True)
@@ -289,8 +300,8 @@ class OperationsConsolidationLegItem(AuditedModel):
     class Meta:
         db_table = "operations_consolidation_leg_item"
         indexes = [
-            models.Index(fields=["leg", "item_id"]),
-            models.Index(fields=["item_id", "batch_id"]),
+            models.Index(fields=["leg", "item_id"], name="ops_con_leg_item_leg"),
+            models.Index(fields=["item_id", "batch_id"], name="ops_con_leg_item_batch"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -298,6 +309,11 @@ class OperationsConsolidationLegItem(AuditedModel):
                 name="uq_ops_consolidation_leg_item",
             ),
         ]
+
+    @property
+    def planned_qty(self) -> Decimal:
+        """Read-only alias for quantity."""
+        return self.quantity
 
 
 class OperationsConsolidationWaybill(models.Model):
@@ -317,7 +333,7 @@ class OperationsConsolidationWaybill(models.Model):
     class Meta:
         db_table = "operations_consolidation_waybill"
         indexes = [
-            models.Index(fields=["leg", "generated_at"]),
+            models.Index(fields=["leg", "generated_at"], name="ops_con_waybill_leg"),
         ]
 
 
@@ -357,6 +373,53 @@ class OperationsPickupRelease(models.Model):
 
     class Meta:
         db_table = "operations_pickup_release"
+
+
+class OperationsPartialReleaseRequest(AuditedModel):
+    partial_release_request_id = models.BigAutoField(primary_key=True)
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="partial_release_requests",
+    )
+    requested_by_user_id = models.CharField(max_length=50)
+    requested_at = models.DateTimeField(default=timezone.now)
+    request_reason = models.CharField(max_length=500)
+    approval_status_code = models.CharField(max_length=40, db_index=True)
+    approved_by_user_id = models.CharField(max_length=50, blank=True, null=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+    approval_reason = models.CharField(max_length=500, blank=True, null=True)
+    released_child_package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.SET_NULL,
+        related_name="released_by_partial_release_requests",
+        blank=True,
+        null=True,
+    )
+    residual_child_package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.SET_NULL,
+        related_name="residual_by_partial_release_requests",
+        blank=True,
+        null=True,
+    )
+    artifact_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "operations_partial_release_request"
+        indexes = [
+            models.Index(fields=["package", "requested_at"], name="ops_partial_req_pkg_time"),
+            models.Index(fields=["approval_status_code", "requested_at"], name="ops_partial_req_status_time"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package"],
+                condition=models.Q(
+                    approval_status_code=constants.OVERRIDE_STATUS_PENDING_APPROVAL
+                ),
+                name="ops_partial_unique_pending_pkg",
+            ),
+        ]
 
 
 class OperationsDispatch(AuditedModel):
@@ -553,6 +616,6 @@ class OperationsActionAudit(models.Model):
     class Meta:
         db_table = "operations_action_audit"
         indexes = [
-            models.Index(fields=["entity_type", "entity_id", "acted_at"]),
-            models.Index(fields=["action_code", "acted_at"]),
+            models.Index(fields=["entity_type", "entity_id", "acted_at"], name="ops_action_audit_entity"),
+            models.Index(fields=["action_code", "acted_at"], name="ops_action_audit_code"),
         ]
