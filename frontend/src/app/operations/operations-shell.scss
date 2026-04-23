@@ -460,8 +460,16 @@
 // doubling it (which was making RRQ look wider + more spacious than PFQ).
 // Only the body keeps a top padding so the search still breathes below
 // the heading, mirroring PFQ's `.pfq-panel__body { padding-top: 0.85rem }`.
+//
+// `operations-theme.scss` ships `.ops-panel__header { margin: 0 0 18px }`
+// which does not apply to PFQ (PFQ uses the dedicated `.pfq-panel__header`
+// class). Zero the margin here so the queue panel's body sits the same
+// 13.6px (from `.ops-panel__body` padding-top) below the heading as PFQ
+// — previously the 18px header margin stacked on top of that 13.6px and
+// pushed the search + rows 18px lower than PFQ's panel.
 .ops-panel--queue .ops-panel__header {
   padding: 0;
+  margin: 0;
 }
 
 .ops-panel--queue .ops-panel__body {
