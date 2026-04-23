@@ -159,7 +159,6 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
               min="0"
               [attr.max]="maxQty()"
               step="0.0001"
-              maxlength="12"
               [value]="allocatedQty()"
               [disabled]="readOnly()"
               [attr.aria-label]="'Allocation qty for ' + warehouse().warehouse_name"

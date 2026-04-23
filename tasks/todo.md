@@ -89,3 +89,9 @@
 1. Completed: re-verified the newly cited backend and frontend review findings against the current tree and identified which comments were already stale versus still actionable.
 2. Completed: applied only the remaining non-visual fix in the shared operations metric strip and added regression coverage in the task-center spec.
 3. Completed: ran focused Django and Angular verification for the rechecked areas and completed the architecture-review closeout.
+
+## Review Comment Verification Sweep - 2026-04-23 (Architecture / No-Visual Pass)
+
+1. Completed: re-verified the newly cited backend and frontend findings against the live tree, classifying them as already fixed, stale, or still actionable under the no-frontend-visual-change constraint.
+2. Completed: applied the remaining backend control fixes and only non-visual frontend behavior, accessibility, idempotency, error-handling, and lint updates that still reproduced.
+3. Completed: ran focused Django and Angular verification where the local environment supports it, added direct replenishment smoke checks for the blocked module surfaces, and completed the architecture-alignment closeout against the canonical docs.

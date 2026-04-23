@@ -57,6 +57,7 @@ from api.rbac import (
     PERM_PROCUREMENT_ORDER,
     PERM_PROCUREMENT_RECEIVE,
     PERM_PROCUREMENT_CANCEL,
+    PERM_NATIONAL_ACT_CROSS_TENANT,
     resolve_roles_and_permissions,
 )
 from api.tenancy import (
@@ -747,6 +748,38 @@ def _idempotency_cache_key(
     return f"replenishment:idempotency:{endpoint}:{actor_id}:{tenant_id}:{_idempotency_resource_id(record)}:{digest}"
 
 
+def _normalize_idempotency_request_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_idempotency_request_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_idempotency_request_value(item) for item in value]
+    return value
+
+
+def _request_idempotency_fingerprint(request) -> str:
+    try:
+        payload = getattr(request, "data", None)
+    except Exception:
+        payload = None
+
+    if payload not in (None, ""):
+        serialized = json.dumps(
+            _normalize_idempotency_request_value(payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    raw_body = getattr(request, "body", b"") or b""
+    if isinstance(raw_body, str):
+        raw_body = raw_body.encode("utf-8")
+    return hashlib.sha256(raw_body).hexdigest()
+
+
 def _cached_idempotent_response(
     idempotency_key: str,
     request,
@@ -759,7 +792,25 @@ def _cached_idempotent_response(
     )
     if not isinstance(cached_result, dict):
         return None
-    return Response(cached_result)
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cached_fingerprint = str(cached_result.get("_request_fingerprint") or "").strip()
+    if cached_fingerprint and cached_fingerprint != request_fingerprint:
+        return Response(
+            {
+                "errors": {
+                    "idempotency_key": (
+                        "Idempotency-Key was already used for a different request payload."
+                    )
+                }
+            },
+            status=409,
+        )
+    response_payload = {
+        key: value
+        for key, value in cached_result.items()
+        if key != "_request_fingerprint"
+    }
+    return Response(response_payload)
 
 
 def _begin_idempotent_response(
@@ -805,11 +856,19 @@ def _cache_idempotent_response_after_commit(
     cache_key: str,
     payload: dict[str, Any],
     *,
+    request_fingerprint: str,
     reservation_key: str | None,
     reservation_token: str | None,
 ) -> None:
     def _store() -> None:
-        cache.set(cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        cache.set(
+            cache_key,
+            {
+                **payload,
+                "_request_fingerprint": request_fingerprint,
+            },
+            timeout=_IDEMPOTENCY_TTL_SECONDS,
+        )
         _release_idempotency_reservation(reservation_key, reservation_token)
 
     try:
@@ -1058,6 +1117,17 @@ _NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS = 20
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_PER_MINUTE = 10
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS = 60
+_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
+    _NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS + 5
+)
+_HIGH_RISK_SURGE_ROLE_CODES = {
+    "LOGISTICS_OFFICER",
+    "LOGISTICS_MANAGER",
+    "AGENCY_DISTRIBUTOR",
+}
+_HIGH_RISK_SURGE_PHASES = {"SURGE", "STABILIZED"}
 _IDEMPOTENCY_TTL_SECONDS = 15 * 60
 _IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS = 60
 
@@ -1306,6 +1376,171 @@ def _needs_list_export_rate_limited_response(
     )
     response["Retry-After"] = str(retry_after)
     return response
+
+
+def _normalize_role_codes(values: Any) -> set[str]:
+    normalized: set[str] = set()
+    for raw_value in values or ():
+        candidate = str(raw_value or "").strip().upper().replace("-", "_").replace(" ", "_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        if candidate:
+            normalized.add(candidate)
+    return normalized
+
+
+def _needs_list_high_risk_rate_limit_key(
+    *,
+    actor_user_id: str,
+    tenant_id: int | None,
+    scope: str,
+) -> str:
+    return ":".join(
+        [
+            "needs-list-high-risk-rate-limit",
+            scope,
+            str(actor_user_id or "SYSTEM"),
+            str(tenant_id or "unknown"),
+        ]
+    )
+
+
+def _scaled_needs_list_high_risk_limit(
+    request,
+    *,
+    base_limit: int,
+    active_event_phase: str | None,
+) -> int:
+    if active_event_phase not in _HIGH_RISK_SURGE_PHASES:
+        return base_limit
+
+    roles, permissions = resolve_roles_and_permissions(request, request.user)
+    normalized_roles = _normalize_role_codes(roles)
+    permission_set = {str(permission or "").strip().lower() for permission in permissions}
+    has_override = bool(normalized_roles & _HIGH_RISK_SURGE_ROLE_CODES) or (
+        PERM_NATIONAL_ACT_CROSS_TENANT.lower() in permission_set
+    )
+    return base_limit * 2 if has_override else base_limit
+
+
+def _claim_needs_list_high_risk_slot(
+    request,
+    *,
+    actor_user_id: str,
+    tenant_id: int | None,
+    scope: str,
+) -> tuple[bool, int]:
+    active_event_phase: str | None = None
+    if not connection.in_atomic_block:
+        active_event = data_access.get_active_event() or {}
+        active_event_phase = str(active_event.get("phase") or "").strip().upper() or None
+    capacity = float(
+        _scaled_needs_list_high_risk_limit(
+            request,
+            base_limit=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_PER_MINUTE,
+            active_event_phase=active_event_phase,
+        )
+    )
+    refill_window = float(_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_WINDOW_SECONDS)
+    refill_rate = capacity / refill_window
+    now = timezone.now().timestamp()
+    cache_key = _needs_list_high_risk_rate_limit_key(
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        scope=scope,
+    )
+    lock_key = f"{cache_key}:lock"
+    client_ip = _request_client_ip(request)
+    lock_owner_token = _acquire_needs_list_export_rate_limit_lock(lock_key)
+    if not lock_owner_token:
+        logger.warning(
+            "request.throttled",
+            extra=build_log_extra(
+                request,
+                event="request.throttled",
+                status_code=429,
+                endpoint_tier="high_risk_ops",
+                active_event_phase=active_event_phase,
+                enforcement_key=cache_key,
+                actor_user_id=actor_user_id,
+                tenant_id=tenant_id,
+                client_ip=client_ip,
+                token_count=0.0,
+                retry_after=1,
+                throttle_reason="lock_timeout",
+            ),
+        )
+        return False, 1
+
+    try:
+        state = cache.get(cache_key) or {}
+        tokens = float(state.get("tokens", capacity))
+        last_refill = float(state.get("last_refill", now))
+        elapsed = max(now - last_refill, 0.0)
+        tokens = min(capacity, tokens + (elapsed * refill_rate))
+
+        if tokens < 1.0:
+            retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
+            cache.set(
+                cache_key,
+                {"tokens": tokens, "last_refill": now},
+                timeout=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+            )
+            logger.warning(
+                "request.throttled",
+                extra=build_log_extra(
+                    request,
+                    event="request.throttled",
+                    status_code=429,
+                    endpoint_tier="high_risk_ops",
+                    active_event_phase=active_event_phase,
+                    enforcement_key=cache_key,
+                    actor_user_id=actor_user_id,
+                    tenant_id=tenant_id,
+                    client_ip=client_ip,
+                    token_count=round(tokens, 3),
+                    retry_after=retry_after,
+                    throttle_reason="token_bucket_exhausted",
+                ),
+            )
+            return False, retry_after
+
+        cache.set(
+            cache_key,
+            {"tokens": tokens - 1.0, "last_refill": now},
+            timeout=_NEEDS_LIST_HIGH_RISK_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+        )
+        return True, 1
+    finally:
+        _release_needs_list_export_rate_limit_lock(lock_key, lock_owner_token)
+
+
+def _needs_list_high_risk_rate_limited_response(retry_after: int) -> Response:
+    response = Response({"detail": "Rate limit exceeded."}, status=429)
+    response["Retry-After"] = str(retry_after)
+    return response
+
+
+def _high_risk_transition_rate_limit_response(
+    request,
+    *,
+    actor_user_id: str,
+    scope: str,
+) -> Response | None:
+    tenant_context = _tenant_context(request)
+    tenant_id = (
+        getattr(tenant_context, "active_tenant_id", None)
+        or getattr(tenant_context, "requested_tenant_id", None)
+    )
+    allowed, retry_after = _claim_needs_list_high_risk_slot(
+        request,
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        scope=scope,
+    )
+    if allowed:
+        return None
+    return _needs_list_high_risk_rate_limited_response(retry_after)
 
 
 def _queue_export_job_log_extra(
@@ -4055,13 +4290,22 @@ def assign_storage_location(request):
     assert inventory_id is not None
     assert location_id is not None
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="assign_storage_location",
+    )
+    if rate_limited is not None:
+        return rate_limited
+
     try:
         result = location_storage.assign_storage_location(
             item_id=item_id,
             inventory_id=inventory_id,
             location_id=location_id,
             batch_id=batch_id,
-            actor_id=_actor_id(request),
+            actor_id=actor_user_id,
         )
     except location_storage.LocationAssignmentError as exc:
         return Response({"errors": {exc.code: exc.message}}, status=exc.status_code)
@@ -4198,6 +4442,15 @@ def inventory_repackaging(request):
     if scope_error:
         return scope_error
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="inventory_repackaging_create",
+    )
+    if rate_limited is not None:
+        return rate_limited
+
     try:
         record, warnings = repackaging_service.create_repackaging_transaction(
             warehouse_id=warehouse_id,
@@ -4211,7 +4464,7 @@ def inventory_repackaging(request):
             batch_or_lot=str(body.get("batch_or_lot") or "").strip(),
             client_target_qty=body.get("target_qty"),
             client_equivalent_default_qty=body.get("equivalent_default_qty"),
-            actor_id=_actor_id(request),
+            actor_id=actor_user_id,
         )
     except RepackagingError as exc:
         response_payload: Dict[str, Any] = {
@@ -4987,6 +5240,18 @@ def needs_list_approve(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_approve",
+    )
+    if cached_response is not None:
+        return cached_response
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -5034,11 +5299,25 @@ def needs_list_approve(request, needs_list_id: str):
     if not role_set.intersection(required_roles):
         return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 
-    record = workflow_store.transition_status(record, "APPROVED", actor)
-    record["approval_tier"] = approval.get("tier")
-    record["approval_rationale"] = approval_rationale
-    record["submitted_approval_summary"] = approval_summary
-    workflow_store.update_record(needs_list_id, record)
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_approve",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(record, "APPROVED", actor)
+            record["approval_tier"] = approval.get("tier")
+            record["approval_rationale"] = approval_rationale
+            record["submitted_approval_summary"] = approval_summary
+            workflow_store.update_record(needs_list_id, record)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_approved",
@@ -5058,7 +5337,15 @@ def needs_list_approve(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        request_fingerprint=request_fingerprint,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5214,6 +5501,13 @@ def needs_list_start_preparation(request, needs_list_id: str):
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
 
     actor_user_id = _actor_id(request) or "SYSTEM"
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_start_preparation",
+    )
+    if rate_limited is not None:
+        return rate_limited
     target_status = _workflow_target_status("IN_PREPARATION")
     with transaction.atomic():
         record = workflow_store.transition_status(
@@ -5295,6 +5589,14 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_dispatched",
+    )
+    if rate_limited is not None:
+        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -5369,6 +5671,7 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     _cache_idempotent_response_after_commit(
         cache_key,
         response_payload,
+        request_fingerprint=request_fingerprint,
         reservation_key=reservation_key,
         reservation_token=reservation_token,
     )
@@ -5419,6 +5722,14 @@ def needs_list_mark_received(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_received",
+    )
+    if rate_limited is not None:
+        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -5467,6 +5778,7 @@ def needs_list_mark_received(request, needs_list_id: str):
     _cache_idempotent_response_after_commit(
         cache_key,
         response_payload,
+        request_fingerprint=request_fingerprint,
         reservation_key=reservation_key,
         reservation_token=reservation_token,
     )
@@ -5502,6 +5814,13 @@ def needs_list_mark_completed(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("COMPLETED")
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_completed",
+    )
+    if rate_limited is not None:
+        return rate_limited
     with transaction.atomic():
         record = workflow_store.transition_status(record, target_status, actor_user_id)
         workflow_store.update_record(needs_list_id, record)
@@ -5745,6 +6064,14 @@ def _allocation_commit_response(
     context = _allocation_context_from_record(record, payload, link=link)
     if selected_method is not None:
         context["selected_method"] = selected_method
+    request_fingerprint = _request_idempotency_fingerprint(request)
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope=endpoint,
+    )
+    if rate_limited is not None:
+        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -5820,6 +6147,7 @@ def _allocation_commit_response(
     _cache_idempotent_response_after_commit(
         cache_key,
         response_payload,
+        request_fingerprint=request_fingerprint,
         reservation_key=reservation_key,
         reservation_token=reservation_token,
     )

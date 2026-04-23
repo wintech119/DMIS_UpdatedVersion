@@ -224,7 +224,8 @@ export class OperationsService {
     if (reason && reason.trim().length > 0) {
       body.reason = reason.trim().slice(0, 500);
     }
-    const key = idempotencyKey ?? this.createIdempotencyKey('package-abandon', reliefpkgId);
+    const suppliedKey = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+    const key = suppliedKey || this.createIdempotencyKey('package-abandon', reliefpkgId);
     return this.http.post<PackageAbandonDraftResponse>(
       `${this.apiUrl}/packages/${reliefpkgId}/abandon-draft`,
       body,

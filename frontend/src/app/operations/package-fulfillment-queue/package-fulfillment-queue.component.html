@@ -119,6 +119,7 @@
           <input
             #searchBox
             type="search"
+            maxlength="200"
             placeholder="Search by tracking number, agency, event, or notes"
             [value]="searchTerm()"
             (input)="onSearch(searchBox.value)"
@@ -271,11 +272,11 @@
                     </span>
                   </div>
                   <button
-                    type="button"
-                    class="pfq-action"
-                    [class]="actionClass(row)"
-                    [attr.aria-label]="nextActionAriaLabel(row)"
-                    (click)="fulfillRequest(row); $event.stopPropagation()">
+                  type="button"
+                  class="pfq-action"
+                  [class]="actionClass(row)"
+                  [attr.aria-label]="nextActionAriaLabel(row)"
+                  (click)="fulfillRequest(row)">
                     <span>{{ nextAction(row).label }}</span>
                   </button>
                 </div>

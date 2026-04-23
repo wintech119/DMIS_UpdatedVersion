@@ -1619,7 +1619,15 @@ def commit_allocation(
     if override_markers is None:
         candidate_by_item: dict[int, list[dict[str, Any]]] = {}
         for item_id in needs_items:
-            item = Item.objects.filter(item_id=item_id).first() or {"issuance_order": "FIFO"}
+            item = Item.objects.filter(item_id=item_id).first()
+            if item is None:
+                raise AllocationDispatchError(
+                    (
+                        "Allocation item metadata is missing for "
+                        f"item {item_id} at warehouse {needs_list.warehouse_id}."
+                    ),
+                    code="allocation_item_metadata_missing",
+                )
             candidate_by_item[item_id] = sort_batch_candidates(
                 item,
                 _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
@@ -1664,14 +1672,6 @@ def commit_allocation(
             raise OverrideApprovalError(
                 "Override note is required for allocations awaiting approval.",
                 code="override_details_missing",
-            )
-    if override_required:
-        if not allow_pending_override:
-            validate_override_approval(
-                approver_user_id=supervisor_user_id,
-                approver_role_codes=supervisor_role_codes,
-                submitter_user_id=ctx.submitted_by or actor_user_id,
-                needs_list_submitted_by=needs_list.submitted_by,
             )
 
     request, package = _ensure_legacy_request_package(

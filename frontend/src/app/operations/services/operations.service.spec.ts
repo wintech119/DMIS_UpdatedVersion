@@ -535,6 +535,15 @@ describe('OperationsService', () => {
     request.flush({ status: 'ABANDONED', reliefpkg_id: 44, reliefrqst_id: 12 });
   });
 
+  it('falls back to a generated idempotency key when the caller-supplied abandon key is blank', () => {
+    service.abandonDraft(44, 'Reset this fulfillment', '   ').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/abandon-draft');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^package-abandon-44-/);
+    request.flush({ status: 'ABANDONED', reliefpkg_id: 44, reliefrqst_id: 12 });
+  });
+
   it('normalizes consolidation leg status codes before deriving the fallback label', () => {
     let result: unknown;
 

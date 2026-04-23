@@ -2,15 +2,18 @@ import {
   Component,
   ChangeDetectionStrategy,
   computed,
+  DestroyRef,
   inject,
   signal,
   OnInit,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { interval } from 'rxjs';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
@@ -46,7 +49,7 @@ export type TimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
 const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
-const FULFILLMENT_FILTERS = new Set<FulfillmentFilter>([
+const FULFILLMENT_FILTERS = new Set<string>([
   'all',
   'awaiting',
   'drafts',
@@ -95,8 +98,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly seenStorageScope = 'package-fulfillment';
   private readonly warnedOutOfContractRequestIds = new Set<number>();
+  private readonly nowTick = signal(Date.now());
 
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
@@ -369,6 +374,9 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly getUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.nowTick.set(Date.now()));
     this.loadSeenFilters();
     this.refreshQueue();
   }
@@ -436,10 +444,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   onMetricClick(item: OpsMetricStripItem): void {
     const token = String(item.token ?? '');
-    if (!FULFILLMENT_FILTERS.has(token as FulfillmentFilter)) {
+    if (!this.isFulfillmentFilter(token)) {
       return;
     }
-    this.setFilter(token as FulfillmentFilter);
+    this.setFilter(token);
   }
 
   onInboxClick(pill: ActionInboxPill): void {
@@ -450,18 +458,18 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
-  nextAction(row: PackageQueueItem): { label: string; icon: string } {
+  nextAction(row: PackageQueueItem): { label: string } {
     const stage = this.getFulfillmentStage(row);
     switch (stage) {
       case 'drafts':
-        return { label: 'Resume draft', icon: 'edit_note' };
+        return { label: 'Resume draft' };
       case 'preparing':
-        return { label: 'Continue packing', icon: 'inventory_2' };
+        return { label: 'Continue packing' };
       case 'ready':
-        return { label: 'Hand off to dispatch', icon: 'local_shipping' };
+        return { label: 'Hand off to dispatch' };
       case 'awaiting':
       default:
-        return { label: 'Allocate stock', icon: 'play_arrow' };
+        return { label: 'Allocate stock' };
     }
   }
 
@@ -472,6 +480,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   timeInStageHours(row: PackageQueueItem): number | null {
+    const now = this.nowTick();
     const value = row.create_dtime ?? row.request_date;
     if (!value) {
       return null;
@@ -480,7 +489,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     if (Number.isNaN(then)) {
       return null;
     }
-    return Math.max(0, (Date.now() - then) / (60 * 60 * 1000));
+    return Math.max(0, (now - then) / (60 * 60 * 1000));
   }
 
   timeInStageTone(row: PackageQueueItem): TimeInStageTone {
@@ -580,6 +589,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   private ageInDays(value: string | null | undefined): number | null {
+    const now = this.nowTick();
     if (!value) {
       return null;
     }
@@ -587,7 +597,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     if (Number.isNaN(then)) {
       return null;
     }
-    const diffMs = Date.now() - then;
+    const diffMs = now - then;
     return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
   }
 
@@ -619,6 +629,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     }
     const parsed = new Date(value).getTime();
     return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private isFulfillmentFilter(token: string): token is FulfillmentFilter {
+    return FULFILLMENT_FILTERS.has(token);
   }
 
   hasUnread(filter: FulfillmentFilter): boolean {

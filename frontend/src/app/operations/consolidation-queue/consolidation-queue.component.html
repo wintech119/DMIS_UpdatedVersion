@@ -70,6 +70,7 @@
           <input
             #searchBox
             type="search"
+            maxlength="500"
             placeholder="Search by tracking number, agency, event, or hub"
             [value]="searchTerm()"
             (input)="onSearch(searchBox.value)"

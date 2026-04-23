@@ -1134,7 +1134,7 @@ class AllocationDispatchApiTests(TestCase):
                 ]
             },
             format="json",
-            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11-required-fields",
         )
 
         self.assertEqual(response.status_code, 400)
@@ -1183,7 +1183,7 @@ class AllocationDispatchApiTests(TestCase):
                 ],
             },
             format="json",
-            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11-odpem-block",
         )
 
         self.assertEqual(response.status_code, 409)

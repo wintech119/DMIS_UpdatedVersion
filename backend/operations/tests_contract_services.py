@@ -1393,6 +1393,34 @@ class OperationsWorkflowContractTests(TestCase):
 
         approve_override_mock.assert_not_called()
 
+    @patch("operations.contract_services.can_access_warehouse", return_value=False)
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.approve_override")
+    def test_approve_override_rejects_allocations_outside_tenant_scope(
+        self,
+        approve_override_mock,
+        load_request_mock,
+        can_access_warehouse_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.approve_override(
+                70,
+                payload={
+                    "allocations": [{"item_id": 101, "inventory_id": 9, "batch_id": 1001, "quantity": "2"}],
+                    "override_reason_code": "FEFO_BYPASS",
+                    "override_note": "Supervisor approved.",
+                },
+                actor_id="manager-1",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="override-approve-scope-70",
+            )
+
+        self.assertEqual(raised.exception.errors["warehouse"]["code"], "permission_denied")
+        can_access_warehouse_mock.assert_called_once_with(self.dispatch_ready_context, 9, write=True)
+        load_request_mock.assert_not_called()
+        approve_override_mock.assert_not_called()
+
     @patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27)
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -6086,6 +6114,41 @@ class OperationsWorkflowContractTests(TestCase):
                 line.quantity,
             ),
         )
+
+    @patch("operations.contract_services.can_access_warehouse", return_value=False)
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_package_draft_save_rejects_allocations_outside_tenant_scope(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+        can_access_warehouse_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.save_package(
+                70,
+                payload={
+                    "draft_save": True,
+                    "allocations": [
+                        {"item_id": 101, "inventory_id": 9, "batch_id": 1001, "quantity": "2.0000"},
+                    ],
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(raised.exception.errors["warehouse"]["code"], "permission_denied")
+        can_access_warehouse_mock.assert_called_once_with(self.dispatch_ready_context, 9, write=True)
+        save_package_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")

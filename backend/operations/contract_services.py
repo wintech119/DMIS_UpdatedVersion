@@ -4354,11 +4354,13 @@ def _ensure_allocation_warehouse_access(
 ) -> None:
     if tenant_context is None:
         return
-    warehouse_ids = {
-        int(allocation["inventory_id"])
-        for allocation in allocations
-        if allocation.get("inventory_id") not in (None, "")
-    }
+    warehouse_ids: set[int] = set()
+    for allocation in allocations:
+        warehouse_id = allocation.get("inventory_id")
+        if warehouse_id in (None, ""):
+            warehouse_id = allocation.get("source_warehouse_id")
+        if warehouse_id not in (None, ""):
+            warehouse_ids.add(int(warehouse_id))
     if requested_destination_id is not None:
         warehouse_ids.add(int(requested_destination_id))
     denied_ids: list[int] = []
@@ -6607,7 +6609,14 @@ def save_package(
         if idempotency.cached_result is not None:
             return idempotency.cached_result
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
+    requested_destination_id = _optional_positive_int_payload_value(payload, "to_inventory_id")
     validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
+    if validated_allocations is not None:
+        _ensure_allocation_warehouse_access(
+            allocations=validated_allocations,
+            requested_destination_id=None if requested_destination_id is _UNSET else requested_destination_id,
+            tenant_context=tenant_context,
+        )
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
@@ -6944,6 +6953,13 @@ def approve_override(
     )
     if approval_comment and len(approval_comment) > 500:
         raise OperationValidationError({"comment": "Comment must be 500 characters or fewer."})
+    allocations = _normalized_allocations(payload)
+    requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
+    _ensure_allocation_warehouse_access(
+        allocations=allocations,
+        requested_destination_id=requested_destination_id,
+        tenant_context=tenant_context,
+    )
     request = legacy_service._load_request(reliefrqst_id)
     request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)

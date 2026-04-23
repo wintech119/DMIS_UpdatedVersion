@@ -12,6 +12,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
@@ -58,6 +59,7 @@ type ConsolidationFilter = ConsolidationStage | 'all';
 })
 export class ConsolidationQueueComponent implements OnInit {
   private readonly auth = inject(AuthRbacService);
+  private readonly notifications = inject(DmisNotificationService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
 
@@ -396,8 +398,11 @@ export class ConsolidationQueueComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.items.set([]);
         this.loading.set(false);
+        this.notifications.showNetworkError(
+          'We could not refresh the consolidation queue.',
+          () => this.loadQueue(),
+        );
       },
     });
   }

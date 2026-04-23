@@ -1215,6 +1215,73 @@ class GlobalPhaseWindowPolicyTests(SimpleTestCase):
             {"demand_hours": 12, "planning_hours": 36},
         )
 
+    def test_set_global_phase_windows_rejects_unchanged_default_values_without_existing_row(self) -> None:
+        cursor = MagicMock()
+        with patch(
+            "replenishment.services.phase_window_policy._tenant_row_by_id",
+            return_value={"tenant_id": 27, "tenant_code": "OFFICE-OF-DISASTER-P", "tenant_name": "ODPEM"},
+        ), patch(
+            "replenishment.services.phase_window_policy._is_authoritative_phase_window_tenant",
+            return_value=True,
+        ), patch(
+            "replenishment.services.phase_window_policy._fetch_effective_global_phase_window_config",
+            return_value=None,
+        ), patch(
+            "replenishment.services.phase_window_policy.connection.cursor",
+        ) as cursor_mock:
+            cursor_mock.return_value.__enter__.return_value = cursor
+            with self.assertRaises(phase_window_policy.PhaseWindowPolicyError) as raised:
+                phase_window_policy.set_global_phase_windows(
+                    phase="SURGE",
+                    demand_hours=6,
+                    planning_hours=24,
+                    justification="Align to Product Backlog v3.2",
+                    actor="phase-admin",
+                    tenant_id=27,
+                )
+
+        self.assertEqual(str(raised.exception), "No phase-window change detected.")
+
+    def test_set_global_phase_windows_persists_uppercase_json_config_type(self) -> None:
+        cursor = MagicMock()
+        existing = phase_window_policy.GlobalPhaseWindowConfigRecord(
+            config_id=91,
+            tenant_id=27,
+            tenant_code="OFFICE-OF-DISASTER-P",
+            tenant_name="ODPEM",
+            effective_date="2026-04-18",
+            update_dtime="2026-04-18T12:00:00Z",
+            value={"phase": "SURGE", "demand_hours": 6, "planning_hours": 24},
+        )
+        with patch(
+            "replenishment.services.phase_window_policy._tenant_row_by_id",
+            return_value={"tenant_id": 27, "tenant_code": "OFFICE-OF-DISASTER-P", "tenant_name": "ODPEM"},
+        ), patch(
+            "replenishment.services.phase_window_policy._is_authoritative_phase_window_tenant",
+            return_value=True,
+        ), patch(
+            "replenishment.services.phase_window_policy._fetch_effective_global_phase_window_config",
+            return_value=existing,
+        ), patch(
+            "replenishment.services.phase_window_policy.get_effective_phase_windows",
+            return_value={"phase": "SURGE", "scope": "global"},
+        ), patch(
+            "replenishment.services.phase_window_policy.connection.cursor",
+        ) as cursor_mock:
+            cursor_mock.return_value.__enter__.return_value = cursor
+
+            phase_window_policy.set_global_phase_windows(
+                phase="SURGE",
+                demand_hours=12,
+                planning_hours=36,
+                justification="Align to Product Backlog v3.2",
+                actor="phase-admin",
+                tenant_id=27,
+            )
+
+        insert_params = cursor.execute.call_args_list[-1].args[1]
+        self.assertEqual(insert_params[3], "JSON")
+
 
 @override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class GlobalPhaseWindowViewTests(SimpleTestCase):
@@ -2539,7 +2606,7 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         mock_create_transfers.assert_called_once()
         resolve_odpem_tenant_id_mock.assert_called_once()
-        resolve_warehouse_tenant_id_mock.assert_called_once()
+        resolve_warehouse_tenant_id_mock.assert_called_once_with(record["warehouse_id"])
 
     @override_settings(
         AUTH_ENABLED=False,

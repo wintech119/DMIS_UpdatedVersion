@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -29,8 +30,8 @@ def _tenant_context(request):
     return resolve_tenant_context(request, request.user, permissions)
 
 
-def _manage_scope_error(request) -> Response | None:
-    context = _tenant_context(request)
+def _manage_scope_error(request, *, context=None) -> Response | None:
+    context = context or _tenant_context(request)
     if can_manage_phase_window_config(context):
         return None
     return Response(
@@ -59,8 +60,9 @@ def _has_phase_window_admin_permission(request) -> bool:
 
 def _phase_window_error_status(exc: Exception) -> int:
     message = str(exc or "").lower()
-    backend_markers = ("database", "db", "storage", "connection", "timeout", "backend", "persist")
-    return 500 if any(marker in message for marker in backend_markers) else 400
+    backend_markers = ("database", "storage", "connection", "timeout", "backend", "persist")
+    has_backend_marker = any(marker in message for marker in backend_markers)
+    return 500 if has_backend_marker or re.search(r"\bdb\b", message) else 400
 
 
 @api_view(["GET"])
@@ -92,7 +94,8 @@ def event_phase_window_list(request, event_id: int):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def event_phase_window_detail(request, event_id: int, phase: str):
-    scope_error = _manage_scope_error(request)
+    context = _tenant_context(request)
+    scope_error = _manage_scope_error(request, context=context)
     if scope_error:
         return scope_error
 
@@ -127,13 +130,25 @@ def event_phase_window_detail(request, event_id: int, phase: str):
         )
 
     try:
+        if context.active_tenant_id is None:
+            return Response(
+                {
+                    "errors": {
+                        "tenant_scope": (
+                            "Only direct ODPEM national tenant users may configure "
+                            "global phase windows."
+                        )
+                    }
+                },
+                status=403,
+            )
         updated = phase_window_policy.set_global_phase_windows(
             phase=phase,
             demand_hours=demand_hours,
             planning_hours=planning_hours,
             justification=justification,
             actor=_actor_id(request),
-            tenant_id=int(_tenant_context(request).active_tenant_id or 0),
+            tenant_id=int(context.active_tenant_id),
         )
     except PhaseWindowPolicyError as exc:
         return Response(

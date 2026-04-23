@@ -1,5 +1,7 @@
 # Lessons
 
+- When a review pass mixes backend control gaps with a frontend no-visual constraint, verify the live tree first and keep frontend fixes to behavior, validation, accessibility, and lint-safe syntax unless the user explicitly authorizes visual changes.
+
 - When a dashboard preset or search label changes, verify the underlying sort/filter contract directly and add regression tests that prove the label matches the behavior users see.
 - When a review comment flags sensitive identifiers stored in both columns and JSON artifacts, fix both storage paths together and add a data migration so old rows do not keep the plaintext value.
 - For staged dispatch flows, keep dispatch persistence aligned with `effective_dispatch_source_warehouse_id` rather than assuming `source_warehouse_id` is already normalized.

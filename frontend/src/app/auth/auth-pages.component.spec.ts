@@ -195,6 +195,65 @@ describe('Auth pages', () => {
     httpMock.verify();
   });
 
+  it('surfaces the harness state message when refresh completes without authenticating', async () => {
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    const state = signal({
+      status: 'unauthenticated' as const,
+      message: 'Local harness session unavailable.',
+      configured: true,
+      oidcEnabled: false,
+    });
+    const authSession = {
+      loginAvailable: signal(false),
+      authenticated: signal(false),
+      state,
+      startLogin: jasmine.createSpy('startLogin'),
+      refreshPrincipal: jasmine.createSpy('refreshPrincipal').and.callFake(() => {
+        state.set({
+          ...state(),
+          message: 'Backend unavailable',
+        });
+        return of(void 0);
+      }),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/v1/auth/local-harness/').flush({
+      enabled: true,
+      default_user: 'local_system_admin_tst',
+      users: [],
+    });
+    fixture.detectChanges();
+
+    const continueButton = fixture.nativeElement.querySelector('.auth-primary') as HTMLButtonElement;
+    continueButton.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(authSession.refreshPrincipal).toHaveBeenCalled();
+    expect(fixture.componentInstance.localHarnessWorking()).toBeFalse();
+    expect(fixture.componentInstance.localHarnessError()).toBe('Backend unavailable');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Backend unavailable');
+    httpMock.verify();
+  });
+
   it('renders the sign-in button and forwards the sanitized returnUrl when login is available', async () => {
     const authSession = {
       loginAvailable: signal(true),

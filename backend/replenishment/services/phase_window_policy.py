@@ -438,7 +438,7 @@ def set_global_phase_windows(
         "demand_hours": int(demand),
         "planning_hours": int(planning),
     }
-    if existing is not None and prior_values == new_values:
+    if prior_values == new_values:
         raise PhaseWindowPolicyError("No phase-window change detected.")
 
     payload = {
@@ -490,7 +490,7 @@ def set_global_phase_windows(
                     int(tenant["tenant_id"]),
                     config_key,
                     serialized,
-                    "json",
+                    "JSON",
                     today,
                     _PHASE_WINDOW_DESCRIPTION,
                     actor_ref,
