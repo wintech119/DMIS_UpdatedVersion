@@ -55,6 +55,9 @@
           <h2 class="ops-section__title">Live request list</h2>
           <p class="ops-section__copy">Search and filter the current operational demand.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredRequests().length }} request{{ filteredRequests().length === 1 ? '' : 's' }}
+        </span>
         <button mat-stroked-button type="button" (click)="newRequest()">
           <mat-icon>edit_note</mat-icon>
           Create Request

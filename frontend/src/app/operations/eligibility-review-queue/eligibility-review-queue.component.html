@@ -47,6 +47,9 @@
           <h2 class="ops-section__title">Awaiting action</h2>
           <p class="ops-section__copy">Filter by urgency and open a request to record an eligibility decision.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredRequests().length }} request{{ filteredRequests().length === 1 ? '' : 's' }}
+        </span>
       </div>
 
       <div class="ops-panel__body">

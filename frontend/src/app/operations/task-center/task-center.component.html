@@ -40,43 +40,44 @@
   <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
-    <section class="ops-panel">
+    <section class="ops-panel ops-panel--queue">
       <div class="ops-panel__header">
         <div>
           <p class="ops-section__eyebrow">Queue</p>
           <h2 class="ops-section__title">Action items</h2>
           <p class="ops-section__copy">Filter by status and open a live assignment or notification to navigate to the related workflow.</p>
         </div>
+        <span class="ops-panel__meta">
+          {{ filteredTasks().length }} task{{ filteredTasks().length === 1 ? '' : 's' }}
+        </span>
       </div>
 
       <div class="ops-panel__body">
-        <div class="ops-toolbar">
-          <label class="ops-toolbar__search" aria-label="Search tasks">
-            <mat-icon aria-hidden="true">search</mat-icon>
-            <input
-              #searchBox
-              type="search"
-              placeholder="Search by title or description"
-              [value]="searchTerm()"
-              (input)="onSearch(searchBox.value)"
-            />
-          </label>
+        <label class="ops-queue-search" aria-label="Search tasks">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input
+            #searchBox
+            type="search"
+            placeholder="Search by title or description"
+            [value]="searchTerm()"
+            (input)="onSearch(searchBox.value)"
+          />
+        </label>
 
-          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter task queue">
-            @for (filter of filterOptions; track filter.value) {
-              <button
-                class="ops-chip"
-                [class.ops-chip--active]="activeFilter() === filter.value"
-                type="button"
-                role="radio"
-                [attr.aria-checked]="activeFilter() === filter.value"
-                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
-                (click)="setFilter(filter.value)"
-                (keydown)="onFilterKeydown($event, $index)">
-                {{ filter.label }}
-              </button>
-            }
-          </div>
+        <div class="ops-queue-filters" role="radiogroup" aria-label="Filter task queue">
+          @for (filter of filterOptions; track filter.value) {
+            <button
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value"
+              type="button"
+              role="radio"
+              [attr.aria-checked]="activeFilter() === filter.value"
+              [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+              (click)="setFilter(filter.value)"
+              (keydown)="onFilterKeydown($event, $index)">
+              <span>{{ filter.label }}</span>
+            </button>
+          }
         </div>
 
         @if (loading()) {

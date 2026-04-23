@@ -515,6 +515,108 @@
   gap: 0.4rem;
 }
 
+// ── PFQ-parity panel heading + meta + chips ───────────────────────────
+// Tightens `.ops-panel--queue` typography and restyles the filter chips
+// to match Package Fulfillment Queue (`.pfq-panel__*` + `.pfq-chip`)
+// so every ops queue page renders the same heading rhythm, right-side
+// count slot, and Title Case chip palette.
+.ops-panel--queue .ops-panel__header > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ops-panel--queue .ops-section__title {
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+}
+
+.ops-panel--queue .ops-section__copy {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+// Right-side count meta shared with `.ops-table-shell__meta` (used by
+// consolidation + dispatch panels). Mirrors `.pfq-panel__meta`.
+.ops-panel__meta,
+.ops-table-shell__meta {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// Chip overrides scoped to the queue filter row — PFQ chips are Title
+// Case, tighter, always-bordered, with a soft grey count pill. The
+// shared `.ops-chip` base stays UPPERCASE for row status chips and
+// other contexts; we only repaint the queue toolbar chips here.
+.ops-queue-filters .ops-chip {
+  padding: 0.4rem 0.75rem;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0;
+  text-transform: none;
+  border-color: rgba(55, 53, 47, 0.12);
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+}
+
+.ops-queue-filters .ops-chip:hover,
+.ops-queue-filters .ops-chip:focus-visible {
+  background: #f5f1e8;
+  color: var(--color-text-primary);
+}
+
+.ops-queue-filters .ops-chip.ops-chip--active,
+.ops-queue-filters .ops-chip.ops-chip--active:hover,
+.ops-queue-filters .ops-chip.ops-chip--active:focus-visible {
+  background: var(--color-text-primary);
+  color: #ffffff;
+  border-color: var(--color-text-primary);
+}
+
+// Unread filter chips keep the uniform pill shell — the red count pill
+// is the only unread signal. Override the base `.ops-chip--unread`
+// blue background that other contexts still use.
+.ops-queue-filters .ops-chip.ops-chip--unread {
+  background: var(--color-surface-container-lowest);
+  color: var(--color-text-primary);
+  border-color: rgba(55, 53, 47, 0.12);
+  box-shadow: none;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--unread:hover,
+.ops-queue-filters .ops-chip.ops-chip--unread:focus-visible {
+  background: #f5f1e8;
+  color: var(--color-text-primary);
+}
+
+// Count pill: soft grey by default, red when the chip is marked unread,
+// translucent white when the chip is active.
+.ops-queue-filters .ops-chip .ops-chip__count {
+  min-width: 1.4rem;
+  height: auto;
+  padding: 0 0.4rem;
+  background: rgba(55, 53, 47, 0.08);
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4rem;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--unread .ops-chip__count {
+  background: #b42318;
+  color: #ffffff;
+}
+
+.ops-queue-filters .ops-chip.ops-chip--active .ops-chip__count {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+
 .ops-toolbar {
   display: flex;
   flex-wrap: wrap;
