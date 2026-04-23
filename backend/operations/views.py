@@ -315,13 +315,17 @@ def _positive_int_query_param_list(raw_values: object, field_name: str) -> list[
         raise OperationValidationError(
             {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
         )
+    return _normalize_positive_int_list_core(raw_values, field_name)
+
+
+def _normalize_positive_int_list_core(values: list[object], field_name: str) -> list[int]:
     normalized: list[int] = []
     seen: set[int] = set()
-    for index, raw_value in enumerate(raw_values):
+    for index, raw_value in enumerate(values):
         errors: dict[str, str] = {}
         parsed = _parse_positive_int(raw_value, f"{field_name}[{index}]", errors)
         if errors or parsed is None:
-            raise OperationValidationError(errors)
+            raise OperationValidationError(errors or {field_name: "Invalid value."})
         if parsed in seen:
             continue
         seen.add(parsed)
@@ -425,18 +429,7 @@ def _validated_positive_int_payload_list(raw_value: object, field_name: str) -> 
         raise OperationValidationError(
             {field_name: f"{field_name} must not contain more than {_MAX_ID_LIST_ITEMS} items."}
         )
-    normalized: list[int] = []
-    seen: set[int] = set()
-    for index, raw_entry in enumerate(raw_value):
-        errors: dict[str, str] = {}
-        parsed = _parse_positive_int(raw_entry, f"{field_name}[{index}]", errors)
-        if errors or parsed is None:
-            raise OperationValidationError(errors)
-        if parsed in seen:
-            continue
-        seen.add(parsed)
-        normalized.append(parsed)
-    return normalized
+    return _normalize_positive_int_list_core(raw_value, field_name)
 
 
 def _payload_object(payload: object) -> dict[str, Any]:
@@ -678,6 +671,7 @@ def operations_eligibility_decision(request, reliefrqst_id: int):
                 payload=_payload_object(request.data),
                 actor_id=actor_id,
                 actor_roles=_roles(request),
+                actor_permissions=_permissions(request),
                 tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )
@@ -880,11 +874,9 @@ def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int
             payload.get("additional_warehouse_ids", []),
             "additional_warehouse_ids",
         )
-        normalized_payload = {
-            **payload,
-            "draft_allocations": draft_allocations,
-            "additional_warehouse_ids": additional_warehouse_ids,
-        }
+        normalized_payload = {key: value for key, value in payload.items() if key != "source_warehouse_id"}
+        normalized_payload["draft_allocations"] = draft_allocations
+        normalized_payload["additional_warehouse_ids"] = additional_warehouse_ids
         if source_warehouse_id is not None:
             normalized_payload["source_warehouse_id"] = source_warehouse_id
         return Response(
@@ -979,6 +971,7 @@ def operations_package_override_approve(request, reliefrqst_id: int):
                 payload=_payload_object(request.data),
                 actor_id=actor_id,
                 actor_roles=_roles(request),
+                actor_permissions=_permissions(request),
                 tenant_context=tenant_context,
                 idempotency_key=idempotency_key,
             )

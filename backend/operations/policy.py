@@ -88,6 +88,7 @@ def resolve_odpem_tenant_id() -> int | None:
         except (TypeError, ValueError):
             return None
     try:
+        # Isolate tolerated legacy lookup failures so a surrounding transaction remains usable.
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -242,6 +243,7 @@ def _tenant_allows_relief_request_on_behalf(
         return bool(target_policy.allow_odpem_bridge_flag)
 
     try:
+        # Isolate tolerated optional policy-table failures from caller transactions.
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -266,6 +268,7 @@ def _tenant_allows_relief_request_on_behalf(
         return bool(row[0]) or bool(row[1])
 
     try:
+        # Isolate tolerated optional config-table failures from caller transactions.
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -326,6 +329,7 @@ def _agency_scope_error(
 
 def get_agency_scope(agency_id: int) -> AgencyScope | None:
     try:
+        # Isolate tolerated legacy lookup failures so caller transactions are not poisoned.
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(

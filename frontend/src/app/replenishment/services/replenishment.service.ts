@@ -152,6 +152,12 @@ export interface StorageAssignmentOptionsResponse {
   batches: StorageAssignmentOption[];
 }
 
+type ReplenishmentIdempotencyScope =
+  | 'needs-list-dispatch'
+  | 'needs-list-receive'
+  | 'allocation-commit'
+  | 'allocation-override-approve';
+
 @Injectable({
   providedIn: 'root'
 })
@@ -427,14 +433,16 @@ export class ReplenishmentService {
   ): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-dispatched`,
-      payload
+      payload,
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('needs-list-dispatch', needsListId) } }
     );
   }
 
   markReceived(needsListId: string): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-received`,
-      {}
+      {},
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('needs-list-receive', needsListId) } }
     );
   }
 
@@ -484,7 +492,8 @@ export class ReplenishmentService {
   ): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/commit`,
-      payload
+      payload,
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('allocation-commit', needsListId) } }
     );
   }
 
@@ -494,8 +503,15 @@ export class ReplenishmentService {
   ): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/override-approve`,
-      payload
+      payload,
+      { headers: { 'Idempotency-Key': this.createIdempotencyKey('allocation-override-approve', needsListId) } }
     );
+  }
+
+  createIdempotencyKey(scope: ReplenishmentIdempotencyScope, resourceId: number | string): string {
+    const randomId = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${scope}-${resourceId}-${randomId}`;
   }
 
   getWaybill(

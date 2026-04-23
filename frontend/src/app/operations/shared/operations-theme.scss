@@ -119,8 +119,6 @@
 // `operations-shell.scss` via `::before` — we only need to supply the
 // `--ops-queue-accent` per tone below.
 .ops-flow-strip__card {
-  // Tokens mirror `.ops-queue-tile` so this card picks up the same
-  // left-edge bar treatment without composing the classes in HTML.
   --ops-queue-accent: rgba(55, 53, 47, 0.18);
   --ops-queue-accent-width: 6px;
   --ops-queue-surface: var(--ops-strip-bg);

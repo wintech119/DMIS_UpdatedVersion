@@ -893,6 +893,7 @@ def _log_audit(
     new_value: Any = None,
     reason_code: str | None = None,
     notes_text: str | None = None,
+    request_id: str | None = None,
 ) -> None:
     from replenishment.models import NeedsListAudit
 
@@ -905,6 +906,7 @@ def _log_audit(
         new_value=None if new_value is None else str(new_value),
         reason_code=reason_code,
         notes_text=notes_text,
+        request_id=request_id,
         actor_user_id=str(actor_user_id),
     )
 
@@ -1593,42 +1595,11 @@ def commit_allocation(
     allow_pending_override: bool = True,
     override_markers: Sequence[str] | None = None,
     manager_direct_commit: bool = False,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     ctx = _normalize_context(context)
     needs_list = _load_needs_list(ctx.needs_list_id)
     needs_items_list = _load_needs_list_items(needs_list.needs_list_id)
-    request, package = _ensure_legacy_request_package(
-        ctx,
-        needs_list=needs_list,
-        needs_list_items=needs_items_list,
-        actor_user_id=actor_user_id,
-    )
-    if int(package.reliefrqst_id) != int(request.reliefrqst_id):
-        raise AllocationDispatchError(
-            "Package does not belong to the supplied relief request.",
-            code="request_package_mismatch",
-        )
-    current_package_status = _current_package_status(package)
-    if current_package_status in {"D", "R"}:
-        raise DispatchError(
-            f"Committed package cannot be modified from status '{current_package_status}'.",
-            code="package_already_dispatched",
-        )
-
-    if expected_request_version_nbr is not None and int(request.version_nbr) != int(
-        expected_request_version_nbr
-    ):
-        raise OptimisticLockError(
-            "Relief request changed before allocation commit.",
-            code="request_version_mismatch",
-        )
-    if expected_package_version_nbr is not None and int(package.version_nbr) != int(
-        expected_package_version_nbr
-    ):
-        raise OptimisticLockError(
-            "Relief package changed before allocation commit.",
-            code="package_version_mismatch",
-        )
 
     selected_rows = _group_plan_rows(selections)
     if not selected_rows:
@@ -1703,6 +1674,39 @@ def commit_allocation(
                 needs_list_submitted_by=needs_list.submitted_by,
             )
 
+    request, package = _ensure_legacy_request_package(
+        ctx,
+        needs_list=needs_list,
+        needs_list_items=needs_items_list,
+        actor_user_id=actor_user_id,
+    )
+    if int(package.reliefrqst_id) != int(request.reliefrqst_id):
+        raise AllocationDispatchError(
+            "Package does not belong to the supplied relief request.",
+            code="request_package_mismatch",
+        )
+    current_package_status = _current_package_status(package)
+    if current_package_status in {"D", "R"}:
+        raise DispatchError(
+            f"Committed package cannot be modified from status '{current_package_status}'.",
+            code="package_already_dispatched",
+        )
+
+    if expected_request_version_nbr is not None and int(request.version_nbr) != int(
+        expected_request_version_nbr
+    ):
+        raise OptimisticLockError(
+            "Relief request changed before allocation commit.",
+            code="request_version_mismatch",
+        )
+    if expected_package_version_nbr is not None and int(package.version_nbr) != int(
+        expected_package_version_nbr
+    ):
+        raise OptimisticLockError(
+            "Relief package changed before allocation commit.",
+            code="package_version_mismatch",
+        )
+
     current_reserved = current_package_status in {
         "P",
         "C",
@@ -1756,6 +1760,7 @@ def commit_allocation(
         action_type=audit_action,
         reason_code=override_reason_code if override_markers else "allocation_commit",
         notes_text=override_note,
+        request_id=idempotency_key,
     )
 
     return {
@@ -1796,6 +1801,7 @@ def approve_override(
     submitter_user_id: str | None = None,
     expected_request_version_nbr: int | None = None,
     expected_package_version_nbr: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     ctx = _normalize_context(context)
     needs_list = _load_needs_list(ctx.needs_list_id)
@@ -1816,6 +1822,7 @@ def approve_override(
         supervisor_user_id=supervisor_user_id,
         supervisor_role_codes=supervisor_role_codes,
         allow_pending_override=False,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -1924,6 +1931,7 @@ def dispatch_package(
     expected_request_version_nbr: int | None = None,
     expected_package_version_nbr: int | None = None,
     transport_mode: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     from replenishment.legacy_models import ReliefPkg, ReliefRqst, ReliefRqstItem
 
@@ -2059,6 +2067,7 @@ def dispatch_package(
         action_type="DISPATCHED",
         reason_code="dispatch",
         notes_text=waybill_payload["waybill_no"],
+        request_id=idempotency_key,
     )
     return {
         "status": "DISPATCHED",

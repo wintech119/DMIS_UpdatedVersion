@@ -1323,7 +1323,7 @@ class GlobalPhaseWindowViewTests(SimpleTestCase):
                 {
                     "demand_hours": 6,
                     "planning_hours": 24,
-                    "justification": "Backlog alignment",
+                    "justification": "Align to Product Backlog v3.2",
                 }
             ),
             14,
@@ -2483,13 +2483,14 @@ class NeedsListWorkflowApiTests(TestCase):
         DEV_AUTH_PERMISSIONS=[],
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
     )
     @patch("replenishment.views.operations_policy.resolve_odpem_tenant_id", return_value=27)
     @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
     def test_odpem_replenishment_needs_list_can_still_generate_transfer_sourcing(
         self,
-        _resolve_warehouse_tenant_mock,
-        _resolve_odpem_tenant_mock,
+        resolve_warehouse_tenant_id_mock,
+        resolve_odpem_tenant_id_mock,
     ) -> None:
         record = {
             "needs_list_id": "NL-ODPEM-A",
@@ -2537,6 +2538,8 @@ class NeedsListWorkflowApiTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         mock_create_transfers.assert_called_once()
+        resolve_odpem_tenant_id_mock.assert_called_once()
+        resolve_warehouse_tenant_id_mock.assert_called_once()
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -6649,12 +6652,14 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"dispatch-{needs_list_id}",
                 )
                 self.assertEqual(dispatched.status_code, 200)
                 received = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"receive-{needs_list_id}",
                 )
                 self.assertEqual(received.status_code, 200)
                 completed = self.client.post(
@@ -6787,6 +6792,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"premature-receive-{needs_list_id}",
                 )
                 self.assertEqual(premature_received.status_code, 409)
 
@@ -6801,6 +6807,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"dispatch-{needs_list_id}",
                 )
                 self.assertEqual(dispatched.status_code, 200)
                 self.assertIsNotNone(dispatched.json().get("dispatched_at"))
@@ -6809,6 +6816,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"dispatch-again-{needs_list_id}",
                 )
                 self.assertEqual(dispatch_again.status_code, 409)
 
@@ -6816,6 +6824,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"receive-{needs_list_id}",
                 )
                 self.assertEqual(received.status_code, 200)
                 self.assertIsNotNone(received.json().get("received_at"))
@@ -7028,6 +7037,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     f"/api/v1/replenishment/needs-list/{needs_list_id_two}/mark-dispatched",
                     {},
                     format="json",
+                    HTTP_IDEMPOTENCY_KEY=f"dispatch-{needs_list_id_two}",
                 )
                 cancel_denied = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id_two}/cancel",

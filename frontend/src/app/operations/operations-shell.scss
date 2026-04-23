@@ -244,7 +244,6 @@
 // Boxed white hero panel used on every operations queue page. Mirrors
 // `.pfq-hero` so Relief Requests, Eligibility, Consolidation, Dispatch and
 // Task Center render the same hero surface as Package Fulfillment.
-//
 // Tokens: the queue hero primary tone is hoisted into these custom
 // properties so every ops queue page (and the panel/search primitives
 // below) share a single source of truth for the primary/focus color —
@@ -454,13 +453,11 @@
 // ── Queue panel modifier: tightens the gap between the panel title/copy
 // and the search input. Matches PFQ's `.pfq-panel__body { gap: 0.85rem }`
 // rhythm so the search does not float far from the "Queue" heading.
-//
 // The global `styles.css` applies `.ops-panel { padding: 28px }` to every
 // ops panel, so the header + body here reset their own padding to avoid
 // doubling it (which was making RRQ look wider + more spacious than PFQ).
 // Only the body keeps a top padding so the search still breathes below
 // the heading, mirroring PFQ's `.pfq-panel__body { padding-top: 0.85rem }`.
-//
 // `operations-theme.scss` ships `.ops-panel__header { margin: 0 0 18px }`
 // which does not apply to PFQ (PFQ uses the dedicated `.pfq-panel__header`
 // class). Zero the margin here so the queue panel's body sits the same
@@ -1005,7 +1002,7 @@ button.ops-chip.ops-chip--active:focus-visible {
 // the tabular-nums + tight letter-spacing that PFQ uses on .pfq-row__id
 // so alphanumeric identifiers (REQ-9001, PKG-00234) line up across rows.
 .ops-row__id {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -1509,7 +1506,6 @@ button.ops-chip.ops-chip--active:focus-visible {
 // the Supply Replenishment warehouse card: a flat solid bar anchored to
 // the left edge of the card (via ::before + overflow: hidden) telegraphs
 // status/stage without the curvy feel of a plain border-left.
-//
 // Callers set `--ops-queue-accent` (and optionally `--ops-queue-accent-width`
 // or `--ops-queue-surface`) on the tile/row or an ancestor to drive the
 // stage color and the subtle card fill. That keeps the primitive palette-
@@ -1543,7 +1539,6 @@ button.ops-chip.ops-chip--active:focus-visible {
 }
 
 .ops-queue-tile {
-  --ops-queue-accent-width: 6px;
   padding: 0.95rem 1rem 0.95rem 1.25rem;
   box-shadow: 0 6px 14px rgba(26, 28, 28, 0.03);
 }
@@ -1552,8 +1547,10 @@ button.ops-chip.ops-chip--active:focus-visible {
   // Subtle neutral fill so rows differentiate from the white queue panel
   // while staying quiet enough for a long list. Individual queue pages
   // may override `--ops-queue-surface` to pick a warmer/cooler tone.
+
   --ops-queue-accent-width: 5px;
   --ops-queue-surface: #f6f5f1;
+
   padding: 0.85rem 1rem 0.85rem 1.15rem;
 }
 

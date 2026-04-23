@@ -875,6 +875,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             )
 
         self.assertEqual(raised.exception.code, "override_supervisor_missing")
+        mock_ensure_package.assert_not_called()
         upsert_rows_mock.assert_not_called()
         stock_delta_mock.assert_not_called()
         header_updates_mock.assert_not_called()
@@ -1133,6 +1134,7 @@ class AllocationDispatchApiTests(TestCase):
                 ]
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11",
         )
 
         self.assertEqual(response.status_code, 400)
@@ -1162,7 +1164,7 @@ class AllocationDispatchApiTests(TestCase):
             "needs_list_id": "11",
             "needs_list_no": "NL-ODPEM-11",
             "status": "APPROVED",
-            "warehouse_ids": [1],
+            "warehouse_id": 1,
             "event_id": 7,
         }
 
@@ -1181,6 +1183,7 @@ class AllocationDispatchApiTests(TestCase):
                 ],
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="commit-missing-fields-11",
         )
 
         self.assertEqual(response.status_code, 409)
@@ -1272,9 +1275,11 @@ class AllocationDispatchApiTests(TestCase):
                 ],
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="override-approve-11",
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_approve_override.call_args.kwargs["idempotency_key"], "override-approve-11")
         self.assertEqual(mock_approve_override.call_args.kwargs["submitter_user_id"], "planner-1")
         self.assertEqual(mock_approve_override.call_args.kwargs["supervisor_user_id"], "dev-user")
         self.assertEqual(mock_approve_override.call_args.args[1][0]["quantity"], "3.0000")
@@ -1311,6 +1316,7 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/allocations/override-approve",
             {"override_reason_code": "FEFO_BYPASS", "override_note": "Supervisor approved."},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="override-approve-not-pending-11",
         )
 
         self.assertEqual(response.status_code, 409)
@@ -1363,10 +1369,12 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/mark-dispatched",
             {"transport_mode": "TRUCK"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-11",
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_dispatch_package.called)
+        self.assertEqual(mock_dispatch_package.call_args.kwargs["idempotency_key"], "dispatch-11")
         self.assertEqual(response.json().get("waybill_no"), "WB-PK00090")
 
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
@@ -1415,6 +1423,7 @@ class AllocationDispatchApiTests(TestCase):
             "/api/v1/replenishment/needs-list/11/mark-dispatched",
             {"transport_mode": "TRUCK"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-missing-identifiers-11",
         )
 
         self.assertEqual(response.status_code, 409)

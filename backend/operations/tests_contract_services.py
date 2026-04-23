@@ -89,6 +89,8 @@ from api.rbac import (
     PERM_NATIONAL_ACT_CROSS_TENANT,
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
+    PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE,
+    PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST,
     PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
@@ -8904,6 +8906,7 @@ class OperationsWorkflowContractTests(TestCase):
                 payload={"reason": "Release received legs now"},
                 actor_id="dispatcher-1",
                 actor_roles=["LOGISTICS_MANAGER"],
+                actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST],
                 tenant_context=self.dispatch_ready_context,
             )
 
@@ -9013,6 +9016,7 @@ class OperationsWorkflowContractTests(TestCase):
                 payload={"reason": "Release received legs now"},
                 actor_id="dispatcher-1",
                 actor_roles=["LOGISTICS_MANAGER"],
+                actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST],
                 tenant_context=self.dispatch_ready_context,
                 idempotency_key="partial-request-390",
             )
@@ -9021,6 +9025,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={"reason": "Changed reason ignored by idempotency"},
             actor_id="dispatcher-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST],
             tenant_context=self.dispatch_ready_context,
             idempotency_key="partial-request-390",
         )
@@ -9152,6 +9157,7 @@ class OperationsWorkflowContractTests(TestCase):
                 payload={"approval_reason": "Move received goods now"},
                 actor_id="logistics-manager-1",
                 actor_roles=["LOGISTICS_MANAGER"],
+                actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE],
                 tenant_context=self.dispatch_ready_context,
                 idempotency_key="partial-approve-391",
             )
@@ -9160,6 +9166,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={"approval_reason": "Replay should be ignored"},
             actor_id="logistics-manager-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE],
             tenant_context=self.dispatch_ready_context,
             idempotency_key="partial-approve-391",
         )

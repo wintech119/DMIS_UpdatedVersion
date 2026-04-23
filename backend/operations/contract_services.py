@@ -21,6 +21,8 @@ from api.rbac import (
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST,
+    PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE,
+    PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST,
 )
 from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse, resolve_warehouse_tenant_id
 from masterdata.services.data_access import get_lookup
@@ -224,6 +226,9 @@ _MAX_RECEIPT_LINES = 200
 _RECEIVED_BY_NAME_MAX_LENGTH = 120
 _RECEIPT_NOTES_MAX_LENGTH = 500
 _RECEIPT_VARIANCE_REASON_MAX_LENGTH = 500
+_PICKUP_RELEASE_NOTES_MAX_LENGTH = 500
+_PARTIAL_RELEASE_REASON_MAX_LENGTH = 500
+_PARTIAL_RELEASE_APPROVAL_REASON_MAX_LENGTH = 500
 
 
 @dataclass(frozen=True)
@@ -2132,6 +2137,21 @@ def _require_permission(
     )
 
 
+def _model_field_max_length(model: type[Any], field_name: str, *, default: int | None = None) -> int | None:
+    max_length = getattr(model._meta.get_field(field_name), "max_length", None)
+    return int(max_length) if max_length else default
+
+
+def _validate_text_lengths(values: Mapping[str, str | None], limits: Mapping[str, int | None]) -> None:
+    errors: dict[str, str] = {}
+    for field_name, value in values.items():
+        limit = limits.get(field_name)
+        if limit is not None and value is not None and len(value) > limit:
+            errors[field_name] = f"{field_name} must be {limit} characters or fewer."
+    if errors:
+        raise OperationValidationError(errors)
+
+
 def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterable[str]) -> OperationsPackageLock:
     normalized_roles = _require_roles(
         actor_roles,
@@ -2413,15 +2433,13 @@ def _ensure_fulfillment_request_access(
     tenant_context: TenantContext,
     write: bool = False,
 ) -> None:
-    _ensure_request_is_package_fulfillment_eligible(request_record)
     normalized_roles = normalize_role_codes(actor_roles)
     if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
         return
     if not any(role in set(FULFILLMENT_ROLE_CODES) for role in normalized_roles):
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
-    if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
-        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
 
+    access_granted = False
     try:
         _ensure_request_access(
             request_record,
@@ -2430,27 +2448,32 @@ def _ensure_fulfillment_request_access(
             tenant_context=tenant_context,
             write=write,
         )
-        return
+        access_granted = True
     except OperationValidationError:
         pass
 
-    active_tenant_id = tenant_context.active_tenant_id
-    if active_tenant_id is None:
-        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+    if not access_granted:
+        active_tenant_id = tenant_context.active_tenant_id
+        if active_tenant_id is None:
+            raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
 
-    assignment_statuses = ["OPEN"] if write else ["OPEN", "COMPLETED"]
-    allowed_queue_codes = _allowed_fulfillment_queue_codes(normalized_roles)
-    has_assignment = OperationsQueueAssignment.objects.filter(
-        Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
-        queue_code__in=allowed_queue_codes,
-        entity_type=ENTITY_REQUEST,
-        entity_id=int(request_record.relief_request_id),
-        assignment_status__in=assignment_statuses,
-    ).filter(
-        Q(assigned_tenant_id=active_tenant_id) | Q(assigned_tenant_id__isnull=True)
-    ).exists()
-    if not has_assignment:
+        assignment_statuses = ["OPEN"] if write else ["OPEN", "COMPLETED"]
+        allowed_queue_codes = _allowed_fulfillment_queue_codes(normalized_roles)
+        access_granted = OperationsQueueAssignment.objects.filter(
+            Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
+            queue_code__in=allowed_queue_codes,
+            entity_type=ENTITY_REQUEST,
+            entity_id=int(request_record.relief_request_id),
+            assignment_status__in=assignment_statuses,
+        ).filter(
+            Q(assigned_tenant_id=active_tenant_id) | Q(assigned_tenant_id__isnull=True)
+        ).exists()
+        if not access_granted:
+            raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
+    if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+    _ensure_request_is_package_fulfillment_eligible(request_record)
 
 
 def _ensure_package_access(
@@ -2465,8 +2488,17 @@ def _ensure_package_access(
         request_record = OperationsReliefRequest.objects.get(relief_request_id=int(package_record.relief_request_id))
     except OperationsReliefRequest.DoesNotExist:
         raise OperationValidationError({"scope": "Associated relief request record not found for this package."}) from None
+    try:
+        _ensure_request_access(
+            request_record,
+            actor_id=actor_id,
+            actor_roles=actor_roles,
+            tenant_context=tenant_context,
+            write=write,
+        )
+    except OperationValidationError:
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."}) from None
     _ensure_request_is_package_fulfillment_eligible(request_record)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context, write=write)
 
 
 def _ensure_actor_assigned_to_queue(
@@ -4606,7 +4638,8 @@ def _build_item_allocation_response(
         ),
     )
     ranked_warehouse_ids = [int(card["warehouse_id"]) for card in warehouse_cards]
-    recommended_warehouse_id = ranked_warehouse_ids[0] if ranked_warehouse_ids else None
+    recommended_card = next((card for card in warehouse_cards if bool(card.get("recommended"))), None)
+    recommended_warehouse_id = int(recommended_card["warehouse_id"]) if recommended_card else None
     requested_selected_set = set(requested_selected_warehouse_ids)
     draft_selected_set = set(draft_selected_warehouse_ids)
     selected_warehouse_ids = [
@@ -7716,6 +7749,22 @@ def pickup_release(
     released_by_name = str(payload.get("released_by_name") or actor_id).strip()
     release_notes = str(payload.get("release_notes") or "").strip() or None
     collected_by_name = str(payload.get("collected_by_name") or "").strip() or None
+    _validate_text_lengths(
+        {
+            "released_by_name": released_by_name,
+            "collected_by_name": collected_by_name,
+            "release_notes": release_notes,
+        },
+        {
+            "released_by_name": _model_field_max_length(OperationsPickupRelease, "released_by_name"),
+            "collected_by_name": _model_field_max_length(OperationsPickupRelease, "collected_by_name"),
+            "release_notes": _model_field_max_length(
+                OperationsPickupRelease,
+                "release_notes",
+                default=_PICKUP_RELEASE_NOTES_MAX_LENGTH,
+            ),
+        },
+    )
     collected_by_id_last4 = _collector_id_last4(
         payload.get("collected_by_id_last4") or payload.get("collected_by_id_ref")
     )
@@ -7811,6 +7860,7 @@ def request_partial_release(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None,
+    actor_permissions: Iterable[str] | None,
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
@@ -7823,7 +7873,12 @@ def request_partial_release(
     )
     if idempotency.cached_result is not None:
         return idempotency.cached_result
-    _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may request partial release.")
+    _require_permission(
+        actor_permissions,
+        PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST,
+        field_name="partial_release",
+        message="You do not have permission to request partial release.",
+    )
     _package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
@@ -7843,6 +7898,10 @@ def request_partial_release(
     reason = str(payload.get("reason") or payload.get("partial_release_reason") or "").strip()
     if not reason:
         raise OperationValidationError({"reason": "A partial release reason is required."})
+    if len(reason) > _PARTIAL_RELEASE_REASON_MAX_LENGTH:
+        raise OperationValidationError(
+            {"reason": f"Reason must be {_PARTIAL_RELEASE_REASON_MAX_LENGTH} characters or fewer."}
+        )
     if OperationsPartialReleaseRequest.objects.filter(
         package=package_record,
         approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
@@ -7995,26 +8054,36 @@ def split_package(
     for line in parent_lines:
         key = (int(line.source_warehouse_id), int(line.batch_id), int(line.item_id))
         mapped_leg_item = mapping.get(key)
+        line_qty = _quantize_qty(line.quantity)
         line_payload = {
             "item_id": int(line.item_id),
-            "quantity": line.quantity,
+            "quantity": line_qty,
             "uom_code": line.uom_code,
             "reason_text": line.reason_text,
         }
         if mapped_leg_item is not None and mapped_leg_item.staging_batch_id is not None:
-            released_line_specs.append(
-                {
-                    **line_payload,
-                    "source_warehouse_id": int(package_record.staging_warehouse_id or 0),
-                    "batch_id": int(mapped_leg_item.staging_batch_id),
-                    "source_type": "ON_HAND",
-                    "source_record_id": None,
-                }
-            )
+            available_qty = _leg_item_package_reserved_qty(mapped_leg_item)
+            released_qty = min(line_qty, available_qty)
+            if released_qty > 0:
+                released_line_specs.append(
+                    {
+                        **line_payload,
+                        "quantity": released_qty,
+                        "source_warehouse_id": int(package_record.staging_warehouse_id or 0),
+                        "batch_id": int(mapped_leg_item.staging_batch_id),
+                        "source_type": "ON_HAND",
+                        "source_record_id": None,
+                    }
+                )
+            residual_qty = max(Decimal("0.0000"), line_qty - released_qty)
         else:
+            residual_qty = line_qty
+
+        if residual_qty > 0:
             residual_line_specs.append(
                 {
                     **line_payload,
+                    "quantity": residual_qty,
                     "source_warehouse_id": int(line.source_warehouse_id),
                     "batch_id": int(line.batch_id),
                     "source_type": line.source_type,
@@ -8247,6 +8316,7 @@ def approve_partial_release(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None,
+    actor_permissions: Iterable[str] | None,
     tenant_context: TenantContext,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
@@ -8259,12 +8329,12 @@ def approve_partial_release(
     )
     if idempotency.cached_result is not None:
         return idempotency.cached_result
-    normalized_roles = _require_roles(
-        actor_roles,
-        [ROLE_LOGISTICS_MANAGER],
-        message="Only Logistics Managers may approve partial release.",
+    _require_permission(
+        actor_permissions,
+        PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE,
+        field_name="partial_release",
+        message="You do not have permission to approve partial release.",
     )
-    del normalized_roles
     package, _, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
@@ -8293,6 +8363,14 @@ def approve_partial_release(
     if workflow_request is None:
         raise OperationValidationError({"partial_release": "No partial release request is pending."})
     approval_reason = str(payload.get("approval_reason") or "").strip() or None
+    if approval_reason and len(approval_reason) > _PARTIAL_RELEASE_APPROVAL_REASON_MAX_LENGTH:
+        raise OperationValidationError(
+            {
+                "approval_reason": (
+                    f"Approval reason must be {_PARTIAL_RELEASE_APPROVAL_REASON_MAX_LENGTH} characters or fewer."
+                )
+            }
+        )
     now = timezone.now()
     _update_package_workflow_fields(
         package_record,

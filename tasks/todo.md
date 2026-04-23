@@ -76,3 +76,10 @@
 2. Completed: patched confirmed backend authorization, validation, allocation comparison, and phase-window policy/view issues.
 3. Completed: patched confirmed frontend auth failure handling, live-region placement, idempotency-key retry support, metric filter validation, and stale warning visibility without visual redesign.
 4. Completed: ran focused Django and Angular tests, the production Angular build, and completed backend/frontend architecture-review closeout.
+
+## Review Comment Verification Sweep - 2026-04-23
+
+1. Completed: verified each cited backend and frontend finding against the current code before editing.
+2. Completed: patched only backend service, view, and test findings that still reproduced.
+3. Completed: applied only non-visual frontend fixes needed for idempotency headers and lint-safe SCSS syntax/spacing; visual frontend comments were left untouched per instruction.
+4. Completed: ran targeted Django and Angular verification, then completed architecture-review closeout.

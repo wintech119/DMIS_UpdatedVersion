@@ -713,6 +713,113 @@ def _tenant_context(request):
     return context
 
 
+def _required_idempotency_key(request) -> str:
+    idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
+    if not idempotency_key:
+        raise ValueError("Idempotency-Key header is required.")
+    return idempotency_key
+
+
+def _idempotency_resource_id(record: Mapping[str, Any] | str) -> str:
+    if isinstance(record, Mapping):
+        return str(record.get("needs_list_id") or record.get("needs_list_no") or "unknown")
+    return str(record or "unknown")
+
+
+def _idempotency_cache_key(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> str:
+    actor_id = str(_actor_id(request) or "SYSTEM")
+    tenant_context = _tenant_context(request)
+    tenant_id = (
+        getattr(tenant_context, "active_tenant_id", None)
+        or getattr(tenant_context, "requested_tenant_id", None)
+        or "unknown"
+    )
+    digest = hashlib.sha256(str(idempotency_key).encode("utf-8")).hexdigest()
+    return f"replenishment:idempotency:{endpoint}:{actor_id}:{tenant_id}:{_idempotency_resource_id(record)}:{digest}"
+
+
+def _cached_idempotent_response(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> Response | None:
+    cached_result = cache.get(
+        _idempotency_cache_key(idempotency_key, request, record, endpoint=endpoint)
+    )
+    if not isinstance(cached_result, dict):
+        return None
+    return Response(cached_result)
+
+
+def _begin_idempotent_response(
+    idempotency_key: str,
+    request,
+    record: Mapping[str, Any] | str,
+    *,
+    endpoint: str,
+) -> tuple[str, str | None, str | None, Response | None]:
+    cache_key = _idempotency_cache_key(idempotency_key, request, record, endpoint=endpoint)
+    cached_result = cache.get(cache_key)
+    if isinstance(cached_result, dict):
+        return cache_key, None, None, Response(cached_result)
+
+    reservation_key = f"{cache_key}:in_progress"
+    reservation_token = uuid.uuid4().hex
+    if not cache.add(
+        reservation_key,
+        reservation_token,
+        timeout=_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS,
+    ):
+        cached_result = cache.get(cache_key)
+        if isinstance(cached_result, dict):
+            return cache_key, None, None, Response(cached_result)
+        return (
+            cache_key,
+            None,
+            None,
+            Response(
+                {"errors": {"idempotency_key": "A request with this Idempotency-Key is already in progress."}},
+                status=400,
+            ),
+        )
+    return cache_key, reservation_key, reservation_token, None
+
+
+def _release_idempotency_reservation(reservation_key: str | None, reservation_token: str | None) -> None:
+    if reservation_key and reservation_token and cache.get(reservation_key) == reservation_token:
+        cache.delete(reservation_key)
+
+
+def _cache_idempotent_response_after_commit(
+    cache_key: str,
+    payload: dict[str, Any],
+    *,
+    reservation_key: str | None,
+    reservation_token: str | None,
+) -> None:
+    def _store() -> None:
+        cache.set(cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        _release_idempotency_reservation(reservation_key, reservation_token)
+
+    try:
+        transaction.on_commit(_store)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
+
+
+def _idempotency_key_error_response(exc: ValueError) -> Response:
+    return Response({"errors": {"idempotency_key": str(exc)}}, status=400)
+
+
 def _should_enforce_tenant_scope(request) -> bool:
     """
     Rollout gate for strict tenant scope enforcement.
@@ -831,8 +938,20 @@ def _is_odpem_replenishment_only_record(record: Mapping[str, Any]) -> bool:
                 warehouse_ids.append(parsed_warehouse_id)
 
     for candidate_warehouse_id in dict.fromkeys(warehouse_ids):
-        owner_tenant_id = resolve_warehouse_tenant_id(candidate_warehouse_id)
-        if owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id):
+        resolved_owner = resolve_warehouse_tenant_id(candidate_warehouse_id)
+        owner_tenant_code = None
+        if isinstance(resolved_owner, Mapping):
+            owner_tenant_id = _to_int_or_none(resolved_owner.get("tenant_id"))
+            owner_tenant_code = resolved_owner.get("tenant_code")
+        elif isinstance(resolved_owner, (list, tuple)):
+            owner_tenant_id = _to_int_or_none(resolved_owner[0] if resolved_owner else None)
+            owner_tenant_code = resolved_owner[1] if len(resolved_owner) > 1 else None
+        else:
+            owner_tenant_id = _to_int_or_none(resolved_owner)
+        if owner_tenant_id is not None and operations_policy.is_odpem_tenant(
+            owner_tenant_id,
+            tenant_code=owner_tenant_code,
+        ):
             return True
     return False
 
@@ -936,6 +1055,8 @@ _NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS = 20
+_IDEMPOTENCY_TTL_SECONDS = 15 * 60
+_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS = 60
 
 
 def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
@@ -2007,6 +2128,12 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
                     },
                 )
 
+    def _freshness_state(item: Mapping[str, Any]) -> str:
+        freshness = item.get("freshness")
+        if not isinstance(freshness, dict):
+            return ""
+        return str(freshness.get("state") or "").strip().upper()
+
     response = {
         "as_of_datetime": (
             restored_snapshot.get("as_of_datetime", as_of_dt.isoformat())
@@ -2026,17 +2153,17 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
             "HIGH": sum(
                 1
                 for item in items
-                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "HIGH"
+                if _freshness_state(item) == "HIGH"
             ),
             "MEDIUM": sum(
                 1
                 for item in items
-                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "MEDIUM"
+                if _freshness_state(item) == "MEDIUM"
             ),
             "LOW": sum(
                 1
                 for item in items
-                if str((item.get("freshness") or {}).get("state") or "").strip().upper() == "LOW"
+                if _freshness_state(item) == "LOW"
             ),
         },
         "items": items,
@@ -5141,6 +5268,19 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     if _is_odpem_replenishment_only_record(record):
         return _odpem_replenishment_only_response(record, action="mark_dispatched")
 
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_dispatched",
+    )
+    if cached_response is not None:
+        return cached_response
+
     if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
     if not record.get("prep_started_at"):
@@ -5152,28 +5292,39 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_dispatched",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
     try:
         with transaction.atomic():
-            dispatch_result = allocation_dispatch.dispatch_package(
-                _allocation_context_from_record(record, request.data or {}, link=link),
-                actor_user_id=actor_user_id,
-                transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
-            )
-            reliefrqst_id = dispatch_result.get("reliefrqst_id")
-            reliefpkg_id = dispatch_result.get("reliefpkg_id")
-            if reliefrqst_id is None or reliefpkg_id is None:
-                raise allocation_dispatch.AllocationDispatchError(
-                    "Dispatch did not return committed request/package identifiers.",
-                    code="legacy_context_missing",
+            dispatch_result: dict[str, Any] = {}
+            if link is not None and link.reliefrqst_id is not None and link.reliefpkg_id is not None:
+                dispatch_result = allocation_dispatch.dispatch_package(
+                    _allocation_context_from_record(record, request.data or {}, link=link),
+                    actor_user_id=actor_user_id,
+                    transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+                    idempotency_key=idempotency_key,
                 )
-            execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
-                record
-            )
-            if execution_needs_list_id is None:
-                raise allocation_dispatch.AllocationDispatchError(
-                    "Dispatch requires a persisted needs list execution context.",
-                    code="legacy_context_missing",
+                reliefrqst_id = dispatch_result.get("reliefrqst_id")
+                reliefpkg_id = dispatch_result.get("reliefpkg_id")
+                if reliefrqst_id is None or reliefpkg_id is None:
+                    raise allocation_dispatch.AllocationDispatchError(
+                        "Dispatch did not return committed request/package identifiers.",
+                        code="legacy_context_missing",
+                    )
+                execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
+                    record
                 )
+                if execution_needs_list_id is None:
+                    raise allocation_dispatch.AllocationDispatchError(
+                        "Dispatch requires a persisted needs list execution context.",
+                        code="legacy_context_missing",
+                    )
             record = workflow_store.transition_status(
                 record,
                 target_status,
@@ -5181,18 +5332,23 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
                 stage="DISPATCHED",
             )
             workflow_store.update_record(needs_list_id, record)
-            _upsert_execution_link(
-                needs_list_id=execution_needs_list_id,
-                actor_user_id=actor_user_id,
-                reliefrqst_id=reliefrqst_id,
-                reliefpkg_id=reliefpkg_id,
-                execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
-                waybill_no=dispatch_result.get("waybill_no"),
-                waybill_payload=dispatch_result.get("waybill_payload"),
-                dispatched=True,
-            )
+            if dispatch_result:
+                _upsert_execution_link(
+                    needs_list_id=execution_needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=reliefrqst_id,
+                    reliefpkg_id=reliefpkg_id,
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                    waybill_no=dispatch_result.get("waybill_no"),
+                    waybill_payload=dispatch_result.get("waybill_payload"),
+                    dispatched=True,
+                )
     except allocation_dispatch.AllocationDispatchError as exc:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {exc.code: exc.message}}, status=409)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_dispatched",
@@ -5206,7 +5362,14 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5230,6 +5393,19 @@ def needs_list_mark_received(request, needs_list_id: str):
     if _is_odpem_replenishment_only_record(record):
         return _odpem_replenishment_only_response(record, action="mark_received")
 
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_received",
+    )
+    if cached_response is not None:
+        return cached_response
+
     if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
     if not record.get("dispatched_at"):
@@ -5240,25 +5416,37 @@ def needs_list_mark_received(request, needs_list_id: str):
     actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
-    with transaction.atomic():
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="RECEIVED",
-        )
-        workflow_store.update_record(needs_list_id, record)
-        link = _execution_link_for_record(record)
-        if link is not None:
-            _upsert_execution_link(
-                needs_list_id=link.needs_list_id,
-                actor_user_id=actor_user_id,
-                reliefrqst_id=link.reliefrqst_id,
-                reliefpkg_id=link.reliefpkg_id,
-                selected_method=link.selected_method,
-                execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
-                received=True,
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint="needs_list_mark_received",
+    )
+    if in_progress_response is not None:
+        return in_progress_response
+    try:
+        with transaction.atomic():
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="RECEIVED",
             )
+            workflow_store.update_record(needs_list_id, record)
+            link = _execution_link_for_record(record)
+            if link is not None:
+                _upsert_execution_link(
+                    needs_list_id=link.needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=link.reliefrqst_id,
+                    reliefpkg_id=link.reliefpkg_id,
+                    selected_method=link.selected_method,
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
+                    received=True,
+                )
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     logger.info(
         "needs_list_received",
@@ -5272,7 +5460,14 @@ def needs_list_mark_received(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -5441,6 +5636,20 @@ def _allocation_commit_response(
             action="approve_allocation_override" if approval_required else "commit_allocation",
         )
 
+    endpoint = "needs_list_allocations_override_approve" if approval_required else "needs_list_allocations_commit"
+    try:
+        idempotency_key = _required_idempotency_key(request)
+    except ValueError as exc:
+        return _idempotency_key_error_response(exc)
+    cached_response = _cached_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint=endpoint,
+    )
+    if cached_response is not None:
+        return cached_response
+
     payload = dict(payload_override or request.data or {})
     actor_user_id = _actor_id(request) or "SYSTEM"
     link = _execution_link_for_record(record)
@@ -5533,6 +5742,14 @@ def _allocation_commit_response(
     context = _allocation_context_from_record(record, payload, link=link)
     if selected_method is not None:
         context["selected_method"] = selected_method
+    cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
+        idempotency_key,
+        request,
+        record,
+        endpoint=endpoint,
+    )
+    if in_progress_response is not None:
+        return in_progress_response
 
     try:
         with transaction.atomic():
@@ -5546,6 +5763,7 @@ def _allocation_commit_response(
                     submitter_user_id=getattr(link, "override_requested_by", None),
                     override_reason_code=override_reason_code,
                     override_note=override_note,
+                    idempotency_key=idempotency_key,
                 )
             else:
                 result = allocation_dispatch.commit_allocation(
@@ -5554,6 +5772,7 @@ def _allocation_commit_response(
                     actor_user_id=actor_user_id,
                     override_reason_code=override_reason_code or None,
                     override_note=override_note or None,
+                    idempotency_key=idempotency_key,
                 )
 
             needs_list_obj = NeedsList.objects.select_for_update().get(needs_list_id=needs_list_pk)
@@ -5582,14 +5801,25 @@ def _allocation_commit_response(
                 override_approved=approval_required,
             )
     except allocation_dispatch.AllocationDispatchError as exc:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {exc.code: exc.message}}, status=409)
     except NeedsList.DoesNotExist:
+        _release_idempotency_reservation(reservation_key, reservation_token)
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    except Exception:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        raise
 
     refreshed = workflow_store.get_record(needs_list_id) or record
     response_payload = _serialize_workflow_record(refreshed, include_overrides=True)
     response_payload["override_required"] = bool(result.get("override_required"))
     response_payload["override_markers"] = result.get("override_markers") or []
+    _cache_idempotent_response_after_commit(
+        cache_key,
+        response_payload,
+        reservation_key=reservation_key,
+        reservation_token=reservation_token,
+    )
     return Response(response_payload)
 
 
