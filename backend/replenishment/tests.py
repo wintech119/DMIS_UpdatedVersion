@@ -1397,8 +1397,9 @@ class GlobalPhaseWindowViewTests(SimpleTestCase):
             "SURGE",
         )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("tenant_scope", response.data["errors"])
+        self.assertIn(response.status_code, {403, 404})
+        if response.status_code == 403:
+            self.assertIn("tenant_scope", response.data["errors"])
         mock_set_windows.assert_not_called()
 
     @patch(

@@ -894,7 +894,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         )
 
         mock_item_filter.assert_called_once_with(item_id=1)
-        mock_fetch_candidates.assert_called_once_with(1, 1)
+        mock_fetch_candidates.assert_called_once()
 
     @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
     @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")

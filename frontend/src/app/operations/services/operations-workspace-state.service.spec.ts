@@ -2786,10 +2786,56 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     expect(previewSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves the full source identity when a batch key collides across sources', () => {
+    const service = makeService();
+    const item = buildItem({
+      candidates: [
+        {
+          batch_id: 1,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '30',
+          reserved_qty: '0',
+          available_qty: '30',
+          source_type: 'TRANSFER',
+          source_record_id: 77,
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-1-XFER',
+        },
+        {
+          batch_id: 1,
+          inventory_id: WAREHOUSE_ID,
+          item_id: ITEM_ID,
+          usable_qty: '30',
+          reserved_qty: '0',
+          available_qty: '30',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          batch_no: 'BT-1',
+        },
+      ],
+    });
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [item],
+    });
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 10);
+
+    const rows = service.selectedRowsByItem()[ITEM_ID] ?? [];
+    expect(rows.length).toBe(1);
+    expect(rows[0].source_type).toBe('ON_HAND');
+    expect(rows[0].source_record_id).toBeNull();
+  });
+
   describe('removeItemWarehouse (FR05.06 kebab-menu redesign)', () => {
     it('removes draft selections, drops the loaded tracker entry, strips the rank card, and clears stale preview fields', () => {
       const service = makeService();
       service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.addingWarehouseByItem.set({ [ITEM_ID]: true });
       service.options.set({
         request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
         items: [
@@ -2805,6 +2851,8 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
             }],
             draft_selected_qty: '45.0000',
             effective_remaining_qty: '5.0000',
+            stock_integrity_issue:
+              'Warehouse stock totals are out of sync for item 101 at inventory 9001.',
           }),
         ],
       });
@@ -2817,6 +2865,7 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
       expect(service.selectedRowsByItem()[ITEM_ID]).toEqual([]);
       // Loaded tracker no longer lists the removed warehouse
       expect(service.loadedWarehousesByItem()[ITEM_ID] ?? []).toEqual([]);
+      expect(service.addingWarehouseByItem()[ITEM_ID]).toBeFalse();
       // warehouse_cards + candidates filtered in the cached options
       const item = service
         .options()
@@ -2828,6 +2877,7 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
       expect(item?.draft_selected_qty).toBe('0.0000');
       expect(item?.effective_remaining_qty).toBe('50');
       expect(item?.remaining_shortfall_qty).toBe('50');
+      expect(item?.stock_integrity_issue).toBeNull();
     });
 
     it('is a no-op when warehouseId is 0 / negative / missing', () => {

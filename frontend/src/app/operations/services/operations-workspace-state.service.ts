@@ -1220,6 +1220,7 @@ export class OperationsWorkspaceStateService {
       (this.latestItemAddRequestIds[itemId] ?? 0) + 1;
     this.latestItemPreviewRequestIds[itemId] =
       (this.latestItemPreviewRequestIds[itemId] ?? 0) + 1;
+    this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
     this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: false }));
 
     // 1. Drop any draft selections for this warehouse.
@@ -1507,8 +1508,14 @@ export class OperationsWorkspaceStateService {
       // Find a matching AllocationCandidate if one still exists (preferred)
       // so we preserve its source_type/source_record_id. Otherwise synthesize
       // a minimal candidate from the batch.
+      const batchSelectionIdentity = {
+        inventory_id: warehouseId,
+        batch_id: batch.batch_id,
+        source_type: (batch.source_type ?? 'ON_HAND') as AllocationCandidate['source_type'],
+        source_record_id: batch.source_record_id ?? null,
+      };
       const fallbackCandidate: AllocationCandidate = (item.candidates ?? []).find(
-        (c) => c.inventory_id === warehouseId && c.batch_id === batch.batch_id,
+        (candidate) => this.selectionKey(candidate) === this.selectionKey(batchSelectionIdentity),
       ) ?? {
         batch_id: batch.batch_id,
         inventory_id: warehouseId,
@@ -2109,6 +2116,7 @@ export class OperationsWorkspaceStateService {
   ): AllocationItemGroup {
     return {
       ...item,
+      stock_integrity_issue: null,
       remaining_shortfall_qty: item.remaining_qty,
       continuation_recommended: false,
       alternate_warehouses: [],

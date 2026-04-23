@@ -868,15 +868,22 @@ def _cache_idempotent_response_after_commit(
     reservation_token: str | None,
 ) -> None:
     def _store() -> None:
-        cache.set(
-            cache_key,
-            {
-                **payload,
-                "_request_fingerprint": request_fingerprint,
-            },
-            timeout=_IDEMPOTENCY_TTL_SECONDS,
-        )
-        _release_idempotency_reservation(reservation_key, reservation_token)
+        try:
+            cache.set(
+                cache_key,
+                {
+                    **payload,
+                    "_request_fingerprint": request_fingerprint,
+                },
+                timeout=_IDEMPOTENCY_TTL_SECONDS,
+            )
+        except Exception:
+            logger.exception(
+                "idempotency_cache_store_failed",
+                extra={"event_type": "CACHE_WRITE_FAILURE", "cache_key": cache_key},
+            )
+        finally:
+            _release_idempotency_reservation(reservation_key, reservation_token)
 
     try:
         transaction.on_commit(_store)
@@ -5608,13 +5615,6 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
     request_fingerprint = _request_idempotency_fingerprint(request)
-    rate_limited = _high_risk_transition_rate_limit_response(
-        request,
-        actor_user_id=actor_user_id,
-        scope="needs_list_mark_dispatched",
-    )
-    if rate_limited is not None:
-        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -5623,6 +5623,14 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     )
     if in_progress_response is not None:
         return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_dispatched",
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
     try:
         with transaction.atomic():
             dispatch_result: dict[str, Any] = {}
@@ -5741,13 +5749,6 @@ def needs_list_mark_received(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
     request_fingerprint = _request_idempotency_fingerprint(request)
-    rate_limited = _high_risk_transition_rate_limit_response(
-        request,
-        actor_user_id=actor_user_id,
-        scope="needs_list_mark_received",
-    )
-    if rate_limited is not None:
-        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -5756,6 +5757,14 @@ def needs_list_mark_received(request, needs_list_id: str):
     )
     if in_progress_response is not None:
         return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope="needs_list_mark_received",
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
     try:
         with transaction.atomic():
             record = workflow_store.transition_status(
@@ -6083,13 +6092,6 @@ def _allocation_commit_response(
     if selected_method is not None:
         context["selected_method"] = selected_method
     request_fingerprint = _request_idempotency_fingerprint(request)
-    rate_limited = _high_risk_transition_rate_limit_response(
-        request,
-        actor_user_id=actor_user_id,
-        scope=endpoint,
-    )
-    if rate_limited is not None:
-        return rate_limited
     cache_key, reservation_key, reservation_token, in_progress_response = _begin_idempotent_response(
         idempotency_key,
         request,
@@ -6098,6 +6100,14 @@ def _allocation_commit_response(
     )
     if in_progress_response is not None:
         return in_progress_response
+    rate_limited = _high_risk_transition_rate_limit_response(
+        request,
+        actor_user_id=actor_user_id,
+        scope=endpoint,
+    )
+    if rate_limited is not None:
+        _release_idempotency_reservation(reservation_key, reservation_token)
+        return rate_limited
 
     try:
         with transaction.atomic():
