@@ -102,6 +102,29 @@ describe('TaskCenterComponent', () => {
     expect(fixture.componentInstance.activeFilter()).toBe('COMPLETED');
   });
 
+  it('marks the selected interactive metric tile as active', () => {
+    operationsService.getTasks.and.returnValue(of(buildFeed({
+      results: [
+        buildTask({ id: 21, status: 'PENDING' }),
+        buildTask({ id: 22, status: 'COMPLETED' }),
+      ],
+    })));
+
+    const fixture = TestBed.createComponent(TaskCenterComponent);
+    fixture.detectChanges();
+
+    fixture.componentInstance.setFilter('PENDING');
+    fixture.detectChanges();
+
+    const openMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Open');
+    const completedMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Completed');
+    const assignmentsMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Assignments');
+
+    expect(openMetric?.active).toBeTrue();
+    expect(completedMetric?.active).toBeFalse();
+    expect(assignmentsMetric?.active).toBeFalse();
+  });
+
   it('renders non-interactive cards for Assignments and Notifications summary counts', () => {
     operationsService.getTasks.and.returnValue(of(buildFeed({
       queue_assignments: [buildTask({ id: 10, source: 'QUEUE_ASSIGNMENT' })],

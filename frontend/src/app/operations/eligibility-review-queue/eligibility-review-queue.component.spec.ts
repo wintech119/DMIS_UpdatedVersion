@@ -195,6 +195,29 @@ describe('EligibilityReviewQueueComponent', () => {
     expect(fixture.componentInstance.activeFilter()).toBe('critical');
   });
 
+  it('marks the selected interactive metric tile as active', () => {
+    operationsService.getEligibilityQueue.and.returnValue(of({
+      results: [
+        buildSummary({ reliefrqst_id: 51, urgency_ind: 'C' }),
+        buildSummary({ reliefrqst_id: 52, urgency_ind: 'H' }),
+      ],
+    }));
+
+    const fixture = TestBed.createComponent(EligibilityReviewQueueComponent);
+    fixture.detectChanges();
+
+    fixture.componentInstance.setFilter('critical');
+    fixture.detectChanges();
+
+    const criticalMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Critical');
+    const highMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'High');
+    const oldestMetric = fixture.componentInstance.metricStrip().find((item) => item.label === 'Oldest Waiting (h)');
+
+    expect(criticalMetric?.active).toBeTrue();
+    expect(highMetric?.active).toBeFalse();
+    expect(oldestMetric?.active).toBeFalse();
+  });
+
   it('activates a metric card when Enter or Space is pressed on the focused element', () => {
     operationsService.getEligibilityQueue.and.returnValue(of({
       results: [buildSummary({ reliefrqst_id: 41, urgency_ind: 'H' })],

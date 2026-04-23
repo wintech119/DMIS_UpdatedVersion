@@ -155,16 +155,21 @@ export class TaskCenterComponent implements OnInit {
     ];
   });
 
-  readonly metricStrip = computed<readonly OpsMetricStripItem[]>(() =>
-    this.metrics().map((metric) => ({
-      label: metric.label,
-      value: String(metric.value),
-      hint: metric.note,
-      interactive: metric.filter !== null,
-      token: metric.tileTone,
-      badge: { label: metric.badgeLabel, tone: metric.tileTone },
-    })),
-  );
+  readonly metricStrip = computed<readonly OpsMetricStripItem[]>(() => {
+    const activeFilter = this.activeFilter();
+    return this.metrics().map((metric) => {
+      const interactive = metric.filter !== null;
+      return {
+        label: metric.label,
+        value: String(metric.value),
+        hint: metric.note,
+        interactive,
+        active: interactive && metric.filter === activeFilter,
+        token: metric.tileTone,
+        badge: { label: metric.badgeLabel, tone: metric.tileTone },
+      };
+    });
+  });
 
   readonly formatTaskType = formatTaskType;
   readonly getTaskTone = getTaskTone;
