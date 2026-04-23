@@ -111,38 +111,70 @@
   margin-bottom: 0;
 }
 
+// ── Metric tile (PFQ-parity) ─────────────────────────────────────────────
+// Matches `.pfq-metric` (Package Fulfillment Queue) so every operations
+// queue page renders the same tablet: Title-Case label + optional colored
+// badge on top, large semibold value, small muted note. The left-edge
+// accent bar comes from the `.ops-queue-tile` primitive in
+// `operations-shell.scss` via `::before` — we only need to supply the
+// `--ops-queue-accent` per tone below.
 .ops-flow-strip__card {
-  --ops-flow-strip-accent: transparent;
+  // Tokens mirror `.ops-queue-tile` so this card picks up the same
+  // left-edge bar treatment without composing the classes in HTML.
+  --ops-queue-accent: rgba(55, 53, 47, 0.18);
+  --ops-queue-accent-width: 6px;
+  --ops-queue-surface: var(--ops-strip-bg);
+  --ops-queue-border: var(--ops-outline);
+
   position: relative;
-  padding: 16px 20px;
-  background: var(--ops-strip-bg);
-  border: 1px solid var(--ops-outline);
+  overflow: hidden;
+  display: grid;
+  gap: 0.4rem;
+  // Match the shared `.ops-queue-tile` inset so copy doesn't cram against
+  // the left accent bar while keeping right/top/bottom padding tight.
+  padding: 0.95rem 1rem 0.95rem 1.25rem;
+  background: var(--ops-queue-surface);
+  border: 1px solid var(--ops-queue-border);
   border-radius: var(--ops-radius-md);
   box-shadow: var(--ops-strip-shadow);
-  overflow: hidden;
-  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+  text-align: left;
+  color: inherit;
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease, background 180ms ease;
 }
 
-// Left-edge accent bar keyed off --ops-flow-strip-accent. Mirrors the flat
-// bar used by PFQ's .ops-queue-tile so queue pages share a single KPI
-// treatment. Pages set the accent via <app-ops-metric-strip> item.accent.
-.ops-flow-strip__card--accent {
-  padding-left: 24px;
-}
-
-.ops-flow-strip__card--accent::before {
+.ops-flow-strip__card::before {
   content: '';
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 5px;
-  background: var(--ops-flow-strip-accent);
+  width: var(--ops-queue-accent-width);
+  background: var(--ops-queue-accent);
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
 }
+
+// Per-tone accent bar colors (same palette as `.ops-row--{tone}` and
+// `.pfq-metric--{id}`). Applied via `[class]="tileClass(item)"` in the
+// metric strip component when `item.token` is set.
+.ops-flow-strip__card--awaiting  { --ops-queue-accent: #b7833f; }
+.ops-flow-strip__card--drafts,
+.ops-flow-strip__card--draft     { --ops-queue-accent: #3d4b99; }
+.ops-flow-strip__card--preparing { --ops-queue-accent: #7a4fd1; }
+.ops-flow-strip__card--ready     { --ops-queue-accent: #2e8a48; }
+.ops-flow-strip__card--transit,
+.ops-flow-strip__card--in_transit{ --ops-queue-accent: #17447f; }
+.ops-flow-strip__card--completed,
+.ops-flow-strip__card--success   { --ops-queue-accent: #2e8a48; }
+.ops-flow-strip__card--review,
+.ops-flow-strip__card--warning   { --ops-queue-accent: #b7833f; }
+.ops-flow-strip__card--info      { --ops-queue-accent: #17447f; }
+.ops-flow-strip__card--neutral   { --ops-queue-accent: rgba(55, 53, 47, 0.18); }
+.ops-flow-strip__card--critical  { --ops-queue-accent: #b42318; }
 
 .ops-flow-strip__card:hover {
   border-color: var(--ops-outline-strong);
-  box-shadow: 0 2px 8px rgba(55, 53, 47, 0.08);
+  box-shadow: 0 14px 28px rgba(26, 28, 28, 0.07);
   transform: translateY(-1px);
 }
 
@@ -158,9 +190,9 @@
 }
 
 .ops-flow-strip__card--active {
-  background: #ffffff;
+  background: #fffdf9;
   border-color: var(--ops-ink, #37352F);
-  box-shadow: 0 0 0 1px var(--ops-ink, #37352F), 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 18px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 14px 28px rgba(26, 28, 28, 0.08);
 }
 
 .ops-flow-strip__card--active:hover {
@@ -168,12 +200,23 @@
   transform: none;
 }
 
+// PFQ `.pfq-metric__top` equivalent: label on the left, optional badge/icon
+// on the right. Flex row with small gap so the badge floats to the edge.
+.ops-flow-strip__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+// Legacy alias — some older markup still uses `.ops-flow-strip__eyebrow`.
+// Keep both so existing ops-metric-strip consumers outside this component
+// continue to render correctly.
 .ops-flow-strip__eyebrow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
 }
 
 .ops-flow-strip__eyebrow .ops-flow-strip__label {
@@ -189,30 +232,113 @@
   color: var(--ops-ink-muted);
 }
 
+// Title-Case label (matches `.pfq-metric__label`), not the uppercase
+// eyebrow treatment the old dashboard tiles used.
 .ops-flow-strip__label {
   display: block;
-  margin-bottom: 8px;
-  color: var(--ops-ink-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  margin-bottom: 0;
+  color: var(--ops-ink);
+  font-size: 0.82rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
+// PFQ `.pfq-metric__badge` equivalent. Tone variants paint the pill
+// background/foreground to match the left accent bar + row chip so the
+// whole tile reads as one state.
+.ops-flow-strip__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: var(--weight-semibold, 600);
+  background: #f5f1e8;
+  color: var(--ops-ink-muted);
+  border: 1px solid var(--ops-outline);
+  white-space: nowrap;
+}
+
+.ops-flow-strip__badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  display: inline-block;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.ops-flow-strip__badge--awaiting {
+  background: #fbf3e5;
+  color: #7f5a1f;
+  border-color: rgba(183, 131, 63, 0.28);
+}
+
+.ops-flow-strip__badge--drafts {
+  background: #eef1fb;
+  color: #2a3880;
+  border-color: rgba(61, 75, 153, 0.24);
+}
+
+.ops-flow-strip__badge--preparing {
+  background: #f3ecfb;
+  color: #563898;
+  border-color: rgba(122, 79, 209, 0.24);
+}
+
+.ops-flow-strip__badge--ready {
+  background: #ebf5ee;
+  color: #225d33;
+  border-color: rgba(46, 138, 72, 0.24);
+}
+
+.ops-flow-strip__badge--transit {
+  background: #e8edf7;
+  color: #17447f;
+  border-color: rgba(23, 68, 127, 0.24);
+}
+
+.ops-flow-strip__badge--completed {
+  background: #eef0f2;
+  color: #4b5563;
+  border-color: rgba(75, 85, 99, 0.22);
+}
+
+.ops-flow-strip__badge--info {
+  background: #eef4ff;
+  color: #17447f;
+  border-color: rgba(23, 68, 127, 0.24);
+}
+
+.ops-flow-strip__badge--neutral {
+  background: #f5f1e8;
+  color: var(--ops-ink-muted);
+  border-color: var(--ops-outline);
+}
+
+// Value + note rhythm: match PFQ's 1.9rem/0.78rem + tabular nums for the
+// value. Overrides the old `clamp(1.5rem, 2vw, 2.2rem)` ramp which ran
+// too large next to the PFQ badge.
 .ops-flow-strip__value {
   display: block;
+  margin: 0;
   color: var(--ops-ink);
-  font-size: clamp(1.5rem, 2vw, 2.2rem);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
+  font-size: 1.9rem;
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .ops-flow-strip__hint {
   display: block;
-  margin-top: 6px;
+  margin: 0;
   color: var(--ops-ink-muted);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   letter-spacing: normal;
   text-transform: none;
   line-height: 1.4;

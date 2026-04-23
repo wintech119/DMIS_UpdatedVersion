@@ -37,7 +37,11 @@
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
+  <app-ops-metric-strip
+    [items]="metricStrip()"
+    (itemClick)="openMetricTile($event)"
+    aria-label="Eligibility summary"
+  ></app-ops-metric-strip>
 
   <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel ops-panel--queue">
@@ -116,7 +120,7 @@
                 (keydown.space)="openReview(request); $event.preventDefault()">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
-                    <p class="ops-row__title ops-row__id">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                    <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                   </div>

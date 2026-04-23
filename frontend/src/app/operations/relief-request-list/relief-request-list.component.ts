@@ -9,7 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestSummary } from '../models/operations.model';
@@ -44,6 +44,10 @@ interface QueueMetric {
   filter: RequestFilter;
   tone: 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
   note: string;
+  /** PFQ-style left-accent + pill badge tone for the metric strip tile. */
+  tileTone: OpsMetricTileTone;
+  /** Short ALL-CAPS label shown inside the top-right badge pill. */
+  badgeLabel: string;
 }
 
 @Component({
@@ -127,31 +131,54 @@ export class ReliefRequestListComponent implements OnInit {
     const dispatched = rows.filter((row) => this.getStatusGroup(row) === 'dispatched').length;
 
     return [
-      { label: 'Drafts', value: draft, filter: 'draft', tone: 'draft', note: 'Unsubmitted and editable' },
-      { label: 'In Review', value: review, filter: 'review', tone: 'review', note: 'Queued for decision' },
-      { label: 'Approved', value: approved, filter: 'approved', tone: 'warning', note: 'Awaiting fulfillment' },
-      { label: 'Dispatched', value: dispatched, filter: 'dispatched', tone: 'success', note: 'Packages on the road' },
+      {
+        label: 'Drafts',
+        value: draft,
+        filter: 'draft',
+        tone: 'draft',
+        note: 'Unsubmitted and editable',
+        tileTone: 'drafts',
+        badgeLabel: 'DRAFT',
+      },
+      {
+        label: 'In Review',
+        value: review,
+        filter: 'review',
+        tone: 'review',
+        note: 'Queued for decision',
+        tileTone: 'awaiting',
+        badgeLabel: 'AWAITING',
+      },
+      {
+        label: 'Approved',
+        value: approved,
+        filter: 'approved',
+        tone: 'warning',
+        note: 'Awaiting fulfillment',
+        tileTone: 'preparing',
+        badgeLabel: 'APPROVED',
+      },
+      {
+        label: 'Dispatched',
+        value: dispatched,
+        filter: 'dispatched',
+        tone: 'success',
+        note: 'Packages on the road',
+        tileTone: 'ready',
+        badgeLabel: 'DISPATCHED',
+      },
     ];
   });
 
   readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
-    const accentByFilter: Record<RequestFilter, string> = {
-      all: '#6b7280',
-      draft: '#3d4b99',
-      review: '#b7833f',
-      approved: '#7a4fd1',
-      dispatched: '#2e8a48',
-      closed: '#6b7280',
-    };
-    const active = this.activeFilter();
-    return this.metrics().map((metric) => ({
+    const m = this.metrics();
+    return m.map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
       interactive: true,
-      token: metric.filter,
-      active: active === metric.filter,
-      accent: accentByFilter[metric.filter],
+      token: metric.tileTone,
+      badge: { label: metric.badgeLabel, tone: metric.tileTone },
     }));
   });
 
@@ -220,10 +247,21 @@ export class ReliefRequestListComponent implements OnInit {
   }
 
   openMetric(metric: OpsMetricStripItem): void {
-    if (!this.isRequestFilter(metric.token)) {
+    const filter = this.tileToneToFilter(metric.token);
+    if (!filter) {
       return;
     }
-    this.setFilter(metric.token);
+    this.setFilter(filter);
+  }
+
+  private tileToneToFilter(tone: string | undefined): RequestFilter | null {
+    switch (tone) {
+      case 'drafts': return 'draft';
+      case 'awaiting': return 'review';
+      case 'preparing': return 'approved';
+      case 'ready': return 'dispatched';
+      default: return null;
+    }
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
@@ -361,15 +399,6 @@ export class ReliefRequestListComponent implements OnInit {
       default:
         return 'other';
     }
-  }
-
-  private isRequestFilter(value: string | undefined): value is RequestFilter {
-    return value === 'all'
-      || value === 'draft'
-      || value === 'review'
-      || value === 'approved'
-      || value === 'dispatched'
-      || value === 'closed';
   }
 
   private getSeenStorageKey(): string | null {

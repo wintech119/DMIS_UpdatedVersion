@@ -14,7 +14,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { DispatchQueueItem } from '../models/operations.model';
@@ -105,29 +105,61 @@ export class DispatchQueueComponent implements OnInit {
     });
   });
 
-  readonly queueStats = computed(() => {
+  readonly queueStats = computed<readonly {
+    label: string;
+    value: number;
+    note: string;
+    tileTone: OpsMetricTileTone;
+    badgeLabel: string;
+  }[]>(() => {
     const items = this.items();
     const summary = this.summarizeDispatchStages(items);
     return [
-      { label: 'Ready', value: summary.ready, note: 'Awaiting handoff', filter: 'ready' as DispatchFilter, accent: '#b7833f' },
-      { label: 'In Transit', value: summary.inTransit, note: 'Dispatched, receipt pending', filter: 'in_transit' as DispatchFilter, accent: '#17447f' },
-      { label: 'Completed', value: summary.completed, note: 'Receipt confirmed', filter: 'completed' as DispatchFilter, accent: '#2e8a48' },
-      { label: 'All Packages', value: items.length, note: 'Visible in the queue', filter: 'all' as DispatchFilter, accent: '#6b7280' },
+      {
+        label: 'Ready',
+        value: summary.ready,
+        note: 'Awaiting handoff',
+        tileTone: 'ready',
+        badgeLabel: 'READY',
+      },
+      {
+        label: 'In Transit',
+        value: summary.inTransit,
+        note: 'Dispatched, receipt pending',
+        tileTone: 'transit',
+        badgeLabel: 'TRANSIT',
+      },
+      {
+        label: 'Completed',
+        value: summary.completed,
+        note: 'Receipt confirmed',
+        tileTone: 'completed',
+        badgeLabel: 'COMPLETED',
+      },
+      {
+        label: 'All Packages',
+        value: items.length,
+        note: 'Visible in the queue',
+        tileTone: 'info',
+        badgeLabel: 'TOTAL',
+      },
     ];
   });
 
-  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
-    const active = this.activeFilter();
-    return this.queueStats().map((stat) => ({
-      label: stat.label,
-      value: String(stat.value),
-      hint: stat.note,
-      interactive: true,
-      token: stat.filter,
-      active: active === stat.filter,
-      accent: stat.accent,
-    }));
-  });
+  readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() =>
+    this.queueStats().map((stat) => {
+      const filter = this.tileToneToFilter(stat.tileTone);
+      return {
+        label: stat.label,
+        value: String(stat.value),
+        hint: stat.note,
+        token: stat.tileTone,
+        interactive: filter !== null,
+        active: filter !== null && this.activeFilter() === filter,
+        badge: { label: stat.badgeLabel, tone: stat.tileTone },
+      };
+    }),
+  );
 
   readonly sidebarSummary = computed(() => {
     const rows = this.filteredItems();
@@ -177,18 +209,27 @@ export class DispatchQueueComponent implements OnInit {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
-  openMetric(metric: OpsMetricStripItem): void {
-    if (!this.isDispatchFilter(metric.token)) {
+  openMetric(item: OpsMetricStripItem): void {
+    const filter = this.tileToneToFilter(item.token);
+    if (filter === null) {
       return;
     }
-    this.setFilter(metric.token);
+    this.setFilter(filter);
   }
 
-  private isDispatchFilter(value: string | undefined): value is DispatchFilter {
-    return value === 'all'
-      || value === 'ready'
-      || value === 'in_transit'
-      || value === 'completed';
+  private tileToneToFilter(tone: string | undefined): DispatchFilter | null {
+    switch (tone) {
+      case 'ready':
+        return 'ready';
+      case 'transit':
+        return 'in_transit';
+      case 'completed':
+        return 'completed';
+      case 'info':
+        return 'all';
+      default:
+        return null;
+    }
   }
 
   hasUnread(filter: DispatchFilter): boolean {

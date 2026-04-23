@@ -10,7 +10,7 @@ import { AuthRbacService } from '../../replenishment/services/auth-rbac.service'
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestSummary } from '../models/operations.model';
@@ -42,8 +42,13 @@ interface ReviewMetric {
   label: string;
   value: number;
   note: string;
-  filter: ReviewFilter;
-  accent: string;
+  route: string;
+  /** Drives left-accent bar + pill badge on the strip tile (PFQ palette). */
+  tileTone: OpsMetricTileTone;
+  /** Short ALL-CAPS text shown inside the top-right badge pill. */
+  badgeLabel: string;
+  /** Urgency filter to activate when the tile is clicked (null = no-op). */
+  filter: ReviewFilter | null;
 }
 
 interface ReviewSummary {
@@ -189,25 +194,55 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly metrics = computed<ReviewMetric[]>(() => {
     const rows = this.actionableRequests();
     return [
-      { label: 'Awaiting action', value: rows.length, note: 'Needs an eligibility decision', filter: 'all', accent: '#3d4b99' },
-      { label: 'Critical', value: rows.filter((row) => urgencyCode(row) === 'C').length, note: 'Immediate attention', filter: 'critical', accent: '#b42318' },
-      { label: 'High', value: rows.filter((row) => urgencyCode(row) === 'H').length, note: 'Priority review lane', filter: 'high', accent: '#b7833f' },
-      { label: 'Oldest waiting (h)', value: oldestAgeHours(rows), note: 'Hours since oldest submission', filter: 'standard', accent: '#6b7280' },
+      {
+        label: 'Awaiting Action',
+        value: rows.length,
+        note: 'Needs an eligibility decision',
+        route: '/operations/eligibility-review',
+        tileTone: 'awaiting',
+        badgeLabel: 'AWAITING',
+        filter: 'all',
+      },
+      {
+        label: 'Critical',
+        value: rows.filter((row) => urgencyCode(row) === 'C').length,
+        note: 'Immediate attention',
+        route: '/operations/eligibility-review',
+        tileTone: 'drafts',
+        badgeLabel: 'CRITICAL',
+        filter: 'critical',
+      },
+      {
+        label: 'High',
+        value: rows.filter((row) => urgencyCode(row) === 'H').length,
+        note: 'Priority review lane',
+        route: '/operations/eligibility-review',
+        tileTone: 'preparing',
+        badgeLabel: 'HIGH',
+        filter: 'high',
+      },
+      {
+        label: 'Oldest Waiting (h)',
+        value: oldestAgeHours(rows),
+        note: 'Hours since oldest submission',
+        route: '/operations/eligibility-review',
+        tileTone: 'ready',
+        badgeLabel: 'OLDEST',
+        filter: null,
+      },
     ];
   });
 
-  readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
-    const active = this.activeFilter();
-    return this.metrics().map((metric) => ({
+  readonly metricStrip = computed<readonly OpsMetricStripItem[]>(() =>
+    this.metrics().map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
-      interactive: true,
-      token: metric.filter,
-      active: active === metric.filter,
-      accent: metric.accent,
-    }));
-  });
+      interactive: metric.filter !== null,
+      token: metric.tileTone,
+      badge: { label: metric.badgeLabel, tone: metric.tileTone },
+    })),
+  );
 
   readonly summary = computed<ReviewSummary>(() => {
     const rows = this.filteredRequests();
@@ -257,18 +292,25 @@ export class EligibilityReviewQueueComponent implements OnInit {
     this.searchTerm.set(value);
   }
 
-  openMetric(metric: OpsMetricStripItem): void {
-    if (!this.isReviewFilter(metric.token)) {
-      return;
-    }
-    this.setFilter(metric.token);
+  openMetric(metric: ReviewMetric): void {
+    this.router.navigateByUrl(metric.route);
   }
 
-  private isReviewFilter(value: string | undefined): value is ReviewFilter {
-    return value === 'all'
-      || value === 'critical'
-      || value === 'high'
-      || value === 'standard';
+  openMetricTile(item: OpsMetricStripItem): void {
+    const filter = this.tileToneToFilter(item.token);
+    if (filter === null) {
+      return;
+    }
+    this.setFilter(filter);
+  }
+
+  private tileToneToFilter(tone: string | undefined): ReviewFilter | null {
+    switch (tone) {
+      case 'awaiting': return 'all';
+      case 'drafts': return 'critical';
+      case 'preparing': return 'high';
+      default: return null;
+    }
   }
 
   openReview(request: RequestSummary): void {

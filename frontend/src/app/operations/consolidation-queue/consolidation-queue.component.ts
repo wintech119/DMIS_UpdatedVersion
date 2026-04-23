@@ -151,52 +151,49 @@ export class ConsolidationQueueComponent implements OnInit {
 
   readonly queueMetrics = computed<readonly OpsMetricStripItem[]>(() => {
     const stats = this.queueStats();
-    const active = this.activeFilter();
     return [
       {
         label: 'In Consolidation',
         value: String(stats.total),
         hint: 'Staged packages with active legs',
-        interactive: true,
-        token: 'all',
-        active: active === 'all',
-        accent: '#6b7280',
+        token: 'info',
+        badge: { label: 'STAGED', tone: 'info' },
       },
       {
         label: 'Awaiting Legs',
         value: String(stats.awaiting),
         hint: 'Planned, not yet dispatched',
-        interactive: true,
         token: 'awaiting',
-        active: active === 'awaiting',
-        accent: '#b7833f',
+        interactive: true,
+        active: this.activeFilter() === 'awaiting',
+        badge: { label: 'AWAITING', tone: 'awaiting' },
       },
       {
         label: 'In Transit',
         value: String(stats.inTransit),
         hint: 'Legs en route to hub',
+        token: 'transit',
         interactive: true,
-        token: 'in_transit',
-        active: active === 'in_transit',
-        accent: '#17447f',
+        active: this.activeFilter() === 'in_transit',
+        badge: { label: 'TRANSIT', tone: 'transit' },
       },
       {
         label: 'Partial',
         value: String(stats.partial),
         hint: 'Some legs received',
+        token: 'preparing',
         interactive: true,
-        token: 'partial',
-        active: active === 'partial',
-        accent: '#7a4fd1',
+        active: this.activeFilter() === 'partial',
+        badge: { label: 'PARTIAL', tone: 'preparing' },
       },
       {
         label: 'Ready to Dispatch',
         value: String(stats.ready),
         hint: 'All legs received',
-        interactive: true,
         token: 'ready',
-        active: active === 'ready',
-        accent: '#2e8a48',
+        interactive: true,
+        active: this.activeFilter() === 'ready',
+        badge: { label: 'READY', tone: 'ready' },
       },
     ];
   });
@@ -276,19 +273,27 @@ export class ConsolidationQueueComponent implements OnInit {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
-  openMetric(metric: OpsMetricStripItem): void {
-    if (!this.isConsolidationFilter(metric.token)) {
+  openMetric(item: OpsMetricStripItem): void {
+    const filter = this.tileTokenToFilter(item.token);
+    if (filter === null) {
       return;
     }
-    this.setFilter(metric.token);
+    this.setFilter(filter);
   }
 
-  private isConsolidationFilter(value: string | undefined): value is ConsolidationFilter {
-    return value === 'all'
-      || value === 'awaiting'
-      || value === 'in_transit'
-      || value === 'partial'
-      || value === 'ready';
+  private tileTokenToFilter(token: string | undefined): ConsolidationFilter | null {
+    switch (token) {
+      case 'awaiting':
+        return 'awaiting';
+      case 'transit':
+        return 'in_transit';
+      case 'preparing':
+        return 'partial';
+      case 'ready':
+        return 'ready';
+      default:
+        return null;
+    }
   }
 
   getConsolidationStage(row: PackageQueueItem): ConsolidationStage {

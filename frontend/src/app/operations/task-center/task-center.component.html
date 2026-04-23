@@ -37,7 +37,11 @@
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
+  <app-ops-metric-strip
+    [items]="metricStrip()"
+    (itemClick)="openMetricTile($event)"
+    aria-label="Task summary"
+  ></app-ops-metric-strip>
 
   <div class="ops-grid ops-grid--split ops-grid--narrow-sidebar">
     <section class="ops-panel ops-panel--queue">

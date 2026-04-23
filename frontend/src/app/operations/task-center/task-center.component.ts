@@ -24,7 +24,7 @@ import {
   mapOperationsToneToChipTone,
 } from '../operations-display.util';
 import { OperationsService } from '../services/operations.service';
-import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsMetricStripComponent, OpsMetricStripItem, OpsMetricTileTone } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 
 type TaskFilter = 'all' | 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
@@ -33,8 +33,12 @@ interface TaskMetric {
   label: string;
   value: number;
   note: string;
-  filter?: TaskFilter;
-  accent: string;
+  /** Drives left-accent bar + pill badge on the strip tile (PFQ palette). */
+  tileTone: OpsMetricTileTone;
+  /** Short ALL-CAPS text shown inside the top-right badge pill. */
+  badgeLabel: string;
+  /** Status filter to activate when the tile is clicked (null = no-op). */
+  filter: TaskFilter | null;
 }
 
 const EMPTY_TASK_FEED: OperationsTaskListResponse = {
@@ -116,25 +120,51 @@ export class TaskCenterComponent implements OnInit {
     const feed = this.taskFeed();
     const rows = feed.results;
     return [
-      { label: 'Assignments', value: feed.queue_assignments.length, note: 'Live queue work', accent: '#3d4b99' },
-      { label: 'Notifications', value: feed.notifications.length, note: 'Workflow events', accent: '#b7833f' },
-      { label: 'Open', value: rows.filter((task) => task.status === 'PENDING').length, note: 'Unread or awaiting action', filter: 'PENDING', accent: '#7a4fd1' },
-      { label: 'Completed', value: rows.filter((task) => task.status === 'COMPLETED').length, note: 'Read or closed', filter: 'COMPLETED', accent: '#2e8a48' },
+      {
+        label: 'Assignments',
+        value: feed.queue_assignments.length,
+        note: 'Live queue work',
+        tileTone: 'info',
+        badgeLabel: 'ASSIGNED',
+        filter: null,
+      },
+      {
+        label: 'Notifications',
+        value: feed.notifications.length,
+        note: 'Workflow events',
+        tileTone: 'drafts',
+        badgeLabel: 'NOTICES',
+        filter: null,
+      },
+      {
+        label: 'Open',
+        value: rows.filter((task) => task.status === 'PENDING').length,
+        note: 'Unread or awaiting action',
+        tileTone: 'awaiting',
+        badgeLabel: 'PENDING',
+        filter: 'PENDING',
+      },
+      {
+        label: 'Completed',
+        value: rows.filter((task) => task.status === 'COMPLETED').length,
+        note: 'Read or closed',
+        tileTone: 'ready',
+        badgeLabel: 'DONE',
+        filter: 'COMPLETED',
+      },
     ];
   });
 
-  readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
-    const active = this.activeFilter();
-    return this.metrics().map((metric) => ({
+  readonly metricStrip = computed<readonly OpsMetricStripItem[]>(() =>
+    this.metrics().map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
-      interactive: metric.filter != null,
-      token: metric.filter,
-      active: metric.filter != null && active === metric.filter,
-      accent: metric.accent,
-    }));
-  });
+      interactive: metric.filter !== null,
+      token: metric.tileTone,
+      badge: { label: metric.badgeLabel, tone: metric.tileTone },
+    })),
+  );
 
   readonly formatTaskType = formatTaskType;
   readonly getTaskTone = getTaskTone;
@@ -154,20 +184,6 @@ export class TaskCenterComponent implements OnInit {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
-  openMetric(metric: OpsMetricStripItem): void {
-    if (!this.isTaskFilter(metric.token)) {
-      return;
-    }
-    this.setFilter(metric.token);
-  }
-
-  private isTaskFilter(value: string | undefined): value is TaskFilter {
-    return value === 'all'
-      || value === 'PENDING'
-      || value === 'IN_PROGRESS'
-      || value === 'COMPLETED';
-  }
-
   onSearch(value: string): void {
     this.searchTerm.set(value);
   }
@@ -176,6 +192,22 @@ export class TaskCenterComponent implements OnInit {
     const route = getTaskEntityRoute(task.related_entity_type, task.related_entity_id);
     if (route) {
       this.router.navigateByUrl(route);
+    }
+  }
+
+  openMetricTile(item: OpsMetricStripItem): void {
+    const filter = this.tileToneToFilter(item.token);
+    if (filter === null) {
+      return;
+    }
+    this.setFilter(filter);
+  }
+
+  private tileToneToFilter(tone: string | undefined): TaskFilter | null {
+    switch (tone) {
+      case 'awaiting': return 'PENDING';
+      case 'ready': return 'COMPLETED';
+      default: return null;
     }
   }
 
