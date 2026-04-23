@@ -1211,6 +1211,8 @@ export class OperationsWorkspaceStateService {
     if (!warehouseId || warehouseId <= 0) {
       return;
     }
+    const remainingLoadedWarehouses = (this.loadedWarehousesByItem()[itemId] ?? [])
+      .filter((id) => id !== warehouseId);
 
     // 0. Invalidate any in-flight addItemWarehouse response for this item so it
     //    cannot re-insert the warehouse we're about to remove.
@@ -1232,11 +1234,10 @@ export class OperationsWorkspaceStateService {
 
     // 2. Remove from the loaded-warehouses tracker so the add-menu can offer it again.
     this.loadedWarehousesByItem.update((map) => {
-      const loaded = map[itemId] ?? [];
-      if (!loaded.includes(warehouseId)) {
+      if (!(map[itemId] ?? []).includes(warehouseId)) {
         return map;
       }
-      return { ...map, [itemId]: loaded.filter((id) => id !== warehouseId) };
+      return { ...map, [itemId]: remainingLoadedWarehouses };
     });
 
     // 3. Clear the per-item warehouse override if it pointed at the removed
@@ -1269,17 +1270,39 @@ export class OperationsWorkspaceStateService {
         if (entry.item_id !== itemId) {
           return entry;
         }
-        return {
+        const warehouseCards = (entry.warehouse_cards ?? []).filter(
+          (card) => card.warehouse_id !== warehouseId,
+        );
+        const nextSourceWarehouseId =
+          Number(entry.source_warehouse_id ?? 0) === warehouseId
+            ? (remainingLoadedWarehouses[0] ?? null)
+            : entry.source_warehouse_id ?? null;
+        const nextRecommendedWarehouseId =
+          Number(entry.recommended_warehouse_id ?? 0) === warehouseId
+            ? (
+              warehouseCards.find((card) => card.recommended)?.warehouse_id
+              ?? warehouseCards[0]?.warehouse_id
+              ?? null
+            )
+            : entry.recommended_warehouse_id ?? null;
+        const nextEntry: AllocationItemGroup = {
           ...entry,
           candidates: entry.candidates.filter(
             (candidate) => candidate.inventory_id !== warehouseId,
           ),
-          warehouse_cards: (entry.warehouse_cards ?? []).filter(
-            (card) => card.warehouse_id !== warehouseId,
-          ),
+          warehouse_cards: warehouseCards,
+          selected_warehouse_ids: remainingLoadedWarehouses,
+          source_warehouse_id: nextSourceWarehouseId,
+          recommended_warehouse_id: nextRecommendedWarehouseId,
         };
+        return remainingLoadedWarehouses.length > 0
+          ? nextEntry
+          : this.resetPreviewStateForItem(itemId, nextEntry);
       }),
     });
+    if (remainingLoadedWarehouses.length > 0) {
+      this.refreshPreviewForItem(itemId);
+    }
   }
 
   /**
@@ -1404,37 +1427,26 @@ export class OperationsWorkspaceStateService {
     this.maybeRefreshContinuationPreview(itemId);
   }
 
-  setCandidateQuantity(itemId: number, candidate: AllocationCandidate, quantity: number): void {
+  setCandidateQuantity(
+    itemId: number,
+    candidate: AllocationCandidate,
+    quantity: number,
+    suppressPreview = false,
+  ): void {
     const normalizedQty = this.toFixedQuantity(Math.max(0, quantity));
-    const rows = [...(this.selectedRowsByItem()[itemId] ?? [])];
-    const existingIndex = rows.findIndex(
-      (row) => this.selectionKey(row) === this.selectionKey(candidate),
+    const rows = this.applyCandidateQuantity(
+      itemId,
+      [...(this.selectedRowsByItem()[itemId] ?? [])],
+      candidate,
+      normalizedQty,
     );
-    if (normalizedQty <= 0) {
-      if (existingIndex >= 0) {
-        rows.splice(existingIndex, 1);
-      }
-    } else {
-      const nextRow: AllocationSelectionPayload = {
-        item_id: itemId,
-        inventory_id: candidate.inventory_id,
-        batch_id: candidate.batch_id,
-        quantity: this.formatQuantity(normalizedQty),
-        source_type: candidate.source_type,
-        source_record_id: candidate.source_record_id ?? null,
-        uom_code: candidate.uom_code ?? null,
-      };
-      if (existingIndex >= 0) {
-        rows[existingIndex] = nextRow;
-      } else {
-        rows.push(nextRow);
-      }
-    }
     this.selectedRowsByItem.set({
       ...this.selectedRowsByItem(),
       [itemId]: this.sortSelections(itemId, rows),
     });
-    this.maybeRefreshContinuationPreview(itemId);
+    if (!suppressPreview) {
+      this.maybeRefreshContinuationPreview(itemId);
+    }
   }
 
   /**
@@ -1487,6 +1499,7 @@ export class OperationsWorkspaceStateService {
         ? this.toNumber(card.total_available)
         : Number.POSITIVE_INFINITY;
     let remaining = Math.min(normalizedQty, cardCap);
+    let rows = [...(this.selectedRowsByItem()[itemId] ?? [])];
 
     for (const batch of batches) {
       const perBatchCap = this.toNumber(batch.usable_qty ?? batch.available_qty);
@@ -1513,14 +1526,14 @@ export class OperationsWorkspaceStateService {
         expiry_date: batch.expiry_date ?? null,
         uom_code: batch.uom_code ?? null,
       };
-      this.setCandidateQuantity(itemId, fallbackCandidate, take);
+      rows = this.applyCandidateQuantity(itemId, rows, fallbackCandidate, take);
       remaining = this.toFixedQuantity(remaining - take);
     }
 
     // Zero any remaining selections for this warehouse whose batches were
     // not covered above (tail release when qty shrinks).
     const processedBatchIds = new Set(batches.map((b) => b.batch_id));
-    const leftoverRows = (this.selectedRowsByItem()[itemId] ?? [])
+    const leftoverRows = rows
       .filter(
         (row) =>
           row.inventory_id === warehouseId &&
@@ -1552,8 +1565,13 @@ export class OperationsWorkspaceStateService {
         expiry_date: null,
         uom_code: row.uom_code ?? null,
       };
-      this.setCandidateQuantity(itemId, fallbackCandidate, 0);
+      rows = this.applyCandidateQuantity(itemId, rows, fallbackCandidate, 0);
     }
+    this.selectedRowsByItem.set({
+      ...this.selectedRowsByItem(),
+      [itemId]: this.sortSelections(itemId, rows),
+    });
+    this.maybeRefreshContinuationPreview(itemId);
   }
 
   /**
@@ -1634,11 +1652,7 @@ export class OperationsWorkspaceStateService {
     if (!continuationActive) {
       return;
     }
-    const previewWarehouseId = loaded[loaded.length - 1];
-    if (!previewWarehouseId) {
-      return;
-    }
-    this.previewItemAllocations(itemId, previewWarehouseId);
+    this.refreshPreviewForItem(itemId);
   }
 
   private mergePreviewState(
@@ -2040,6 +2054,67 @@ export class OperationsWorkspaceStateService {
         (candidateOrder.get(this.selectionKey(left)) ?? Number.MAX_SAFE_INTEGER) -
         (candidateOrder.get(this.selectionKey(right)) ?? Number.MAX_SAFE_INTEGER),
     );
+  }
+
+  private applyCandidateQuantity(
+    itemId: number,
+    rows: AllocationSelectionPayload[],
+    candidate: AllocationCandidate,
+    normalizedQty: number,
+  ): AllocationSelectionPayload[] {
+    const existingIndex = rows.findIndex(
+      (row) => this.selectionKey(row) === this.selectionKey(candidate),
+    );
+    if (normalizedQty <= 0) {
+      if (existingIndex >= 0) {
+        rows.splice(existingIndex, 1);
+      }
+      return rows;
+    }
+    const nextRow: AllocationSelectionPayload = {
+      item_id: itemId,
+      inventory_id: candidate.inventory_id,
+      batch_id: candidate.batch_id,
+      quantity: this.formatQuantity(normalizedQty),
+      source_type: candidate.source_type,
+      source_record_id: candidate.source_record_id ?? null,
+      uom_code: candidate.uom_code ?? null,
+    };
+    if (existingIndex >= 0) {
+      rows[existingIndex] = nextRow;
+    } else {
+      rows.push(nextRow);
+    }
+    return rows;
+  }
+
+  private refreshPreviewForItem(itemId: number): void {
+    const loaded = this.loadedWarehousesByItem()[itemId] ?? [];
+    if (loaded.length === 0) {
+      return;
+    }
+    const effectiveWarehouseId = Number(this.sanitizeInteger(this.effectiveWarehouseForItem(itemId)));
+    const previewWarehouseId = loaded.includes(effectiveWarehouseId)
+      ? effectiveWarehouseId
+      : loaded[loaded.length - 1];
+    if (!previewWarehouseId) {
+      return;
+    }
+    this.previewItemAllocations(itemId, previewWarehouseId);
+  }
+
+  private resetPreviewStateForItem(
+    itemId: number,
+    item: AllocationItemGroup,
+  ): AllocationItemGroup {
+    return {
+      ...item,
+      remaining_shortfall_qty: item.remaining_qty,
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      draft_selected_qty: this.formatQuantity(this.getSelectedTotalForItem(itemId)),
+      effective_remaining_qty: item.remaining_qty,
+    };
   }
 
   private selectionKey(

@@ -630,12 +630,36 @@ describe('OperationsService', () => {
     });
   });
 
+  it('uses the caller supplied idempotency key when dispatching a consolidation leg', () => {
+    service.dispatchConsolidationLeg(44, 301, { driver_name: 'Driver One' }, 'dispatch-leg-44-301-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/dispatch');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('dispatch-leg-44-301-fixed');
+    request.flush({
+      status: 'IN_TRANSIT',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'IN_TRANSIT' },
+    });
+  });
+
   it('adds an idempotency key when receiving a consolidation leg', () => {
     service.receiveConsolidationLeg(44, 301, { received_by_name: 'Officer One' }).subscribe();
 
     const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/receive');
     expect(request.request.method).toBe('POST');
     expect(request.request.headers.get('Idempotency-Key')).toMatch(/^consolidation-leg-receive-44-301-/);
+    request.flush({
+      status: 'RECEIVED_AT_STAGING',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
+      leg: { leg_id: 301, package_id: 44, status_code: 'RECEIVED_AT_STAGING' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when receiving a consolidation leg', () => {
+    service.receiveConsolidationLeg(44, 301, { received_by_name: 'Officer One' }, 'receive-leg-44-301-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/receive');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('receive-leg-44-301-fixed');
     request.flush({
       status: 'RECEIVED_AT_STAGING',
       package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'CONSOLIDATING' },
@@ -673,6 +697,17 @@ describe('OperationsService', () => {
     });
   });
 
+  it('uses the caller supplied idempotency key when requesting a partial release', () => {
+    service.requestPartialRelease(44, { reason: 'Split urgent items.' }, 'partial-release-request-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/request');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('partial-release-request-44-fixed');
+    request.flush({
+      status: 'PARTIAL_RELEASE_REQUESTED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'PARTIAL_RELEASE_REQUESTED' },
+    });
+  });
+
   it('adds an idempotency key when approving a partial release', () => {
     service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }).subscribe();
 
@@ -686,12 +721,35 @@ describe('OperationsService', () => {
     });
   });
 
+  it('uses the caller supplied idempotency key when approving a partial release', () => {
+    service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }, 'partial-release-approve-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/approve');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('partial-release-approve-44-fixed');
+    request.flush({
+      parent: { reliefpkg_id: 44 },
+      released_child: { reliefpkg_id: 45 },
+      residual_child: { reliefpkg_id: 46 },
+    });
+  });
+
   it('adds an idempotency key when submitting pickup release', () => {
     service.submitPickupRelease(44, { collected_by_name: 'Driver One' }).subscribe();
 
     const request = httpMock.expectOne('/api/v1/operations/packages/44/pickup-release');
     expect(request.request.method).toBe('POST');
     expect(request.request.headers.get('Idempotency-Key')).toMatch(/^pickup-release-44-/);
+    request.flush({
+      status: 'RECEIVED',
+      package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'RECEIVED' },
+    });
+  });
+
+  it('uses the caller supplied idempotency key when submitting pickup release', () => {
+    service.submitPickupRelease(44, { collected_by_name: 'Driver One' }, 'pickup-release-44-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/pickup-release');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('pickup-release-44-fixed');
     request.flush({
       status: 'RECEIVED',
       package: { reliefpkg_id: 44, reliefrqst_id: 12, status_code: 'RECEIVED' },

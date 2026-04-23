@@ -792,6 +792,13 @@ def _cached_idempotent_response(
     )
     if not isinstance(cached_result, dict):
         return None
+    return _cached_idempotent_http_response(request, cached_result)
+
+
+def _cached_idempotent_http_response(
+    request,
+    cached_result: Mapping[str, Any],
+) -> Response:
     request_fingerprint = _request_idempotency_fingerprint(request)
     cached_fingerprint = str(cached_result.get("_request_fingerprint") or "").strip()
     if cached_fingerprint and cached_fingerprint != request_fingerprint:
@@ -823,7 +830,7 @@ def _begin_idempotent_response(
     cache_key = _idempotency_cache_key(idempotency_key, request, record, endpoint=endpoint)
     cached_result = cache.get(cache_key)
     if isinstance(cached_result, dict):
-        return cache_key, None, None, Response(cached_result)
+        return cache_key, None, None, _cached_idempotent_http_response(request, cached_result)
 
     reservation_key = f"{cache_key}:in_progress"
     reservation_token = uuid.uuid4().hex
@@ -834,7 +841,7 @@ def _begin_idempotent_response(
     ):
         cached_result = cache.get(cache_key)
         if isinstance(cached_result, dict):
-            return cache_key, None, None, Response(cached_result)
+            return cache_key, None, None, _cached_idempotent_http_response(request, cached_result)
         return (
             cache_key,
             None,
@@ -2368,9 +2375,16 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
 
     def _freshness_state(item: Mapping[str, Any]) -> str:
         freshness = item.get("freshness")
-        if not isinstance(freshness, dict):
-            return ""
-        return str(freshness.get("state") or "").strip().upper()
+        if isinstance(freshness, str):
+            return freshness.strip().upper()
+        if isinstance(freshness, dict):
+            return str(freshness.get("state") or "").strip().upper()
+        legacy_state = item.get("freshness_state")
+        if isinstance(legacy_state, str):
+            return legacy_state.strip().upper()
+        if isinstance(legacy_state, Mapping):
+            return str(legacy_state.get("state") or legacy_state.get("value") or "").strip().upper()
+        return ""
 
     response = {
         "as_of_datetime": (
@@ -4289,6 +4303,10 @@ def assign_storage_location(request):
     assert item_id is not None
     assert inventory_id is not None
     assert location_id is not None
+
+    scope_error = _require_warehouse_scope(request, inventory_id, write=True)
+    if scope_error:
+        return scope_error
 
     actor_user_id = _actor_id(request) or "SYSTEM"
     rate_limited = _high_risk_transition_rate_limit_response(

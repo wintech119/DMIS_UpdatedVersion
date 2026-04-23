@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import models
 from django.utils import timezone
+
+from . import constants
 
 
 class AuditedModel(models.Model):
@@ -307,7 +311,8 @@ class OperationsConsolidationLegItem(AuditedModel):
         ]
 
     @property
-    def planned_qty(self):
+    def planned_qty(self) -> Decimal:
+        """Read-only alias for quantity."""
         return self.quantity
 
 
@@ -409,7 +414,9 @@ class OperationsPartialReleaseRequest(AuditedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["package"],
-                condition=models.Q(approval_status_code="PENDING_APPROVAL"),
+                condition=models.Q(
+                    approval_status_code=constants.OVERRIDE_STATUS_PENDING_APPROVAL
+                ),
                 name="ops_partial_unique_pending_pkg",
             ),
         ]

@@ -2552,7 +2552,7 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
   const ITEM_ID = 101;
   const WAREHOUSE_ID = 9001;
 
-  function buildItem(): AllocationItemGroup {
+  function buildItem(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
     return {
       item_id: ITEM_ID,
       item_code: 'WATER-101',
@@ -2635,6 +2635,7 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
           ],
         },
       ],
+      ...overrides,
     };
   }
 
@@ -2643,7 +2644,14 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     TestBed.configureTestingModule({
       providers: [
         OperationsWorkspaceStateService,
-        { provide: OperationsService, useValue: {} as Partial<OperationsService> },
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: jasmine
+              .createSpy('previewItemAllocationOptions')
+              .and.returnValue(of(buildItem())),
+          } as Partial<OperationsService>,
+        },
       ],
     });
     const service = TestBed.inject(OperationsWorkspaceStateService);
@@ -2747,10 +2755,59 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
     expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(0);
   });
 
+  it('refreshes continuation preview once after batch distribution', () => {
+    const previewSpy = jasmine
+      .createSpy('previewItemAllocationOptions')
+      .and.returnValue(of(buildItem({ continuation_recommended: true })));
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: previewSpy,
+          } as Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(7001);
+    service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [buildItem({ continuation_recommended: true })],
+    });
+
+    service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
+
+    expect(previewSpy).toHaveBeenCalledTimes(1);
+  });
+
   describe('removeItemWarehouse (FR05.06 kebab-menu redesign)', () => {
-    it('removes draft selections, drops the loaded tracker entry, and strips the rank card', () => {
+    it('removes draft selections, drops the loaded tracker entry, strips the rank card, and clears stale preview fields', () => {
       const service = makeService();
       service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [
+          buildItem({
+            continuation_recommended: true,
+            remaining_shortfall_qty: '5',
+            alternate_warehouses: [{
+              warehouse_id: 9999,
+              warehouse_name: 'Spanish Town',
+              available_qty: '5',
+              suggested_qty: '5',
+              can_fully_cover: false,
+            }],
+            draft_selected_qty: '45.0000',
+            effective_remaining_qty: '5.0000',
+          }),
+        ],
+      });
       service.setItemWarehouseQty(ITEM_ID, WAREHOUSE_ID, 45);
       expect(service.getItemWarehouseAllocatedQty(ITEM_ID, WAREHOUSE_ID)).toBe(45);
 
@@ -2766,6 +2823,11 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
         ?.items.find((entry) => entry.item_id === ITEM_ID);
       expect(item?.warehouse_cards ?? []).toEqual([]);
       expect(item?.candidates.filter((c) => c.inventory_id === WAREHOUSE_ID)).toEqual([]);
+      expect(item?.continuation_recommended).toBeFalse();
+      expect(item?.alternate_warehouses ?? []).toEqual([]);
+      expect(item?.draft_selected_qty).toBe('0.0000');
+      expect(item?.effective_remaining_qty).toBe('50');
+      expect(item?.remaining_shortfall_qty).toBe('50');
     });
 
     it('is a no-op when warehouseId is 0 / negative / missing', () => {
@@ -2835,6 +2897,131 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
       const item = service.options()?.items.find((entry) => entry.item_id === ITEM_ID);
       expect(item?.warehouse_cards ?? []).toEqual([]);
       expect(item?.candidates.filter((candidate) => candidate.inventory_id === WAREHOUSE_ID)).toEqual([]);
+    });
+
+    it('requests a fresh preview against the remaining warehouse after removal', () => {
+      const secondaryWarehouseId = 9002;
+      const previewSpy = jasmine
+        .createSpy('previewItemAllocationOptions')
+        .and.returnValue(of(buildItem({
+          source_warehouse_id: secondaryWarehouseId,
+          candidates: [
+            {
+              batch_id: 3,
+              inventory_id: secondaryWarehouseId,
+              item_id: ITEM_ID,
+              usable_qty: '20',
+              reserved_qty: '0',
+              available_qty: '20',
+              source_type: 'ON_HAND',
+              source_record_id: null,
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+            },
+          ],
+          warehouse_cards: [
+            {
+              warehouse_id: secondaryWarehouseId,
+              warehouse_name: 'Montego Bay',
+              rank: 0,
+              issuance_order: 'FIFO',
+              total_available: '20',
+              allocatable_available_qty: '20',
+              suggested_qty: '20',
+              batches: [
+                {
+                  batch_id: 3,
+                  inventory_id: secondaryWarehouseId,
+                  batch_no: 'BT-3',
+                  batch_date: null,
+                  expiry_date: null,
+                  available_qty: '20',
+                  usable_qty: '20',
+                  reserved_qty: '0',
+                  uom_code: 'EA',
+                  source_type: 'ON_HAND',
+                  source_record_id: null,
+                },
+              ],
+            },
+          ],
+        })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          OperationsWorkspaceStateService,
+          {
+            provide: OperationsService,
+            useValue: {
+              previewItemAllocationOptions: previewSpy,
+            } as Partial<OperationsService>,
+          },
+        ],
+      });
+
+      const service = TestBed.inject(OperationsWorkspaceStateService);
+      service.reliefrqstId.set(7001);
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID, secondaryWarehouseId] });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [
+          buildItem({
+            source_warehouse_id: WAREHOUSE_ID,
+            selected_warehouse_ids: [WAREHOUSE_ID, secondaryWarehouseId],
+            candidates: [
+              ...buildItem().candidates,
+              {
+                batch_id: 3,
+                inventory_id: secondaryWarehouseId,
+                item_id: ITEM_ID,
+                usable_qty: '20',
+                reserved_qty: '0',
+                available_qty: '20',
+                source_type: 'ON_HAND',
+                source_record_id: null,
+                can_expire_flag: false,
+                issuance_order: 'FIFO',
+              },
+            ],
+            warehouse_cards: [
+              ...buildItem().warehouse_cards,
+              {
+                warehouse_id: secondaryWarehouseId,
+                warehouse_name: 'Montego Bay',
+                rank: 1,
+                issuance_order: 'FIFO',
+                total_available: '20',
+                allocatable_available_qty: '20',
+                suggested_qty: '20',
+                batches: [
+                  {
+                    batch_id: 3,
+                    inventory_id: secondaryWarehouseId,
+                    batch_no: 'BT-3',
+                    batch_date: null,
+                    expiry_date: null,
+                    available_qty: '20',
+                    usable_qty: '20',
+                    reserved_qty: '0',
+                    uom_code: 'EA',
+                    source_type: 'ON_HAND',
+                    source_record_id: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        ],
+      });
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+
+      expect(previewSpy).toHaveBeenCalledOnceWith(
+        7001,
+        ITEM_ID,
+        jasmine.objectContaining({ source_warehouse_id: secondaryWarehouseId }),
+      );
     });
   });
 });

@@ -1609,7 +1609,8 @@ def commit_allocation(
         )
 
     needs_items = {item.item_id: item for item in needs_items_list}
-    selected_item_ids = {int(row["item_id"]) for row in selected_rows}
+    rows_by_item = _package_plan_map(selected_rows)
+    selected_item_ids = set(rows_by_item)
     missing_item_ids = sorted(selected_item_ids - set(needs_items))
     if missing_item_ids:
         raise AllocationDispatchError(
@@ -1618,7 +1619,7 @@ def commit_allocation(
         )
     if override_markers is None:
         candidate_by_item: dict[int, list[dict[str, Any]]] = {}
-        for item_id in needs_items:
+        for item_id in sorted(selected_item_ids):
             item = Item.objects.filter(item_id=item_id).first()
             if item is None:
                 raise AllocationDispatchError(
@@ -1634,7 +1635,7 @@ def commit_allocation(
             )
 
         resolved_override_markers: list[str] = []
-        for item_id, rows in _package_plan_map(selected_rows).items():
+        for item_id, rows in rows_by_item.items():
             candidates = candidate_by_item.get(item_id, [])
             target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
             recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)

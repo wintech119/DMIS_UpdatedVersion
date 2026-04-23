@@ -98,9 +98,9 @@ class Command(BaseCommand):
         self._validate_tenant_exists(to_tenant_id)
 
         source_rows = self._active_memberships(from_tenant_id) if not skip_membership_copy else []
-        source_membership_count = len(source_rows) if not skip_membership_copy else 0
+        source_membership_count = len(source_rows)
         existing_target_user_ids = self._active_target_user_ids(to_tenant_id) if source_rows else set()
-        candidate_rows = [row for row in source_rows if row.user_id not in existing_target_user_ids] if source_rows else []
+        candidate_rows = [row for row in source_rows if row.user_id not in existing_target_user_ids]
         skipped_existing = source_membership_count - len(candidate_rows)
 
         owned_warehouse_ids: list[int] = []

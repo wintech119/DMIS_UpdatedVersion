@@ -143,6 +143,8 @@ describe('Auth pages', () => {
 
   it('surfaces local harness refresh failures and clears the working state', async () => {
     (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    // Intentional defensive-path coverage: simulate a rejected refresh call so
+    // the component's catch branch clears the working state and surfaces the error.
     const authSession = {
       loginAvailable: signal(false),
       authenticated: signal(false),

@@ -398,13 +398,19 @@ export class OperationsService {
     reliefpkgId: number,
     legId: number,
     payload: ConsolidationLegDispatchPayload,
+    idempotencyKey?: string,
   ): Observable<ConsolidationLegDispatchResponse> {
+    const key = this.resolveIdempotencyKey(
+      idempotencyKey,
+      'consolidation-leg-dispatch',
+      `${reliefpkgId}-${legId}`,
+    );
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/dispatch`,
       payload,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('consolidation-leg-dispatch', `${reliefpkgId}-${legId}`),
+          'Idempotency-Key': key,
         },
       },
     ).pipe(map(normalizeConsolidationLegDispatchResponse));
@@ -414,13 +420,19 @@ export class OperationsService {
     reliefpkgId: number,
     legId: number,
     payload: ConsolidationLegReceivePayload,
+    idempotencyKey?: string,
   ): Observable<ConsolidationLegReceiveResponse> {
+    const key = this.resolveIdempotencyKey(
+      idempotencyKey,
+      'consolidation-leg-receive',
+      `${reliefpkgId}-${legId}`,
+    );
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/receive`,
       payload,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('consolidation-leg-receive', `${reliefpkgId}-${legId}`),
+          'Idempotency-Key': key,
         },
       },
     ).pipe(map(normalizeConsolidationLegReceiveResponse));
@@ -438,13 +450,19 @@ export class OperationsService {
   requestPartialRelease(
     reliefpkgId: number,
     payload: PartialReleaseRequestPayload,
+    idempotencyKey?: string,
   ): Observable<PartialReleaseRequestResponse> {
+    const key = this.resolveIdempotencyKey(
+      idempotencyKey,
+      'partial-release-request',
+      reliefpkgId,
+    );
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/partial-release/request`,
       payload,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('partial-release-request', reliefpkgId),
+          'Idempotency-Key': key,
         },
       },
     ).pipe(map(normalizePartialReleaseRequestResponse));
@@ -453,13 +471,19 @@ export class OperationsService {
   approvePartialRelease(
     reliefpkgId: number,
     payload: PartialReleaseApprovePayload,
+    idempotencyKey?: string,
   ): Observable<PartialReleaseApproveResponse> {
+    const key = this.resolveIdempotencyKey(
+      idempotencyKey,
+      'partial-release-approve',
+      reliefpkgId,
+    );
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/partial-release/approve`,
       payload,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('partial-release-approve', reliefpkgId),
+          'Idempotency-Key': key,
         },
       },
     ).pipe(map(normalizePartialReleaseApproveResponse));
@@ -468,13 +492,19 @@ export class OperationsService {
   submitPickupRelease(
     reliefpkgId: number,
     payload: PickupReleasePayload,
+    idempotencyKey?: string,
   ): Observable<PickupReleaseResponse> {
+    const key = this.resolveIdempotencyKey(
+      idempotencyKey,
+      'pickup-release',
+      reliefpkgId,
+    );
     return this.http.post<unknown>(
       `${this.apiUrl}/packages/${reliefpkgId}/pickup-release`,
       payload,
       {
         headers: {
-          'Idempotency-Key': this.createIdempotencyKey('pickup-release', reliefpkgId),
+          'Idempotency-Key': key,
         },
       },
     ).pipe(map(normalizePickupReleaseResponse));
@@ -506,6 +536,15 @@ export class OperationsService {
     const randomId = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `${scope}-${resourceId}-${randomId}`;
+  }
+
+  private resolveIdempotencyKey(
+    idempotencyKey: string | undefined,
+    scope: OperationsIdempotencyScope,
+    resourceId: number | string,
+  ): string {
+    const suppliedKey = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+    return suppliedKey || this.createIdempotencyKey(scope, resourceId);
   }
 
   private isPreDispatchWaybillError(error: HttpErrorResponse): boolean {
