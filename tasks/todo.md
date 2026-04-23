@@ -83,3 +83,9 @@
 2. Completed: patched only backend service, view, and test findings that still reproduced.
 3. Completed: applied only non-visual frontend fixes needed for idempotency headers and lint-safe SCSS syntax/spacing; visual frontend comments were left untouched per instruction.
 4. Completed: ran targeted Django and Angular verification, then completed architecture-review closeout.
+
+## Review Comment Verification Sweep - 2026-04-23 (Follow-up)
+
+1. Completed: re-verified the newly cited backend and frontend review findings against the current tree and identified which comments were already stale versus still actionable.
+2. Completed: applied only the remaining non-visual fix in the shared operations metric strip and added regression coverage in the task-center spec.
+3. Completed: ran focused Django and Angular verification for the rechecked areas and completed the architecture-review closeout.

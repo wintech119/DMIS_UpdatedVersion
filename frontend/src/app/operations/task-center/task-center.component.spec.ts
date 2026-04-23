@@ -113,13 +113,17 @@ describe('TaskCenterComponent', () => {
     fixture.detectChanges();
 
     const host: HTMLElement = fixture.nativeElement;
+    const strip = host.querySelector<HTMLElement>('.ops-flow-strip');
     const cards = Array.from(host.querySelectorAll<HTMLElement>('.ops-flow-strip__card'));
     const assignmentsCard = cards.find((card) => card.textContent?.includes('Assignments'));
     const notificationsCard = cards.find((card) => card.textContent?.includes('Notifications'));
 
+    expect(strip?.getAttribute('role')).toBe('group');
     expect(assignmentsCard).toBeDefined();
     expect(notificationsCard).toBeDefined();
     expect(assignmentsCard!.classList.contains('ops-flow-strip__card--interactive')).toBeFalse();
     expect(notificationsCard!.classList.contains('ops-flow-strip__card--interactive')).toBeFalse();
+    expect(assignmentsCard!.getAttribute('role')).toBeNull();
+    expect(notificationsCard!.getAttribute('role')).toBeNull();
   });
 });
