@@ -287,7 +287,7 @@ class OperationsConsolidationLegItem(AuditedModel):
     shortage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
     overage_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
     damaged_qty = models.DecimalField(max_digits=15, decimal_places=4, blank=True, null=True)
-    variance_reason_text = models.TextField(blank=True, null=True)
+    variance_reason_text = models.CharField(max_length=500, blank=True, null=True)
     source_type = models.CharField(max_length=20, default="ON_HAND")
     source_record_id = models.IntegerField(blank=True, null=True)
     staging_batch_id = models.IntegerField(blank=True, null=True)
@@ -379,11 +379,11 @@ class OperationsPartialReleaseRequest(AuditedModel):
     )
     requested_by_user_id = models.CharField(max_length=50)
     requested_at = models.DateTimeField(default=timezone.now)
-    request_reason = models.TextField()
+    request_reason = models.CharField(max_length=500)
     approval_status_code = models.CharField(max_length=40, db_index=True)
     approved_by_user_id = models.CharField(max_length=50, blank=True, null=True)
     approved_at = models.DateTimeField(blank=True, null=True)
-    approval_reason = models.TextField(blank=True, null=True)
+    approval_reason = models.CharField(max_length=500, blank=True, null=True)
     released_child_package = models.ForeignKey(
         OperationsPackage,
         on_delete=models.SET_NULL,
@@ -405,6 +405,13 @@ class OperationsPartialReleaseRequest(AuditedModel):
         indexes = [
             models.Index(fields=["package", "requested_at"], name="ops_partial_req_pkg_time"),
             models.Index(fields=["approval_status_code", "requested_at"], name="ops_partial_req_status_time"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package"],
+                condition=models.Q(approval_status_code="PENDING_APPROVAL"),
+                name="ops_partial_unique_pending_pkg",
+            ),
         ]
 
 

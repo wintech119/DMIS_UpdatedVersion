@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime
 from io import StringIO
 from unittest.mock import patch
@@ -63,6 +64,31 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
         self.assertIn("owned warehouses to reassign: 2", text)
         self.assertIn("warehouse scope: 1, 2", text)
         self.assertIn("Dry-run only", text)
+
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._owned_warehouse_ids", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._planned_backfill_rows", return_value=[])
+    def test_handle_reports_specific_no_work_message(
+        self,
+        _planned_backfill_rows_mock,
+        _owned_warehouse_ids_mock,
+        _active_memberships_mock,
+        _validate_tenant_exists_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            stdout=output,
+        )
+
+        self.assertIn(
+            "No work to do: no source memberships, no owned warehouses to reassign, and no backfill rows.",
+            output.getvalue(),
+        )
 
     @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
     @patch(
@@ -166,6 +192,9 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
             upsert_rows,
             [[1, 2, "OWNED", "FULL", datetime(2026, 4, 18).date(), None, "SYSTEM", now]],
         )
+        upsert_sql = cursor.executemany.call_args.args[0]
+        self.assertNotIn("create_by_id = EXCLUDED.create_by_id", upsert_sql)
+        self.assertNotIn("create_dtime = EXCLUDED.create_dtime", upsert_sql)
 
     def test_parse_positive_int_list_requires_json_array(self) -> None:
         with self.assertRaisesMessage(
@@ -180,6 +209,48 @@ class AlignTenantScopeCommandTests(SimpleTestCase):
             "--warehouse-ids must not contain more than 100 items.",
         ):
             Command()._parse_positive_int_list(list(range(1, 102)))
+
+    def test_parse_positive_int_list_rejects_boolean_entries(self) -> None:
+        with self.assertRaisesMessage(
+            CommandError,
+            "--warehouse-ids entries must be positive integers. --warehouse-ids[0]: Must be a positive integer.",
+        ):
+            Command()._parse_positive_int_list([True])
+
+    @patch("replenishment.management.commands.align_tenant_scope.transaction.atomic", return_value=nullcontext())
+    @patch("replenishment.management.commands.align_tenant_scope.Command._insert_tenant_warehouse_rows")
+    @patch(
+        "replenishment.management.commands.align_tenant_scope.Command._planned_backfill_rows",
+        return_value=[(27, 1)],
+    )
+    @patch("replenishment.management.commands.align_tenant_scope.Command._active_memberships", return_value=[])
+    @patch("replenishment.management.commands.align_tenant_scope.Command._validate_tenant_exists")
+    def test_handle_reuses_precomputed_backfill_rows_when_applying(
+        self,
+        _validate_tenant_exists_mock,
+        _active_memberships_mock,
+        planned_backfill_rows_mock,
+        insert_tenant_warehouse_rows_mock,
+        _atomic_mock,
+    ) -> None:
+        output = StringIO()
+
+        call_command(
+            "align_tenant_scope",
+            from_tenant_id=27,
+            to_tenant_id=1,
+            backfill_tenant_warehouse=True,
+            apply=True,
+            stdout=output,
+        )
+
+        planned_backfill_rows_mock.assert_called_once()
+        insert_tenant_warehouse_rows_mock.assert_called_once_with(
+            [(27, 1)],
+            actor_ref="SYSTEM",
+            now=insert_tenant_warehouse_rows_mock.call_args.kwargs["now"],
+            tenant_ids=[1, 27],
+        )
 
     def test_handle_rejects_actor_values_that_exceed_audit_column_width(self) -> None:
         with self.assertRaisesMessage(CommandError, "actor value too long"):

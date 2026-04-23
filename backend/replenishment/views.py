@@ -312,6 +312,9 @@ def _status_matches(
 
 
 def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> int | None:
+    if isinstance(value, bool):
+        errors[field_name] = "Must be a positive integer."
+        return None
     if isinstance(value, float):
         errors[field_name] = "Must be an integer."
         return None

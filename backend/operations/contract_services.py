@@ -7909,23 +7909,28 @@ def request_partial_release(
         raise OperationValidationError({"partial_release": "A partial release request is already pending."})
     now = timezone.now()
     previous_consolidation_status = package_record.consolidation_status
-    workflow_request = OperationsPartialReleaseRequest.objects.create(
-        package=package_record,
-        requested_by_user_id=actor_id,
-        requested_at=now,
-        request_reason=reason,
-        approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
-        artifact_json={
-            "package_id": int(package_record.package_id),
-            "request_reason": reason,
-            "requested_by_user_id": actor_id,
-            "requested_at": now.isoformat(),
-        },
-        create_by_id=actor_id,
-        create_dtime=now,
-        update_by_id=actor_id,
-        update_dtime=now,
-    )
+    try:
+        workflow_request = OperationsPartialReleaseRequest.objects.create(
+            package=package_record,
+            requested_by_user_id=actor_id,
+            requested_at=now,
+            request_reason=reason,
+            approval_status_code=PARTIAL_RELEASE_APPROVAL_PENDING,
+            artifact_json={
+                "package_id": int(package_record.package_id),
+                "request_reason": reason,
+                "requested_by_user_id": actor_id,
+                "requested_at": now.isoformat(),
+            },
+            create_by_id=actor_id,
+            create_dtime=now,
+            update_by_id=actor_id,
+            update_dtime=now,
+        )
+    except IntegrityError as exc:
+        raise OperationValidationError(
+            {"partial_release": "A partial release request is already pending."}
+        ) from exc
     _update_package_workflow_fields(
         package_record,
         actor_id=actor_id,

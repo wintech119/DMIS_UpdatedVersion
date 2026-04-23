@@ -71,6 +71,11 @@ interface ActionInboxPill {
   readonly icon: string;
 }
 
+interface WarehouseFilterOption {
+  readonly value: string;
+  readonly label: string;
+}
+
 @Component({
   selector: 'app-package-fulfillment-queue',
   standalone: true,
@@ -123,13 +128,22 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly filteredItems = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
     const filter = this.activeFilter();
+    const priority = this.priorityFilter();
+    const warehouse = this.warehouseFilter();
+    const sortOrder = this.sortOrder();
 
-    return this.items().filter((row) => {
+    const rows = this.items().filter((row) => {
       const stage = this.getFulfillmentStage(row);
       if (stage === 'excluded') {
         return false;
       }
       if (filter !== 'all' && stage !== filter) {
+        return false;
+      }
+      if (priority !== 'all' && this.priorityBucket(row) !== priority) {
+        return false;
+      }
+      if (warehouse !== 'all' && this.rowWarehouseId(row) !== warehouse) {
         return false;
       }
       if (!term) {
@@ -147,6 +161,21 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         .join(' ')
         .toLowerCase();
       return haystack.includes(term);
+    });
+
+    return rows.sort((left, right) => {
+      const leftTime = this.rowTimestamp(left);
+      const rightTime = this.rowTimestamp(right);
+      if (leftTime === rightTime) {
+        return left.reliefrqst_id - right.reliefrqst_id;
+      }
+      if (leftTime === null) {
+        return 1;
+      }
+      if (rightTime === null) {
+        return -1;
+      }
+      return sortOrder === 'newest' ? rightTime - leftTime : leftTime - rightTime;
     });
   });
 
@@ -247,6 +276,23 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   );
 
   readonly defaultWarehouseLabel = signal('All warehouses');
+
+  readonly warehouseOptions = computed<readonly WarehouseFilterOption[]>(() => {
+    const options = new Map<string, WarehouseFilterOption>();
+    for (const row of this.items()) {
+      const warehouseId = this.rowWarehouseId(row);
+      if (!warehouseId || options.has(warehouseId)) {
+        continue;
+      }
+      options.set(warehouseId, {
+        value: warehouseId,
+        label: `Warehouse ${warehouseId}`,
+      });
+    }
+    return Array.from(options.values()).sort(
+      (left, right) => Number(left.value) - Number(right.value),
+    );
+  });
 
   readonly actionInbox = computed<readonly ActionInboxPill[]>(() => {
     const stats = this.queueStats();
@@ -543,6 +589,36 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     }
     const diffMs = Date.now() - then;
     return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+  }
+
+  private rowWarehouseId(row: PackageQueueItem): string | null {
+    const warehouseId = row.current_package?.source_warehouse_id;
+    return typeof warehouseId === 'number' && warehouseId > 0
+      ? String(warehouseId)
+      : null;
+  }
+
+  private priorityBucket(row: PackageQueueItem): 'HIGH' | 'MEDIUM' | 'LOW' | null {
+    switch (String(row.urgency_ind ?? '').toUpperCase()) {
+      case 'C':
+      case 'H':
+        return 'HIGH';
+      case 'M':
+        return 'MEDIUM';
+      case 'L':
+        return 'LOW';
+      default:
+        return null;
+    }
+  }
+
+  private rowTimestamp(row: PackageQueueItem): number | null {
+    const value = row.create_dtime ?? row.request_date;
+    if (!value) {
+      return null;
+    }
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
   }
 
   hasUnread(filter: FulfillmentFilter): boolean {

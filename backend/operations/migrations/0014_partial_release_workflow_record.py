@@ -22,11 +22,11 @@ class Migration(migrations.Migration):
                 ("partial_release_request_id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("requested_by_user_id", models.CharField(max_length=50)),
                 ("requested_at", models.DateTimeField(default=django.utils.timezone.now)),
-                ("request_reason", models.TextField()),
+                ("request_reason", models.CharField(max_length=500)),
                 ("approval_status_code", models.CharField(db_index=True, max_length=40)),
                 ("approved_by_user_id", models.CharField(blank=True, max_length=50, null=True)),
                 ("approved_at", models.DateTimeField(blank=True, null=True)),
-                ("approval_reason", models.TextField(blank=True, null=True)),
+                ("approval_reason", models.CharField(blank=True, max_length=500, null=True)),
                 ("artifact_json", models.JSONField(blank=True, default=dict)),
                 (
                     "package",
@@ -62,6 +62,13 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(fields=["package", "requested_at"], name="ops_partial_req_pkg_time"),
                     models.Index(fields=["approval_status_code", "requested_at"], name="ops_partial_req_status_time"),
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        condition=models.Q(approval_status_code="PENDING_APPROVAL"),
+                        fields=["package"],
+                        name="ops_partial_unique_pending_pkg",
+                    ),
                 ],
             },
         ),

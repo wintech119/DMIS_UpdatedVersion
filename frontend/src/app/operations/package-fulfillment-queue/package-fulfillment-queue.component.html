@@ -15,7 +15,7 @@
           <span class="pfq-hero__pill-dot" aria-hidden="true"></span>
           <span>Active work</span>
           <span class="pfq-hero__pill-sep" aria-hidden="true">·</span>
-          <strong aria-live="polite">{{ activeQueueCount() }} in queue</strong>
+          <strong><span aria-live="polite" aria-atomic="true">{{ activeQueueCount() }}</span> in queue</strong>
         </span>
         <span class="pfq-hero__pill pfq-hero__pill--meta">
           <mat-icon aria-hidden="true">schedule</mat-icon>
@@ -163,6 +163,9 @@
               <span class="pfq-select__label">Warehouse:</span>
               <select class="pfq-select__control" [value]="warehouseFilter()" (change)="onWarehouseChange($any($event.target).value)">
                 <option value="all">All</option>
+                @for (option of warehouseOptions(); track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
               </select>
               <mat-icon aria-hidden="true">expand_more</mat-icon>
             </label>

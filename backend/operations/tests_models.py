@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from operations import staging_selection
 from operations.constants import STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK
@@ -142,6 +142,7 @@ class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
         self.assertEqual(package.effective_dispatch_source_warehouse_id, 55)
 
 
+@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class OperationsConsolidationLegItemModelTests(_OperationsRequestFactoryMixin, TestCase):
     def test_planned_qty_alias_preserves_compatible_quantity_column(self) -> None:
         request = self._create_request(82)
@@ -174,6 +175,7 @@ class OperationsConsolidationLegItemModelTests(_OperationsRequestFactoryMixin, T
             create_by_id="tester",
             update_by_id="tester",
         )
+        leg_item.refresh_from_db()
 
         self.assertEqual(leg_item.planned_qty, leg_item.quantity)
 

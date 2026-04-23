@@ -422,6 +422,21 @@ describe('WarehouseAllocationCardComponent', () => {
     });
   });
 
+  it('formats backend date-only strings in local time without shifting the calendar day', async () => {
+    const fixture = await render({ warehouse: buildCard() });
+    const component = fixture.componentInstance as unknown as {
+      formatDate(value: string | null | undefined): string;
+    };
+
+    expect(component.formatDate('2026-01-02')).toBe(
+      new Date(2026, 0, 2).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    );
+  });
+
   describe('override-risk indicator', () => {
     it('sets data-non-compliant on the status pill when risk is active and qty is 0', async () => {
       const fixture = await render({

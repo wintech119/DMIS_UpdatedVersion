@@ -300,6 +300,68 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(component.activeQueueCount()).toBe(2);
   });
 
+  it('applies priority, warehouse, and sort controls within filteredItems', () => {
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({
+            reliefrqst_id: 70,
+            urgency_ind: 'H',
+            create_dtime: '2026-04-11T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77070,
+              tracking_no: 'PKG-77070',
+              source_warehouse_id: 9002,
+              status_code: 'DRAFT',
+            }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 71,
+            urgency_ind: 'M',
+            create_dtime: '2026-04-09T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77071,
+              tracking_no: 'PKG-77071',
+              source_warehouse_id: 9001,
+              status_code: 'DRAFT',
+            }),
+          }),
+          buildQueueItem({
+            reliefrqst_id: 72,
+            urgency_ind: 'L',
+            create_dtime: '2026-04-10T09:00:00Z',
+            current_package: buildPackageSummary({
+              reliefpkg_id: 77072,
+              tracking_no: 'PKG-77072',
+              source_warehouse_id: 9002,
+              status_code: 'DRAFT',
+            }),
+          }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.warehouseOptions()).toEqual([
+      { value: '9001', label: 'Warehouse 9001' },
+      { value: '9002', label: 'Warehouse 9002' },
+    ]);
+
+    component.onPriorityChange('HIGH');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([70]);
+
+    component.onPriorityChange('all');
+    component.onWarehouseChange('9001');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([71]);
+
+    component.onWarehouseChange('all');
+    component.onSortChange('newest');
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([70, 72, 71]);
+  });
+
   it('syncs queueMetrics.active with the lower filter chip selection (shared source of truth)', () => {
     operationsService.getPackagesQueue.and.returnValue(
       of({

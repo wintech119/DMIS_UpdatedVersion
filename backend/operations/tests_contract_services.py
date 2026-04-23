@@ -9067,6 +9067,41 @@ class OperationsWorkflowContractTests(TestCase):
             f"operations_partial_release_request:{workflow_request.partial_release_request_id}",
         )
 
+    @patch("operations.contract_services.OperationsPartialReleaseRequest.objects.create")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_request_partial_release_translates_pending_request_race_into_validation_error(
+        self,
+        package_context_mock,
+        create_partial_release_request_mock,
+    ) -> None:
+        request_record, package_record, _received_leg, _outstanding_leg = self._create_partial_release_fixture(
+            request_id=392,
+            package_id=492,
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=492, reliefrqst_id=392, agency_id=501),
+            self._request_stub(reliefrqst_id=392, agency_id=501),
+            request_record,
+            package_record,
+        )
+        create_partial_release_request_mock.side_effect = IntegrityError("duplicate pending request")
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.request_partial_release(
+                492,
+                payload={"reason": "Release received legs now"},
+                actor_id="dispatcher-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                actor_permissions=[PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST],
+                tenant_context=self.dispatch_ready_context,
+                idempotency_key="partial-request-492",
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"partial_release": "A partial release request is already pending."},
+        )
+
     @patch("operations.contract_services.split_package")
     @patch("operations.contract_services._package_context_by_package_id")
     def test_approve_partial_release_updates_workflow_children_and_replays_idempotently(

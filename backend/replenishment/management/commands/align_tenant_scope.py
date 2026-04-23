@@ -113,13 +113,18 @@ class Command(BaseCommand):
         backfill_rows = []
         if backfill_tenant_warehouse:
             scoped_tenant_ids = sorted({from_tenant_id, to_tenant_id})
-            backfill_rows = self._missing_tenant_warehouse_rows(
-                scoped_tenant_ids,
-                warehouse_ids=owned_warehouse_ids or None,
+            backfill_rows = self._planned_backfill_rows(
+                scoped_tenant_ids=scoped_tenant_ids,
+                owned_warehouse_ids=owned_warehouse_ids,
+                reassign_owned_warehouses=reassign_owned_warehouses,
             )
 
         if not source_rows and not owned_warehouse_ids and not backfill_rows:
-            self.stdout.write(self.style.WARNING("No active source memberships found."))
+            self.stdout.write(
+                self.style.WARNING(
+                    "No work to do: no source memberships, no owned warehouses to reassign, and no backfill rows."
+                )
+            )
             return
 
         self.stdout.write("Tenant scope alignment plan:")
@@ -173,19 +178,14 @@ class Command(BaseCommand):
                     actor_ref=actor_ref,
                     now=now,
                 )
-            if backfill_tenant_warehouse:
+            if backfill_rows:
                 scoped_tenant_ids = sorted({from_tenant_id, to_tenant_id})
-                backfill_rows = self._missing_tenant_warehouse_rows(
-                    scoped_tenant_ids,
-                    warehouse_ids=owned_warehouse_ids or None,
+                self._insert_tenant_warehouse_rows(
+                    backfill_rows,
+                    actor_ref=actor_ref,
+                    now=now,
+                    tenant_ids=scoped_tenant_ids,
                 )
-                if backfill_rows:
-                    self._insert_tenant_warehouse_rows(
-                        backfill_rows,
-                        actor_ref=actor_ref,
-                        now=now,
-                        tenant_ids=scoped_tenant_ids,
-                    )
 
         self.stdout.write(self.style.SUCCESS("Tenant scope alignment applied successfully."))
 
@@ -449,12 +449,24 @@ class Command(BaseCommand):
                 SET ownership_type = EXCLUDED.ownership_type,
                     access_level = EXCLUDED.access_level,
                     effective_date = EXCLUDED.effective_date,
-                    expiry_date = EXCLUDED.expiry_date,
-                    create_by_id = EXCLUDED.create_by_id,
-                    create_dtime = EXCLUDED.create_dtime
+                    expiry_date = EXCLUDED.expiry_date
                 """,
                 upsert_rows,
             )
+
+    def _planned_backfill_rows(
+        self,
+        *,
+        scoped_tenant_ids: list[int],
+        owned_warehouse_ids: list[int],
+        reassign_owned_warehouses: bool,
+    ) -> list[tuple[int, int]]:
+        if reassign_owned_warehouses and owned_warehouse_ids:
+            return []
+        return self._missing_tenant_warehouse_rows(
+            scoped_tenant_ids,
+            warehouse_ids=owned_warehouse_ids or None,
+        )
 
     def _missing_tenant_warehouse_rows(
         self,

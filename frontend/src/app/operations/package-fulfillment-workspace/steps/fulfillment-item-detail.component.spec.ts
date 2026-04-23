@@ -454,6 +454,27 @@ describe('FulfillmentItemDetailComponent', () => {
       const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
       expect(summary.getAttribute('data-state')).toBe('non_compliant');
     });
+
+    it('does not flag override risk when the higher-ranked empty card has no usable stock', async () => {
+      const item: AllocationItemGroup = {
+        ...withCards(),
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0, {
+            total_available: '0',
+            suggested_qty: '0',
+          }),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1, {
+            total_available: '30',
+            suggested_qty: '10',
+          }),
+        ],
+      };
+      qtyByItemWarehouse.set(makeKey(44, 9002), 10);
+
+      const fixture = await render(item);
+      const summary = fixture.nativeElement.querySelector('.detail__summary') as HTMLElement;
+      expect(summary.getAttribute('data-state')).toBe('compliant_partial');
+    });
   });
 
   describe('regressions', () => {

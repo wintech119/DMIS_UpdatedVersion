@@ -1198,6 +1198,19 @@ export class WarehouseAllocationCardComponent {
     if (!value) {
       return '';
     }
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnlyMatch) {
+      const [, yearText, monthText, dayText] = dateOnlyMatch;
+      return new Date(
+        Number(yearText),
+        Number(monthText) - 1,
+        Number(dayText),
+      ).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
     const parsed = Date.parse(value);
     if (Number.isNaN(parsed)) {
       return value;

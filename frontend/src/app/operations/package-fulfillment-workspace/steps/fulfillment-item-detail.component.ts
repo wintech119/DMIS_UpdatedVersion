@@ -1270,11 +1270,12 @@ export class FulfillmentItemDetailComponent {
     // A card is at risk when a higher-ranked card with qty sits above it and
     // this card itself is empty — a pre-commit heuristic mirroring the
     // backend's override gate.
-    if (this.allocatedQtyFor(card) > 0) {
+    if (this.allocatedQtyFor(card) > 0 || this.usableQtyFor(card) <= 0) {
       return false;
     }
-    const maxRank = this.maxRankWithQty();
-    return maxRank > -1 && card.rank < maxRank;
+    return this.rankedStackCards().some(
+      (candidate) => candidate.rank > card.rank && this.allocatedQtyFor(candidate) > 0,
+    );
   }
 
   onCardQty(card: WarehouseAllocationCard, qty: number): void {
@@ -1320,5 +1321,14 @@ export class FulfillmentItemDetailComponent {
     if (!Number.isFinite(value)) return '0';
     const rounded = Math.round(value * 10_000) / 10_000;
     return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  }
+
+  private usableQtyFor(card: WarehouseAllocationCard): number {
+    const allocatable = Number(card.allocatable_available_qty);
+    if (Number.isFinite(allocatable) && allocatable > 0) {
+      return allocatable;
+    }
+    const total = Number(card.total_available);
+    return Number.isFinite(total) && total > 0 ? total : 0;
   }
 }

@@ -2797,6 +2797,45 @@ describe('OperationsWorkspaceStateService.setItemWarehouseQty (FR05.06 redesign)
 
       expect(service.itemWarehouseOverrides()[ITEM_ID]).toBe('9999');
     });
+
+    it('invalidates an in-flight preview so stale warehouse cards do not merge back in', () => {
+      const preview$ = new Subject<AllocationItemGroup>();
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          OperationsWorkspaceStateService,
+          {
+            provide: OperationsService,
+            useValue: {
+              previewItemAllocationOptions: jasmine
+                .createSpy('previewItemAllocationOptions')
+                .and.returnValue(preview$.asObservable()),
+            } as Partial<OperationsService>,
+          },
+        ],
+      });
+
+      const service = TestBed.inject(OperationsWorkspaceStateService);
+      service.reliefrqstId.set(7001);
+      service.loadedWarehousesByItem.set({ [ITEM_ID]: [WAREHOUSE_ID] });
+      service.options.set({
+        request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+        items: [buildItem()],
+      });
+
+      service.previewItemAllocations(ITEM_ID, WAREHOUSE_ID);
+      expect(service.previewLoadingByItem()[ITEM_ID]).toBeTrue();
+
+      service.removeItemWarehouse(ITEM_ID, WAREHOUSE_ID);
+      expect(service.previewLoadingByItem()[ITEM_ID]).toBeFalse();
+
+      preview$.next(buildItem());
+
+      const item = service.options()?.items.find((entry) => entry.item_id === ITEM_ID);
+      expect(item?.warehouse_cards ?? []).toEqual([]);
+      expect(item?.candidates.filter((candidate) => candidate.inventory_id === WAREHOUSE_ID)).toEqual([]);
+    });
   });
 });
 

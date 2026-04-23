@@ -1216,6 +1216,9 @@ export class OperationsWorkspaceStateService {
     //    cannot re-insert the warehouse we're about to remove.
     this.latestItemAddRequestIds[itemId] =
       (this.latestItemAddRequestIds[itemId] ?? 0) + 1;
+    this.latestItemPreviewRequestIds[itemId] =
+      (this.latestItemPreviewRequestIds[itemId] ?? 0) + 1;
+    this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: false }));
 
     // 1. Drop any draft selections for this warehouse.
     this.selectedRowsByItem.update((map) => {

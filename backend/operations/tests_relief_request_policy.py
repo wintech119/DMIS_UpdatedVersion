@@ -1551,6 +1551,77 @@ class PackageAllocationGuardTests(TestCase):
     @patch("operations.services._apply_package_header_updates")
     @patch("operations.services._apply_stock_delta_for_rows")
     @patch("operations.services._upsert_package_rows")
+    @patch("operations.services.build_greedy_allocation_plan", return_value=([], Decimal("0")))
+    @patch("operations.services.sort_batch_candidates", return_value=[])
+    @patch("operations.services._fetch_batch_candidates", return_value=[])
+    @patch("operations.services._selected_plan_for_package", return_value=[])
+    @patch("operations.services.Item.objects.filter", return_value=[SimpleNamespace(item_id=101)])
+    @patch("operations.services._request_item_rows_for_allocation", return_value=[{"item_id": 101}])
+    @patch("operations.services._resolve_candidate_warehouse_ids", return_value=[1])
+    @patch("operations.services._current_package_status", return_value=operations_service.PKG_STATUS_PENDING)
+    @patch("operations.services._ensure_package")
+    @patch("operations.services._load_request")
+    def test_save_package_rejects_pending_override_submission_without_override_request_permission(
+        self,
+        _load_request_mock,
+        _ensure_package_mock,
+        _current_status_mock,
+        _warehouse_ids_mock,
+        _request_rows_mock,
+        _item_filter_mock,
+        _selected_plan_mock,
+        fetch_candidates_mock,
+        sort_candidates_mock,
+        allocation_plan_mock,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+    ) -> None:
+        _load_request_mock.return_value = SimpleNamespace(
+            create_by_id="planner-1",
+            tracking_no="RQ00088",
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
+        _ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
+
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service._save_package_allocation(
+                88,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 202,
+                            "inventory_id": 1,
+                            "batch_id": 1001,
+                            "quantity": "2",
+                        }
+                    ],
+                    "override_reason_code": "FEFO_BYPASS",
+                    "override_note": "Supervisor approved.",
+                },
+                actor_id="officer-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                actor_permissions=[],
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["override"],
+            (
+                "Override request permission is required to submit override requests. "
+                "Override approval permission can commit overrides directly."
+            ),
+        )
+        fetch_candidates_mock.assert_not_called()
+        sort_candidates_mock.assert_not_called()
+        allocation_plan_mock.assert_not_called()
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        header_updates_mock.assert_not_called()
+
+    @patch("operations.services._apply_package_header_updates")
+    @patch("operations.services._apply_stock_delta_for_rows")
+    @patch("operations.services._upsert_package_rows")
     @patch("operations.services.Item.objects.filter", return_value=[])
     @patch("operations.services._request_item_rows_for_allocation", return_value=[{"item_id": 101}])
     @patch("operations.services._resolve_candidate_warehouse_ids", return_value=[1])
