@@ -104,7 +104,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
-  margin-bottom: 24px;
+  // No bottom margin — outer spacing is driven by the shell's `gap: 20px` so
+  // the queue panel sits as close to the KPI tablets as PFQ's `.pfq-metrics`
+  // (which has `margin: 0`). A 24px rule here previously stacked on top of the
+  // shell gap, producing 44px of visual space vs PFQ's 20px.
+  margin-bottom: 0;
 }
 
 .ops-flow-strip__card {
