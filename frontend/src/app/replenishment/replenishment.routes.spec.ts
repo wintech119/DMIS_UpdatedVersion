@@ -43,4 +43,19 @@ describe('REPLENISHMENT_ROUTES', () => {
     expect(findRoute('procurement/:procId/receive')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('procurement/:procId/receive')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.receive' }));
   });
+
+  it('keeps legacy needs-list operational workspace URLs redirected to replenishment review', () => {
+    for (const path of [
+      'needs-list/:id/track',
+      'needs-list/:id/allocation',
+      'needs-list/:id/dispatch',
+      'needs-list/:id/history',
+      'needs-list/:id/superseded',
+    ]) {
+      expect(findRoute(path)).toEqual(jasmine.objectContaining({
+        redirectTo: 'needs-list/:id/review',
+        pathMatch: 'full',
+      }));
+    }
+  });
 });

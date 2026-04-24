@@ -7,6 +7,7 @@ import {
   NeedsListResponse,
   NeedsListSummaryVersionResponse
 } from '../models/needs-list.model';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { NeedsListFulfillmentTrackerComponent } from './needs-list-fulfillment-tracker.component';
@@ -18,6 +19,7 @@ describe('NeedsListFulfillmentTrackerComponent', () => {
   let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
   let notifications: jasmine.SpyObj<DmisNotificationService>;
   let router: jasmine.SpyObj<Router>;
+  let authRbac: jasmine.SpyObj<AuthRbacService>;
 
   beforeEach(async () => {
     replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
@@ -29,6 +31,8 @@ describe('NeedsListFulfillmentTrackerComponent', () => {
       ['showError']
     );
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    authRbac = jasmine.createSpyObj<AuthRbacService>('AuthRbacService', ['load', 'hasPermission']);
+    authRbac.hasPermission.and.returnValue(true);
 
     replenishmentService.getNeedsList.and.returnValue(of({
       event_id: 1,
@@ -54,6 +58,7 @@ describe('NeedsListFulfillmentTrackerComponent', () => {
         { provide: ReplenishmentService, useValue: replenishmentService },
         { provide: DmisNotificationService, useValue: notifications },
         { provide: Router, useValue: router },
+        { provide: AuthRbacService, useValue: authRbac },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -90,5 +95,21 @@ describe('NeedsListFulfillmentTrackerComponent', () => {
 
     expect(component.dataFreshness()).toBe('low');
     expect(component.lastSyncedRelative()).toBe('7h 30m ago');
+  });
+
+  it('keeps dormant tracker language scoped to replenishment sourcing', () => {
+    fixture = TestBed.createComponent(NeedsListFulfillmentTrackerComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const title = component.pageTitle();
+    const subtitle = component.pageSubtitle();
+    const allocationDescription = component.allocationActionDescription();
+
+    expect(title).toBe('Sourcing Tracker');
+    expect(subtitle).toBe('Track replenishment sourcing progress');
+    expect(allocationDescription).toContain('replenishment');
+    expect(allocationDescription.toLowerCase()).not.toContain('relief request');
+    expect(allocationDescription.toLowerCase()).not.toContain('request and package');
   });
 });
