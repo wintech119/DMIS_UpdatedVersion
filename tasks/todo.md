@@ -79,6 +79,13 @@
 
 ## Review Comment Verification Sweep - 2026-04-23
 
+## django-ai-boost MCP Server Cleanup
+
+1. Completed: identified duplicate Codex MCP aliases and repo-local launcher files for `django-ai-boost`.
+2. Completed: confirmed the local backend venv has `django-ai-boost==0.8.0` and the MCP-only requirements pin now matches it.
+3. Completed: updated the MCP-only requirements pin and launcher dependency guard while keeping the server installed.
+4. Completed: cleaned up the duplicate Codex MCP alias and verified TOML parsing plus a short launcher startup smoke.
+
 1. Completed: verified each cited backend and frontend finding against the current code before editing.
 2. Completed: patched only backend service, view, and test findings that still reproduced.
 3. Completed: applied only non-visual frontend fixes needed for idempotency headers and lint-safe SCSS syntax/spacing; visual frontend comments were left untouched per instruction.

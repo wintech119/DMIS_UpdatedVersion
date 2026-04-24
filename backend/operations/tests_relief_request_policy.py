@@ -107,7 +107,7 @@ class ReliefRequestCapabilityTests(_DeterministicOdpemTenantResolutionMixin, Sim
         self.assertEqual(capabilities["allowed_origin_modes"], ["for_subordinate"])
 
 
-class ResolveOdpemTenantIdTests(SimpleTestCase):
+class ResolveOdpemTenantIdTests(TestCase):
     def tearDown(self) -> None:
         super().tearDown()
         operations_policy.resolve_odpem_tenant_id.cache_clear()
@@ -328,6 +328,15 @@ class TrackingNumberHelperTests(SimpleTestCase):
 
 @override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class ReliefRequestServiceTests(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        fully_dispatched_patcher = patch(
+            "operations.services._request_fully_dispatched",
+            return_value=False,
+        )
+        fully_dispatched_patcher.start()
+        self.addCleanup(fully_dispatched_patcher.stop)
+
     @patch("operations.services.data_access.get_item_names", return_value=({101: {"name": "Water Tabs", "code": "WT-001"}}, []))
     @patch(
         "operations.services._fetch_rows",
@@ -349,6 +358,7 @@ class ReliefRequestServiceTests(TestCase):
         self.assertEqual(items[0]["item_code"], "WT-001")
         self.assertEqual(items[0]["item_name"], "Water Tabs")
 
+    @patch("operations.services._load_request", return_value=SimpleNamespace(reliefrqst_id=77))
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 77, "tracking_no": "RQ00077"})
     @patch("operations.services._upsert_request_items")
     @patch("operations.services.ReliefRqst.objects.create")
@@ -363,6 +373,7 @@ class ReliefRequestServiceTests(TestCase):
         create_request_mock,
         _upsert_request_items_mock,
         _get_request_mock,
+        _load_request_mock,
     ) -> None:
         tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
         validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
@@ -610,25 +621,26 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        result = operations_service._save_package_allocation(
-            88,
-            payload={
-                "allocations": [
-                    {
-                        "item_id": 101,
-                        "inventory_id": 1,
-                        "batch_id": 1001,
-                        "quantity": "2",
-                    }
-                ],
-                "override_reason_code": "FEFO_BYPASS",
-                "override_note": "Approved by supervisor",
-            },
-            actor_id="manager-1",
-            allow_pending_override=False,
-            supervisor_user_id="manager-1",
-            supervisor_role_codes=["LOGISTICS_MANAGER"],
-        )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            result = operations_service._save_package_allocation(
+                88,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 101,
+                            "inventory_id": 1,
+                            "batch_id": 1001,
+                            "quantity": "2",
+                        }
+                    ],
+                    "override_reason_code": "FEFO_BYPASS",
+                    "override_note": "Approved by supervisor",
+                },
+                actor_id="manager-1",
+                allow_pending_override=False,
+                supervisor_user_id="manager-1",
+                supervisor_role_codes=["LOGISTICS_MANAGER"],
+            )
 
         self.assertEqual(result["status"], "COMMITTED")
         self.assertFalse(result["override_required"])
@@ -694,25 +706,26 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        with self.assertRaises(operations_service.OverrideApprovalError) as raised:
-            operations_service._save_package_allocation(
-                88,
-                payload={
-                    "allocations": [
-                        {
-                            "item_id": 101,
-                            "inventory_id": 1,
-                            "batch_id": 1001,
-                            "quantity": "2",
-                        }
-                    ],
-                    "override_reason_code": "FEFO_BYPASS",
-                },
-                actor_id="manager-1",
-                actor_roles=["LOGISTICS_OFFICER"],
-                actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
-                allow_pending_override=True,
-            )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            with self.assertRaises(operations_service.OverrideApprovalError) as raised:
+                operations_service._save_package_allocation(
+                    88,
+                    payload={
+                        "allocations": [
+                            {
+                                "item_id": 101,
+                                "inventory_id": 1,
+                                "batch_id": 1001,
+                                "quantity": "2",
+                            }
+                        ],
+                        "override_reason_code": "FEFO_BYPASS",
+                    },
+                    actor_id="manager-1",
+                    actor_roles=["LOGISTICS_OFFICER"],
+                    actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
+                    allow_pending_override=True,
+                )
 
         self.assertEqual(raised.exception.code, "override_details_missing")
         validate_override_mock.assert_not_called()
@@ -773,22 +786,23 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        with self.assertRaises(operations_service.OverrideApprovalError) as raised:
-            operations_service._save_package_allocation(
-                88,
-                payload={
-                    "allocations": [
-                        {
-                            "item_id": 101,
-                            "inventory_id": 1,
-                            "batch_id": 1001,
-                            "quantity": "2",
-                        }
-                    ],
-                },
-                actor_id="manager-1",
-                allow_pending_override=True,
-            )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            with self.assertRaises(operations_service.OverrideApprovalError) as raised:
+                operations_service._save_package_allocation(
+                    88,
+                    payload={
+                        "allocations": [
+                            {
+                                "item_id": 101,
+                                "inventory_id": 1,
+                                "batch_id": 1001,
+                                "quantity": "2",
+                            }
+                        ],
+                    },
+                    actor_id="manager-1",
+                    allow_pending_override=True,
+                )
 
         self.assertEqual(raised.exception.code, "override_details_missing")
         upsert_rows_mock.assert_not_called()
@@ -1140,6 +1154,7 @@ class DispatchSubmissionStatusTests(TestCase):
                 90,
                 payload={"transport_mode": "TRUCK"},
                 actor_id="dispatch-1",
+                idempotency_key=f"dispatch-status-{request_completion_status}",
             )
 
         return request_filter
@@ -1188,6 +1203,7 @@ class PackageAllocationGuardTests(TestCase):
             payload={"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
             actor_id="manager-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            idempotency_key="override-approve-stable-submitter-88",
         )
 
         self.assertEqual(result, {"status": "COMMITTED"})

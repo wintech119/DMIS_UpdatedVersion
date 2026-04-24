@@ -68,6 +68,7 @@ deploy/*.conf
 # Local dev workflow store/temp
 backend/.local/
 backend/.tmp/
+backend/tmp*/
 backend/runtime/
 backend/runtime/db_backup_schema_pre_hardening_*.sql
 backend/runtime/db_backup_schema_pre_phase*.sql

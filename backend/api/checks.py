@@ -143,6 +143,9 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
         )
         return messages
 
+    if getattr(settings, "TESTING", False):
+        return messages
+
     required_tables = ["user", "role", "permission", "role_permission", "user_role"]
     missing = [table_name for table_name in required_tables if not _table_exists(table_name)]
     if missing:

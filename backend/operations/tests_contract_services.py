@@ -262,6 +262,12 @@ class OperationsWorkflowContractTests(TestCase):
         )
         fully_dispatched_patcher.start()
         self.addCleanup(fully_dispatched_patcher.stop)
+        warehouse_access_patcher = patch(
+            "operations.contract_services.can_access_warehouse",
+            return_value=True,
+        )
+        warehouse_access_patcher.start()
+        self.addCleanup(warehouse_access_patcher.stop)
 
     def tearDown(self) -> None:
         cache.clear()
@@ -1316,7 +1322,11 @@ class OperationsWorkflowContractTests(TestCase):
             with self.assertRaises(OperationValidationError) as raised:
                 contract_services.approve_override(
                     70,
-                    payload={"allocations": [{"item_id": 101, "quantity": "1"}]},
+                    payload={
+                        "allocations": [
+                            {"item_id": 101, "inventory_id": 8, "batch_id": 8001, "quantity": "1"}
+                        ]
+                    },
                     actor_id="manager-1",
                     actor_roles=["LOGISTICS_MANAGER"],
                     tenant_context=self.dispatch_ready_context,
@@ -9793,6 +9803,12 @@ class ItemAllocationOptionsTests(TestCase):
         )
         fully_dispatched_patcher.start()
         self.addCleanup(fully_dispatched_patcher.stop)
+        warehouse_access_patcher = patch(
+            "operations.contract_services.can_access_warehouse",
+            return_value=True,
+        )
+        warehouse_access_patcher.start()
+        self.addCleanup(warehouse_access_patcher.stop)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -12620,6 +12636,12 @@ class MultiWarehouseDualWriteTests(TestCase):
         )
         fully_dispatched_patcher.start()
         self.addCleanup(fully_dispatched_patcher.stop)
+        warehouse_access_patcher = patch(
+            "operations.contract_services.can_access_warehouse",
+            return_value=True,
+        )
+        warehouse_access_patcher.start()
+        self.addCleanup(warehouse_access_patcher.stop)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
