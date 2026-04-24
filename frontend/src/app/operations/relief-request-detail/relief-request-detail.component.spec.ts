@@ -209,6 +209,40 @@ describe('ReliefRequestDetailComponent', () => {
     expect(strip?.textContent).toContain('For subordinate');
   });
 
+  it('hides package fulfillment entry when a terminal request has no package relationship', async () => {
+    await createComponent(
+      buildDetail(
+        {},
+        {
+          status_code: 'FULFILLED',
+          reliefpkg_id: null,
+          package_tracking_no: null,
+          package_status: null,
+          execution_status: null,
+          packages: [],
+        },
+      ),
+    );
+
+    expect(component.fulfillmentEntryAction()).toBeNull();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionButtons = Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+    expect(actionButtons.some((label) => label.includes('Fulfillment'))).toBeFalse();
+  });
+
+  it('continues package fulfillment for a terminal request when an existing package is present', async () => {
+    await createComponent(buildDetail({}, { status_code: 'FULFILLED' }));
+
+    expect(component.fulfillmentEntryAction()).toEqual(
+      jasmine.objectContaining({
+        label: 'Continue from Stock-Aware Selection',
+        disabled: false,
+      }),
+    );
+  });
+
   it('keeps the Submitted lifecycle step pending while the request is still a draft', async () => {
     await createComponent(
       buildDetail(

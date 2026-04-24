@@ -310,4 +310,86 @@ describe('ReliefRequestWizardComponent', () => {
       expect(fixture.componentInstance.workflowLabel()).toBe('New request');
     });
   });
+
+  describe('when ODPEM bridge intake is available', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
+
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [{ value: 501, label: 'FFP Shelter' }],
+        events: [{ value: 44, label: 'Flood Response 2026' }],
+        items: [{ value: 88, label: 'Tarps' }],
+      }));
+
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
+          },
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: 'on_behalf_bridge',
+                allowed_origin_modes: ['on_behalf_bridge'],
+              }),
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: convertToParamMap({}) },
+            },
+          },
+          {
+            provide: Router,
+            useValue: jasmine.createSpyObj('Router', ['navigate']),
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
+    });
+
+    it('labels intake as ODPEM-assisted while keeping the selected beneficiary agency in the payload', () => {
+      const component = fixture.componentInstance;
+      const savedResponse = {
+        reliefrqst_id: 77,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(6);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      fixture.detectChanges();
+
+      expect(component.isDualMode()).toBeFalse();
+      expect(component.submissionModeLabel()).toBe('ODPEM-assisted request');
+      expect(component.submissionModeHint()).toContain('entering this request on their behalf');
+      expect(component.workflowLabel()).toBe('New request (ODPEM-assisted)');
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.agency_id).toBe(501);
+      expect(payload.items[0].item_id).toBe(88);
+    });
+  });
 });
