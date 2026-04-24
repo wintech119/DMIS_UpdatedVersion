@@ -3495,6 +3495,49 @@ class OperationsWorkflowContractTests(TestCase):
             update_by_id="tester",
         )
 
+    @patch("operations.contract_services.list_staging_hubs")
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_staging_recommendation_includes_backend_vetted_hub_options(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+        list_staging_hubs_mock,
+    ) -> None:
+        self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        get_agency_scope_mock.return_value = self.agency_scope
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        list_staging_hubs_mock.return_value = [
+            {"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+            {"warehouse_id": 56, "warehouse_name": "ODPEM Hub 56", "parish_code": "02"},
+        ]
+
+        result = contract_services.get_staging_recommendation(
+            70,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual(result["recommended_staging_warehouse_id"], 55)
+        self.assertEqual(
+            result["staging_hubs"],
+            [
+                {"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+                {"warehouse_id": 56, "warehouse_name": "ODPEM Hub 56", "parish_code": "02"},
+            ],
+        )
+
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
     @patch("operations.contract_services.recommend_staging_hub")
     @patch("operations.contract_services._sync_operations_request")

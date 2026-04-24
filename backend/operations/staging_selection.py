@@ -41,6 +41,20 @@ def _staging_hub_rows(*, odpem_tenant_id: int) -> list[dict[str, object]]:
     )
 
 
+def list_staging_hubs() -> list[dict[str, object]]:
+    odpem_tenant_id = operations_policy.resolve_odpem_tenant_id()
+    if odpem_tenant_id is None:
+        return []
+    return [
+        {
+            "warehouse_id": int(row["warehouse_id"]),
+            "warehouse_name": str(row.get("warehouse_name") or "").strip(),
+            "parish_code": str(row.get("parish_code") or "").strip() or None,
+        }
+        for row in _staging_hub_rows(odpem_tenant_id=int(odpem_tenant_id))
+    ]
+
+
 def beneficiary_parish_code_for_request(reliefrqst_id: int) -> str | None:
     rows = _fetch_rows(
         """

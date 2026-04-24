@@ -37,6 +37,7 @@ import {
   RequestDetailResponse,
   RequestItem,
   RequestSummary,
+  StagingHubOption,
   StagingRecommendationResponse,
   StagingSelectionBasis,
   SuggestedAllocationLine,
@@ -148,6 +149,15 @@ function normalizeStagingBasis(value: unknown): StagingSelectionBasis | null {
     return normalized;
   }
   return null;
+}
+
+function normalizeStagingHubOption(raw: unknown): StagingHubOption {
+  const source = asRecord(raw);
+  return {
+    warehouse_id: asNumber(source['warehouse_id']),
+    warehouse_name: asString(source['warehouse_name']),
+    parish_code: asNullableString(source['parish_code']),
+  };
 }
 
 function normalizeConsolidationStatus(value: unknown): ConsolidationStatus | null {
@@ -966,6 +976,9 @@ export function normalizeStagingRecommendation(raw: unknown): StagingRecommendat
     recommended_staging_warehouse_name: asNullableString(source['recommended_staging_warehouse_name']),
     recommended_staging_parish_code: asNullableString(source['recommended_staging_parish_code']),
     staging_selection_basis: normalizeStagingBasis(source['staging_selection_basis']),
+    staging_hubs: asArray(source['staging_hubs'])
+      .map(normalizeStagingHubOption)
+      .filter((hub) => hub.warehouse_id > 0),
   };
 }
 

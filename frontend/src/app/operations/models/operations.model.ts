@@ -824,6 +824,13 @@ export interface StagingRecommendationResponse {
   recommended_staging_warehouse_name: string | null;
   recommended_staging_parish_code: string | null;
   staging_selection_basis: StagingSelectionBasis | null;
+  staging_hubs: StagingHubOption[];
+}
+
+export interface StagingHubOption {
+  warehouse_id: number;
+  warehouse_name: string;
+  parish_code: string | null;
 }
 
 export interface PartialReleaseRequestPayload {

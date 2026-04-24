@@ -154,6 +154,7 @@ from operations.workflow import (
 from operations.staging_selection import (
     beneficiary_parish_code_for_request,
     get_staging_hub_details,
+    list_staging_hubs,
     recommend_staging_hub,
 )
 from replenishment.models import NeedsList, NeedsListExecutionLink
@@ -6422,6 +6423,7 @@ def get_staging_recommendation(
         "recommended_staging_warehouse_name": recommendation.recommended_staging_warehouse_name,
         "recommended_staging_parish_code": recommendation.recommended_staging_parish_code,
         "staging_selection_basis": recommendation.staging_selection_basis,
+        "staging_hubs": list_staging_hubs(),
     }
 
 
