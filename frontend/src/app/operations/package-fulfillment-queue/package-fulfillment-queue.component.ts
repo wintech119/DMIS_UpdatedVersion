@@ -49,6 +49,10 @@ export type TimeInStageTone = 'fresh' | 'normal' | 'stale' | 'breach';
 const OUT_OF_CONTRACT_PACKAGE_STATUSES = new Set(['DISPATCHED', 'RECEIVED']);
 const OUT_OF_CONTRACT_REQUEST_STATUSES = new Set(['REJECTED']);
 const OUT_OF_CONTRACT_LEGACY_STATUSES = new Set(['D', 'C']);
+const FULFILLMENT_REQUEST_STATUSES = new Set([
+  'APPROVED_FOR_FULFILLMENT',
+  'PARTIALLY_FULFILLED',
+]);
 const FULFILLMENT_FILTERS = new Set<string>([
   'all',
   'awaiting',
@@ -386,6 +390,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   fulfillRequest(item: PackageQueueItem): void {
+    if (this.isOutOfContractRow(item)) {
+      this.warnOutOfContractRows([item]);
+      return;
+    }
     this.router.navigate(['/operations/package-fulfillment', item.reliefrqst_id]);
   }
 
@@ -676,7 +684,8 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
 
     return (
-      OUT_OF_CONTRACT_PACKAGE_STATUSES.has(currentStatus)
+      !FULFILLMENT_REQUEST_STATUSES.has(rowStatus)
+      || OUT_OF_CONTRACT_PACKAGE_STATUSES.has(currentStatus)
       || OUT_OF_CONTRACT_REQUEST_STATUSES.has(rowStatus)
       || OUT_OF_CONTRACT_LEGACY_STATUSES.has(legacyStatus)
     );
