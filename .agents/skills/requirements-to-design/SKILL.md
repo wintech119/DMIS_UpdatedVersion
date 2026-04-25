@@ -62,9 +62,14 @@ Source-of-truth precedence (run discovery before any design work):
 
 ### Reusable visual / component reference (mandatory for any frontend visual brief)
 - `frontend/src/lib/prompts/generation.tsx` is the canonical DMIS component-generation prompt. It encodes the design system, color tokens, status tones, typography, spacing, signals-first component patterns, template rules, and accessibility requirements that every new Angular component must follow.
-- Treat it as the visual source-of-truth for repetitive visual work. Pull tokens, patterns, and component conventions from this file before introducing new ones.
-- If a feature requires a visual decision that is not already covered by `generation.tsx`, propose the addition in the visual brief (section 4d) and call it out as a candidate update to that file rather than ad-hoc styling in a single component.
-- Do not duplicate or paraphrase the design system in the visual brief - reference `generation.tsx` and only document the feature-specific visual decisions.
+- Runtime design-system surface where `generation.tsx` rules are wired into code. Cite the matching file alongside `generation.tsx` whenever a visual decision references a specific token or pattern:
+  - `frontend/src/styles.scss` - global token definitions / theme entry (Angular Material theming integrated here)
+  - `frontend/src/app/operations/shared/operations-theme.scss` - module-specific theme tokens (model for additional module themes)
+  - `frontend/src/app/shared/dmis-step-tracker/` - the only shared component today; reference implementation for the prompt's component patterns
+  - `frontend/eslint.config.js` - selector prefix rules (`app-*`, `dmis-*`) and template accessibility rules enforced at lint time
+- Treat `generation.tsx` as the visual source-of-truth for repetitive visual work. Pull tokens, patterns, and component conventions from this file before introducing new ones, and trace every cited token back to its definition in `frontend/src/styles.scss` (or the relevant module theme).
+- If a feature requires a visual decision that is not already covered by `generation.tsx`, propose the addition in the visual brief (section 4d) as a candidate update to `generation.tsx` (the spec) AND to the matching runtime file - `frontend/src/styles.scss`, the relevant module theme, or a new shared component under `frontend/src/app/shared/` - rather than ad-hoc styling in a single component.
+- Do not duplicate or paraphrase the design system in the visual brief - reference `generation.tsx` and the matching runtime file, and only document the feature-specific visual decisions.
 
 Tooling notes:
 - For `.xlsx` use the `anthropic-skills:xlsx` skill via the `Skill` tool to extract rows. Do not paraphrase from memory.
@@ -175,9 +180,9 @@ This is the input Claude Code will use to build the visual layer. Even when full
 - **Audit visibility**: which actions show "who/when/why" inline
 - **Data-freshness indicators**: HIGH less than 2h, MEDIUM 2-6h, LOW more than 6h - and where the banner sits
 - **Existing assets**: reference `docs/attached_assets/dmis_multistep_form_mockup.html` and any other repo mockup that applies; call out where the design extends or deviates
-- **Design-system reference**: every visual decision must align with `frontend/src/lib/prompts/generation.tsx` (DMIS color tokens, status tones, typography scale, spacing/radius, interaction rules, signals-first component patterns). Cite it instead of restating it. Note any feature-specific deviation and justify it.
-- **Component reuse**: identify shared components in `frontend/src/app/shared` (e.g., `dmis-step-tracker`) that must be reused before introducing new ones. Existing patterns in the codebase + `generation.tsx` take precedence over new visual inventions.
-- **Design-skill hooks**: when palette, typography, or component-library decisions are needed beyond what `generation.tsx` already encodes, route to `ui-ux-pro-max` and `frontend-design` and capture their output here. Propose any new tokens/components as additions to `generation.tsx` rather than one-off styles.
+- **Design-system reference**: every visual decision must align with `frontend/src/lib/prompts/generation.tsx` (DMIS color tokens, status tones, typography scale, spacing/radius, interaction rules, signals-first component patterns) AND cite the runtime file where the token or pattern lives - `frontend/src/styles.scss` for global tokens / Material theming, `frontend/src/app/operations/shared/operations-theme.scss` for module-specific tokens, `frontend/src/app/shared/dmis-step-tracker/` for shared component patterns, and `frontend/eslint.config.js` for selector / template accessibility rules. Cite both the spec and the matching runtime file instead of restating either. Note any feature-specific deviation and justify it.
+- **Component reuse**: identify shared components in `frontend/src/app/shared` (today only `dmis-step-tracker`) that must be reused before introducing new ones. Existing patterns in the codebase + `generation.tsx` (the spec) + the tokens defined in `frontend/src/styles.scss` and module themes (e.g., `frontend/src/app/operations/shared/operations-theme.scss`) take precedence over new visual inventions.
+- **Design-skill hooks**: when palette, typography, or component-library decisions are needed beyond what `generation.tsx` already encodes, route to `ui-ux-pro-max` and `frontend-design` and capture their output here. Propose any new tokens/components as additions to `generation.tsx` (the spec) AND to the matching runtime file - `frontend/src/styles.scss`, the relevant module theme, or a new shared component under `frontend/src/app/shared/` - rather than one-off styles.
 
 If the visual is non-trivial (new screen pattern, new dashboard, new wizard), invoke `ui-ux-pro-max` or `frontend-design` via the `Skill` tool and embed the resulting recommendations alongside the `generation.tsx` references.
 
@@ -243,15 +248,15 @@ Targeted at Codex. Include:
 
 #### 7c) Claude Code visual handoff
 - Pull the brief from 4d and convert to a build checklist
-- **Design-system anchor**: name `frontend/src/lib/prompts/generation.tsx` as the source for color tokens, status tones, typography, spacing, signals-first patterns, and template rules. Every component generated for this feature must conform.
-- Component reuse list: `dmis-step-tracker`, Material primitives in use, existing card/table patterns
-- Accessibility checklist: focus order, contrast 4.5:1, ARIA on icon-only buttons, 44x44 touch, keyboard nav, label/for on inputs (mirrors the rules in `generation.tsx`)
+- **Design-system anchor**: name `frontend/src/lib/prompts/generation.tsx` as the spec for color tokens, status tones, typography, spacing, signals-first patterns, and template rules; name the runtime files where those rules live in code as the matching implementation source - `frontend/src/styles.scss` (global tokens, Material theming), `frontend/src/app/operations/shared/operations-theme.scss` (module-theme example), `frontend/src/app/shared/dmis-step-tracker/` (shared component pattern), `frontend/eslint.config.js` (selector / template accessibility rules). Every component generated for this feature must conform to both.
+- Component reuse list: `dmis-step-tracker` (from `frontend/src/app/shared/dmis-step-tracker/`), Material primitives wired through `frontend/src/styles.scss`, existing card/table patterns in current modules
+- Accessibility checklist: focus order, contrast 4.5:1, ARIA on icon-only buttons, 44x44 touch, keyboard nav, label/for on inputs (mirrors the rules in `generation.tsx` and the lint rules in `frontend/eslint.config.js`)
 - Skeleton / empty / error variants per view
 - Mobile-first breakpoint rules
-- DMIS color and severity tokens (with text/icon backups) - sourced from `generation.tsx`, do not redefine
+- DMIS color and severity tokens (with text/icon backups) - sourced from `generation.tsx` (spec) and defined in `frontend/src/styles.scss` / the relevant module theme (e.g., `frontend/src/app/operations/shared/operations-theme.scss`); do not redefine
 - Animations and motion rules - 150-300ms micro-interactions, honor `prefers-reduced-motion`
 - Visual fidelity targets (mockup file reference if any) and where deviations are explicitly approved
-- Candidate updates to `generation.tsx` if the feature introduces a new token, status tone, or component pattern that should become reusable
+- Candidate updates to `generation.tsx` AND to the matching runtime file (`frontend/src/styles.scss`, the relevant module theme, or `frontend/src/app/shared/`) if the feature introduces a new token, status tone, or component pattern that should become reusable
 - Hooks back to `ui-ux-pro-max` and `frontend-design` for any open visual decisions
 
 ### 8) Architecture-review checkpoint (before handoff)
@@ -321,7 +326,7 @@ If any item is incomplete, label the design `Draft - pending closure` and call o
 - Splitting design in a way that leaves Codex without backend rules or Claude Code without visual structure. Both handoff packets must be filled.
 - Using current code as the requirement source.
 - Writing prose summaries of an `.xlsx` or `.docx` from memory instead of extracting via the `anthropic-skills:xlsx` or `anthropic-skills:docx` skill.
-- Reinventing visual tokens, status tones, typography, or component patterns when `frontend/src/lib/prompts/generation.tsx` already encodes them. Reference the file; do not duplicate or drift.
+- Reinventing visual tokens, status tones, typography, or component patterns when `frontend/src/lib/prompts/generation.tsx` already encodes them and `frontend/src/styles.scss` / the relevant module theme / `frontend/src/app/shared/` already implement them. Reference both spec and runtime file; do not duplicate or drift.
 
 ## Required Output Structure
 Structure responses as below. Skip a section only when it does not apply, and say so explicitly.
