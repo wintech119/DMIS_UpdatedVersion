@@ -104,3 +104,7 @@ The historical release was valid only if:
 - Operations is rebuilt on Django and Angular with the required parity evidence
 - the live user path no longer depends on Flask Operations by default
 - the cutover and retirement checklist in `docs/implementation/sprint_08_operations_cutover_and_flask_retirement.md` is complete or explicitly marks any still-open item as a temporary historical cutover exception
+
+## EP-05 Module 1 Closure Linkage (added 2026-04-25)
+
+EP-05 Module 1 (Relief Request Intake) closes out via the apply-from-needs-list bridge described in `docs/implementation/relief_management_freeze_before_coding_spec.md` §3 and the bridge clarification in §3a. The bridge is the only sanctioned path that routes a Replenishment-owned needs list into an Operations-owned Relief Request, and only when the needs list belongs to a requester / beneficiary context that the calling tenant is authorized to act for. ODPEM HQ / NATIONAL replenishment-only needs lists must continue to be rejected at the bridge per BR01.32. Frontend bridge implementation is gated on §3a, §6a, and §7a landing in the freeze spec.
