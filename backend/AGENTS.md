@@ -33,11 +33,19 @@
 - Treat backend implementation work as low-medium or higher unless it clearly falls under the low-risk exemptions below.
 - Run the architecture review before finalizing a plan.
 - Run the same architecture review again before final output after backend implementation.
+- The architecture-review gate is now embedded inside the backend skills' workflow steps (`Workflow -> score, run gate, then implement / review`), not just referenced externally; the two checkpoints above still apply.
 - Treat `../docs/adr/system_application_architecture.md` as the primary architecture source of truth.
 - Treat `../docs/security/SECURITY_ARCHITECTURE.md`, `../docs/security/THREAT_MODEL.md`, and `../docs/security/CONTROLS_MATRIX.md` as the primary security and control references.
 - Treat `../docs/implementation/production_readiness_checklist.md` as the release-gating reference.
 - Treat `../docs/implementation/production_hardening_and_flask_retirement_strategy.md` as supporting execution guidance, not the main architecture baseline.
 - Keep the detailed review workflow in the skill; do not duplicate it here.
+
+## Backend Skill Chain
+- Use the canonical backend chain in this order: `backend-django-analysis` -> `backend-django-implementation` -> `backend-review-project` -> `system-architecture-review`.
+- Each backend skill loads its own `references/` subfolder on demand through progressive disclosure; keep AGENTS.md focused on policy and let the skills pull detailed inventories only when relevant.
+- Use `../.agents/skills/backend-django-analysis/references/dmis-django-reading-map.md` for the helper inventory and `../.agents/skills/backend-django-analysis/references/dmis-controls-checklist.md` for the per-change controls list instead of duplicating those lists here.
+- Prefer the `django-ai-boost` MCP server (`mcp__django-ai-boost__*`) when it is loaded; otherwise fall back to the codebase, project docs, lint, and targeted tests.
+- Treat `../.agents/skills/` as the canonical source of truth. `../.claude/skills/` is a gitignored harness-discoverable mirror; the recommended `PreCommit` sync hook in `../.agents/skills/backend-django-analysis/references/hooks-recommendations.md` keeps the two trees identical.
 
 ### Mandatory backend review triggers
 - auth, RBAC, tenancy, impersonation, tokens, sessions, route protection, or privileged-role handling
