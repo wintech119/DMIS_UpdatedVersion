@@ -346,6 +346,33 @@
             </div>
           </div>
         </section>
+
+        <mat-card class="ops-card">
+          <mat-card-header>
+            <mat-card-title>Audit timeline</mat-card-title>
+            <mat-card-subtitle>Chronological request activity</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            @if (auditTimeline().length === 0) {
+              <p class="ops-empty__copy">No audit events have been recorded for this request.</p>
+            } @else {
+              <mat-list aria-label="Relief request audit timeline">
+                @for (event of auditTimeline(); track trackAuditEvent($index, event)) {
+                  <mat-list-item>
+                    <mat-icon matListItemIcon aria-hidden="true">
+                      {{ event.event_kind === 'ACTION_AUDIT' ? 'fact_check' : 'swap_horiz' }}
+                    </mat-icon>
+                    <div matListItemTitle>{{ formatAuditEventLabel(event) }}</div>
+                    <div matListItemLine>{{ formatAuditOccurredAt(event) }} | {{ formatAuditActor(event) }}</div>
+                    @if (event.event_kind === 'ACTION_AUDIT' && event.action_reason) {
+                      <div matListItemLine>{{ event.action_reason }}</div>
+                    }
+                  </mat-list-item>
+                }
+              </mat-list>
+            }
+          </mat-card-content>
+        </mat-card>
       </aside>
     </div>
   </div>

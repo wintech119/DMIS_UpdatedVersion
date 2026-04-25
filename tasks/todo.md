@@ -1,5 +1,16 @@
 # Current Task Plan
 
+## EP-05 Module 1 Relief Request Intake Closure - 2026-04-25
+
+Risk score: 8 / Medium using the architecture-review handoff rubric.
+Axes: blast radius 2, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.tsx` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
+2. Completed: implemented backend cancel, authority-preview, audit timeline, permission, and IDOR regression coverage using existing function-based DRF and operations service patterns.
+3. Completed: implemented frontend model/service contracts, apply-from-needs-list bridge route/component, wizard bridge-state ingestion, and detail audit timeline rendering without visual polish.
+4. Completed: ran required Django and Angular verification gates; manual smoke behavior is covered by automated backend/frontend probes in this worktree.
+5. Completed: ran architecture-review checkpoint 2 on the resulting diff and closed required changes with test/check evidence.
+
 ## Branch Cleanup
 
 1. Completed: refreshed remote-tracking refs with `git fetch --prune origin`.

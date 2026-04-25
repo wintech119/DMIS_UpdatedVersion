@@ -315,9 +315,12 @@ describe('ReliefRequestWizardComponent', () => {
   describe('when ODPEM bridge intake is available', () => {
     let fixture: ComponentFixture<ReliefRequestWizardComponent>;
     let operationsService: jasmine.SpyObj<OperationsService>;
+    let router: jasmine.SpyObj<Router>;
 
     beforeEach(async () => {
       operationsService = createOperationsServiceSpy();
+      router = jasmine.createSpyObj<Router>('Router', ['navigate', 'getCurrentNavigation']);
+      router.getCurrentNavigation.and.returnValue(null);
       operationsService.getRequestReferenceData.and.returnValue(of({
         agencies: [{ value: 501, label: 'FFP Shelter' }],
         events: [{ value: 44, label: 'Flood Response 2026' }],
@@ -356,7 +359,7 @@ describe('ReliefRequestWizardComponent', () => {
           },
           {
             provide: Router,
-            useValue: jasmine.createSpyObj('Router', ['navigate']),
+            useValue: router,
           },
         ],
       }).compileComponents();
@@ -398,6 +401,50 @@ describe('ReliefRequestWizardComponent', () => {
       expect(payload.beneficiary_agency_id).toBe(501);
       expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
       expect(payload.items[0].item_id).toBe(88);
+    });
+
+    it('ingests bridge route state and carries the source needs list into the create payload', () => {
+      router.getCurrentNavigation.and.returnValue({
+        extras: {
+          state: {
+            source_needs_list_id: 40,
+            beneficiary_tenant_id: 12,
+            beneficiary_agency_id: 501,
+            suggested_event_id: 44,
+            allowed_origin_modes: ['ODPEM_BRIDGE'],
+          },
+        },
+      } as unknown as ReturnType<Router['getCurrentNavigation']>);
+      const bridgeFixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      bridgeFixture.detectChanges();
+
+      const component = bridgeFixture.componentInstance;
+      const savedResponse = {
+        reliefrqst_id: 78,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(6);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      bridgeFixture.detectChanges();
+
+      expect(component.sourceNeedsListId()).toBe(40);
+      expect(component.explicitOriginMode()).toBe('ODPEM_BRIDGE');
+      expect(component.requestForm.get('agency_id')?.value).toBe(501);
+      expect(component.requestForm.get('eligible_event_id')?.value).toBe(44);
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.source_needs_list_id).toBe(40);
+      expect(payload.agency_id).toBe(501);
+      expect(payload.beneficiary_agency_id).toBe(501);
+      expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
     });
   });
 });

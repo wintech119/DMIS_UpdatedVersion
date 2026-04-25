@@ -18,6 +18,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
 from api.rbac import (
+    PERM_OPERATIONS_REQUEST_CANCEL,
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
@@ -37,6 +38,7 @@ from operations.constants import (
     ACTION_PARTIAL_RELEASE_REQUESTED,
     ACTION_PICKUP_RELEASE_COMPLETED,
     ACTION_REQUEST_BRIDGE_CREATED,
+    ACTION_REQUEST_CANCELLED,
     ACTION_STAGING_RECEIPT_RECORDED,
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
@@ -67,6 +69,7 @@ from operations.constants import (
     EVENT_PARTIAL_RELEASE_REQUESTED,
     EVENT_PICKUP_RELEASED,
     EVENT_RECEIPT_CONFIRMED,
+    EVENT_REQUEST_CANCELLED,
     EVENT_REQUEST_APPROVED,
     EVENT_REQUEST_INELIGIBLE,
     EVENT_REQUEST_REJECTED,
@@ -78,6 +81,7 @@ from operations.constants import (
     FULFILLMENT_MODE_DIRECT,
     FULFILLMENT_MODE_PICKUP_AT_STAGING,
     FULFILLMENT_ROLE_CODES,
+    ORIGIN_MODE_FOR_SUBORDINATE,
     ORIGIN_MODE_ODPEM_BRIDGE,
     ORIGIN_MODE_SELF,
     PACKAGE_STATUS_COMMITTED,
@@ -124,6 +128,7 @@ from operations.constants import (
 from operations.exceptions import OperationValidationError
 from operations.models import (
     OperationsAllocationLine,
+    OperationsActionAudit,
     OperationsConsolidationLeg,
     OperationsConsolidationLegItem,
     OperationsConsolidationReceipt,
@@ -139,6 +144,7 @@ from operations.models import (
     OperationsReceipt,
     OperationsReliefRequest,
     OperationsStatusHistory,
+    TenantRequestPolicy,
     OperationsWaybill,
 )
 from operations.workflow import (
@@ -226,6 +232,14 @@ _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
 )
 _REQUEST_URGENCY_VALUES = {"C", "H", "M", "L"}
 _REQUEST_ITEM_REASON_MAX_LENGTH = 255
+_REQUEST_CANCELLATION_REASON_MAX_LENGTH = 500
+_REQUEST_CANCELLABLE_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_DRAFT,
+        REQUEST_STATUS_SUBMITTED,
+        REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+    }
+)
 _MAX_RECEIPT_LINES = 200
 _RECEIVED_BY_NAME_MAX_LENGTH = 120
 _RECEIPT_NOTES_MAX_LENGTH = 500
@@ -951,6 +965,60 @@ def _needs_list_owner_tenant_id(needs_list: NeedsList) -> int | None:
 def _needs_list_is_odpem_replenishment_only(needs_list: NeedsList) -> bool:
     owner_tenant_id = _needs_list_owner_tenant_id(needs_list)
     return owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id)
+
+
+def _agency_id_for_needs_list_owner(needs_list: NeedsList, owner_tenant_id: int | None) -> int | None:
+    if owner_tenant_id is None:
+        return None
+    try:
+        warehouse_id = int(needs_list.warehouse_id)
+    except (TypeError, ValueError):
+        warehouse_id = None
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT a.agency_id
+                    FROM agency a
+                    LEFT JOIN warehouse w ON w.warehouse_id = a.warehouse_id
+                    WHERE w.tenant_id = %s
+                      AND COALESCE(a.status_code, 'A') = 'A'
+                    ORDER BY
+                      CASE WHEN a.warehouse_id = %s THEN 0 ELSE 1 END,
+                      a.agency_id
+                    LIMIT 1
+                    """,
+                    [int(owner_tenant_id), warehouse_id],
+                )
+                row = cursor.fetchone()
+    except DatabaseError:
+        return None
+    if not row or row[0] in (None, ""):
+        return None
+    return int(row[0])
+
+
+def _active_request_authority_tenant_id(tenant_id: int | None) -> int | None:
+    if tenant_id is None:
+        return None
+    today = timezone.localdate()
+    try:
+        policy = (
+            TenantRequestPolicy.objects.filter(
+                tenant_id=int(tenant_id),
+                status_code="ACTIVE",
+                effective_date__lte=today,
+            )
+            .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gte=today))
+            .order_by("-effective_date", "-policy_id")
+            .first()
+        )
+    except Exception:
+        return None
+    if policy is None or not policy.request_authority_tenant_id:
+        return None
+    return int(policy.request_authority_tenant_id)
 
 
 def _source_needs_list_payload(
@@ -1688,6 +1756,8 @@ _FULFILLMENT_COMPLETION_REQUEST_STATUSES = frozenset(
 
 
 def _preserve_request_status(current_status: str, next_status: str) -> str:
+    if current_status == REQUEST_STATUS_CANCELLED:
+        return current_status
     if next_status == REQUEST_STATUS_CANCELLED and current_status in _ACTIVE_REQUEST_STATUSES:
         return current_status
     if (
@@ -1734,6 +1804,152 @@ def get_request_reference_data(*, tenant_context: TenantContext, permissions: It
         "events": _lookup_reference_options("events"),
         "items": _lookup_reference_options("items"),
     }
+
+
+_AUTHORITY_PREVIEW_BLOCKED_CODE_MAP = {
+    "odpem_replenishment_only_needs_list": "odpem_replenishment_only_needs_list",
+    "agency_out_of_scope": "agency_out_of_scope",
+    "source_needs_list_owner_mismatch": "agency_out_of_scope",
+    "source_needs_list_owner_unresolved": "agency_out_of_scope",
+    "agency_not_found": "agency_out_of_scope",
+    "agency_tenant_unresolved": "agency_out_of_scope",
+    "active_tenant_required": "agency_out_of_scope",
+    "active_tenant_read_only": "agency_out_of_scope",
+    "on_behalf_not_allowed": "agency_out_of_scope",
+    "on_behalf_policy_denied": "agency_out_of_scope",
+    "odpem_on_behalf_external_only": "agency_out_of_scope",
+    "request_authority_escalation_required": "escalation_required",
+    "beneficiary_authority_mismatch": "escalation_required",
+    "self_request_disabled": "self_request_disabled",
+    "origin_mode_permission_denied": "agency_out_of_scope",
+}
+
+
+def _validation_error_code(exc: OperationValidationError) -> str | None:
+    def _walk(value: Any) -> str | None:
+        if isinstance(value, Mapping):
+            code = value.get("code")
+            if code:
+                return str(code)
+            for nested in value.values():
+                found = _walk(nested)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for nested in value:
+                found = _walk(nested)
+                if found:
+                    return found
+        return None
+
+    return _walk(exc.errors)
+
+
+def _authority_preview_payload(
+    *,
+    can_create: bool,
+    allowed_origin_modes: Iterable[str],
+    required_authority_tenant_id: int | None,
+    beneficiary_tenant_id: int | None,
+    beneficiary_agency_id: int | None,
+    suggested_event_id: int | None,
+    blocked_reason_code: str | None,
+) -> dict[str, Any]:
+    return {
+        "can_create": bool(can_create),
+        "allowed_origin_modes": list(dict.fromkeys(allowed_origin_modes)),
+        "required_authority_tenant_id": required_authority_tenant_id,
+        "beneficiary_tenant_id": beneficiary_tenant_id,
+        "beneficiary_agency_id": beneficiary_agency_id,
+        "suggested_event_id": suggested_event_id,
+        "blocked_reason_code": blocked_reason_code,
+    }
+
+
+def get_request_authority_preview(
+    *,
+    source_needs_list_id: int,
+    tenant_context: TenantContext,
+    permissions: Iterable[str],
+) -> dict[str, Any]:
+    needs_list = NeedsList.objects.filter(needs_list_id=int(source_needs_list_id)).only(
+        "needs_list_id",
+        "warehouse_id",
+        "event_id",
+    ).first()
+    if needs_list is None:
+        raise OperationValidationError(
+            {
+                "source_needs_list_id": {
+                    "code": "source_needs_list_not_found",
+                    "message": "The source needs list does not exist.",
+                    "source_needs_list_id": int(source_needs_list_id),
+                }
+            }
+        )
+
+    owner_tenant_id = _needs_list_owner_tenant_id(needs_list)
+    beneficiary_agency_id = _agency_id_for_needs_list_owner(needs_list, owner_tenant_id)
+    suggested_event_id = int(needs_list.event_id) if needs_list.event_id else None
+    required_authority_tenant_id = _active_request_authority_tenant_id(owner_tenant_id)
+
+    if owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id):
+        return _authority_preview_payload(
+            can_create=False,
+            allowed_origin_modes=[],
+            required_authority_tenant_id=required_authority_tenant_id,
+            beneficiary_tenant_id=owner_tenant_id,
+            beneficiary_agency_id=beneficiary_agency_id,
+            suggested_event_id=suggested_event_id,
+            blocked_reason_code="odpem_replenishment_only_needs_list",
+        )
+
+    if owner_tenant_id is None or beneficiary_agency_id is None:
+        return _authority_preview_payload(
+            can_create=False,
+            allowed_origin_modes=[],
+            required_authority_tenant_id=required_authority_tenant_id,
+            beneficiary_tenant_id=owner_tenant_id,
+            beneficiary_agency_id=beneficiary_agency_id,
+            suggested_event_id=suggested_event_id,
+            blocked_reason_code="agency_out_of_scope",
+        )
+
+    try:
+        decision = operations_policy.validate_relief_request_agency_selection(
+            agency_id=int(beneficiary_agency_id),
+            tenant_context=tenant_context,
+        )
+        operations_policy.enforce_relief_request_origin_mode_permission(
+            decision=decision,
+            permissions=permissions,
+        )
+        _validate_source_needs_list_for_relief_request(
+            int(source_needs_list_id),
+            decision=decision,
+        )
+    except OperationValidationError as exc:
+        code = _validation_error_code(exc)
+        stable_code = _AUTHORITY_PREVIEW_BLOCKED_CODE_MAP.get(code or "", "agency_out_of_scope")
+        return _authority_preview_payload(
+            can_create=False,
+            allowed_origin_modes=[],
+            required_authority_tenant_id=required_authority_tenant_id,
+            beneficiary_tenant_id=owner_tenant_id,
+            beneficiary_agency_id=beneficiary_agency_id,
+            suggested_event_id=suggested_event_id,
+            blocked_reason_code=stable_code,
+        )
+
+    return _authority_preview_payload(
+        can_create=True,
+        allowed_origin_modes=[decision.origin_mode],
+        required_authority_tenant_id=None,
+        beneficiary_tenant_id=int(decision.beneficiary_tenant_id),
+        beneficiary_agency_id=decision.beneficiary_agency_id,
+        suggested_event_id=suggested_event_id,
+        blocked_reason_code=None,
+    )
 
 
 def _request_status_from_legacy(request: ReliefRqst) -> str:
@@ -2854,6 +3070,87 @@ def _request_summary_payload(request: ReliefRqst, request_record: OperationsReli
     payload["reviewed_at"] = legacy_service._as_iso(request_record.reviewed_at)
     payload["reviewed_by_id"] = request_record.reviewed_by_id
     return payload
+
+
+def _actor_user_label(actor_id: str | None) -> str | None:
+    text = str(actor_id or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return f"User ...{text[-4:]}" if len(text) > 4 else "User"
+    return text
+
+
+def _request_actor_details_visible(
+    request_record: OperationsReliefRequest,
+    *,
+    tenant_context: TenantContext,
+) -> bool:
+    if tenant_context.can_read_all_tenants:
+        return True
+    active_tenant_id = tenant_context.active_tenant_id
+    if active_tenant_id is None:
+        return False
+    return int(active_tenant_id) in {
+        int(request_record.requesting_tenant_id) if request_record.requesting_tenant_id else None,
+        int(request_record.beneficiary_tenant_id) if request_record.beneficiary_tenant_id else None,
+    }
+
+
+def _request_audit_timeline(
+    request_record: OperationsReliefRequest,
+    *,
+    tenant_context: TenantContext,
+) -> list[dict[str, Any]]:
+    show_actor = _request_actor_details_visible(request_record, tenant_context=tenant_context)
+    events: list[dict[str, Any]] = []
+
+    for status in OperationsStatusHistory.objects.filter(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(request_record.relief_request_id),
+    ).order_by("changed_at", "status_history_id"):
+        occurred_at = status.changed_at
+        events.append(
+            {
+                "event_kind": "STATUS_TRANSITION",
+                "from_status_code": status.from_status_code,
+                "to_status_code": status.to_status_code,
+                "action_code": None,
+                "action_reason": status.reason_text,
+                "occurred_at": _as_iso(occurred_at),
+                "actor_role_code": None,
+                "actor_user_label": _actor_user_label(status.changed_by_id) if show_actor else None,
+                "_sort_at": occurred_at,
+                "_sort_id": int(status.status_history_id),
+            }
+        )
+
+    for audit in OperationsActionAudit.objects.filter(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(request_record.relief_request_id),
+    ).order_by("acted_at", "action_audit_id"):
+        occurred_at = audit.acted_at
+        events.append(
+            {
+                "event_kind": "ACTION_AUDIT",
+                "from_status_code": None,
+                "to_status_code": None,
+                "action_code": audit.action_code,
+                "action_reason": audit.action_reason,
+                "occurred_at": _as_iso(occurred_at),
+                "actor_role_code": audit.acted_by_role_code if show_actor else None,
+                "actor_user_label": _actor_user_label(audit.acted_by_user_id) if show_actor else None,
+                "_sort_at": occurred_at,
+                "_sort_id": int(audit.action_audit_id),
+            }
+        )
+
+    minimum_datetime = datetime.min.replace(tzinfo=timezone.get_current_timezone())
+    events.sort(key=lambda item: (item["_sort_at"] or minimum_datetime, item["_sort_id"]))
+    for item in events:
+        item.pop("_sort_at", None)
+        item.pop("_sort_id", None)
+    return events
 
 
 def _package_summary_payload(package: ReliefPkg, package_record: OperationsPackage | None = None) -> dict[str, Any]:
@@ -5544,6 +5841,7 @@ def get_request(reliefrqst_id: int, *, actor_id: str | None = None, tenant_conte
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
     payload.update(_request_summary_payload(request, request_record))
+    payload["audit_timeline"] = _request_audit_timeline(request_record, tenant_context=tenant_context)
     payload["packages"] = []
     for package in ReliefPkg.objects.filter(reliefrqst_id=reliefrqst_id).order_by("-reliefpkg_id"):
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
@@ -5652,6 +5950,13 @@ def update_request(
     )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     current_request = _legacy_helper("_load_request")(reliefrqst_id)
+    _ensure_request_access(
+        _request_access_probe_from_legacy(current_request),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        write=True,
+    )
     effective_agency_raw = mutable_payload.get("agency_id", current_request.agency_id)
     agency_id = _parse_int_or_raise(effective_agency_raw, "agency_id")
     if agency_id is None:
@@ -5701,6 +6006,214 @@ def update_request(
     )
 
 
+def _cancellation_reason_from_payload(payload: Mapping[str, Any]) -> str:
+    raw_reason = payload.get("cancellation_reason")
+    reason = str(raw_reason or "").strip()
+    if not reason:
+        raise OperationValidationError({"cancellation_reason": "Cancellation reason is required."})
+    if len(reason) > _REQUEST_CANCELLATION_REASON_MAX_LENGTH:
+        raise OperationValidationError(
+            {
+                "cancellation_reason": (
+                    f"Cancellation reason must be {_REQUEST_CANCELLATION_REASON_MAX_LENGTH} characters or fewer."
+                )
+            }
+        )
+    return reason
+
+
+def _load_request_record_for_workflow(reliefrqst_id: int, *, actor_id: str) -> tuple[OperationsReliefRequest, ReliefRqst | None]:
+    request_record = (
+        OperationsReliefRequest.objects.select_for_update()
+        .filter(relief_request_id=int(reliefrqst_id))
+        .first()
+    )
+    legacy_request: ReliefRqst | None = None
+    try:
+        legacy_request = _legacy_helper("_load_request")(reliefrqst_id, for_update=True)
+    except (DatabaseError, ReliefRqst.DoesNotExist):
+        legacy_request = None
+
+    if request_record is None:
+        if legacy_request is None:
+            raise ReliefRqst.DoesNotExist(f"Relief request {reliefrqst_id} does not exist.")
+        request_record = _sync_operations_request(legacy_request, actor_id=actor_id)
+        request_record = OperationsReliefRequest.objects.select_for_update().get(
+            relief_request_id=int(reliefrqst_id)
+        )
+    return request_record, legacy_request
+
+
+def _mark_legacy_request_cancelled(legacy_request: ReliefRqst | None) -> None:
+    if legacy_request is None:
+        return
+    try:
+        legacy_request.status_code = STATUS_CANCELLED
+        legacy_request.version_nbr = int(getattr(legacy_request, "version_nbr", 0) or 0) + 1
+        legacy_request.save(update_fields=["status_code", "version_nbr"])
+    except (AttributeError, DatabaseError):
+        return
+
+
+def _request_cancel_fallback(request_record: OperationsReliefRequest) -> dict[str, Any]:
+    return {
+        "reliefrqst_id": int(request_record.relief_request_id),
+        "tracking_no": request_record.request_no,
+        "status_code": request_record.status_code,
+        "status_label": STATUS_LABELS.get(request_record.status_code, request_record.status_code.title()),
+        "request_mode": request_record.origin_mode,
+        "origin_mode": request_record.origin_mode,
+        "requesting_tenant_id": request_record.requesting_tenant_id,
+        "requesting_agency_id": request_record.requesting_agency_id,
+        "beneficiary_tenant_id": request_record.beneficiary_tenant_id,
+        "beneficiary_agency_id": request_record.beneficiary_agency_id,
+        "source_needs_list_id": request_record.source_needs_list_id,
+        "audit_timeline": [],
+        "items": [],
+        "packages": [],
+    }
+
+
+def _notify_request_cancelled(
+    *,
+    request_record: OperationsReliefRequest,
+    eligibility_assignments_closed: int,
+) -> None:
+    message_text = "Relief Request cancelled"
+    owner_user_id = str(request_record.submitted_by_id or request_record.create_by_id or "").strip()
+    tenant_id = request_record.requesting_tenant_id or request_record.beneficiary_tenant_id
+    if owner_user_id:
+        create_user_notification(
+            event_code=EVENT_REQUEST_CANCELLED,
+            entity_type=ENTITY_REQUEST,
+            entity_id=int(request_record.relief_request_id),
+            recipient_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            message_text=message_text,
+        )
+    if eligibility_assignments_closed:
+        create_role_notifications(
+            event_code=EVENT_REQUEST_CANCELLED,
+            entity_type=ENTITY_REQUEST,
+            entity_id=int(request_record.relief_request_id),
+            message_text=message_text,
+            role_codes=ELIGIBILITY_ROLE_CODES,
+            tenant_id=tenant_id,
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+        )
+
+
+@_release_idempotency_reservation_on_error
+@transaction.atomic
+def cancel_request(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    reason = _cancellation_reason_from_payload(payload)
+    idempotency = _begin_idempotent_write(
+        endpoint="request_cancel",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        resource_id=reliefrqst_id,
+        idempotency_key=idempotency_key,
+    )
+    if idempotency.cached_result is not None:
+        return idempotency.cached_result
+
+    _require_permission(
+        permissions,
+        PERM_OPERATIONS_REQUEST_CANCEL,
+        field_name="cancel",
+        message="Cancelling a relief request requires operations.request.cancel.",
+    )
+    request_record, legacy_request = _load_request_record_for_workflow(reliefrqst_id, actor_id=actor_id)
+    _ensure_request_access(
+        request_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        write=True,
+    )
+    original_status = request_record.status_code
+    if original_status not in _REQUEST_CANCELLABLE_STATUSES:
+        raise OperationValidationError(
+            {
+                "status": {
+                    "code": "request_not_cancellable",
+                    "message": "Relief request can only be cancelled from draft, submitted, or eligibility review states.",
+                    "status_code": original_status,
+                }
+            }
+        )
+
+    now = timezone.now()
+    request_record.status_code = REQUEST_STATUS_CANCELLED
+    request_record.cancelled_at = now
+    request_record.update_by_id = actor_id
+    request_record.update_dtime = now
+    request_record.version_nbr = int(request_record.version_nbr or 0) + 1
+    request_record.save(
+        update_fields=[
+            "status_code",
+            "cancelled_at",
+            "update_by_id",
+            "update_dtime",
+            "version_nbr",
+        ]
+    )
+    _mark_legacy_request_cancelled(legacy_request)
+    record_status_transition(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(reliefrqst_id),
+        from_status=original_status,
+        to_status=REQUEST_STATUS_CANCELLED,
+        actor_id=actor_id,
+        reason_text=reason,
+    )
+    record_action_audit(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(reliefrqst_id),
+        tenant_id=request_record.requesting_tenant_id or request_record.beneficiary_tenant_id,
+        action_code=ACTION_REQUEST_CANCELLED,
+        action_reason=reason,
+        actor_id=actor_id,
+        actor_role_code=_override_actor_role_code(actor_roles),
+    )
+    closed_assignments = complete_queue_assignments(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(reliefrqst_id),
+        queue_code=QUEUE_CODE_ELIGIBILITY,
+        actor_id=actor_id,
+        completion_status="CANCELLED",
+    )
+    _notify_request_cancelled(
+        request_record=request_record,
+        eligibility_assignments_closed=closed_assignments,
+    )
+
+    fallback = _request_cancel_fallback(request_record)
+    fallback["audit_timeline"] = _request_audit_timeline(request_record, tenant_context=tenant_context)
+    result = _compat_request_response(
+        int(reliefrqst_id),
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        fallback=fallback,
+    )
+    _cache_idempotent_response_after_commit(
+        idempotency.cache_key,
+        result,
+        reservation_key=idempotency.reservation_key,
+        reservation_token=idempotency.reservation_token,
+    )
+    return result
+
+
 @_release_idempotency_reservation_on_error
 @transaction.atomic
 def submit_request(
@@ -5719,6 +6232,14 @@ def submit_request(
     )
     if idempotency.cached_result is not None:
         return idempotency.cached_result
+    request_probe = _legacy_helper("_load_request")(reliefrqst_id)
+    _ensure_request_access(
+        _request_access_probe_from_legacy(request_probe),
+        actor_id=actor_id,
+        actor_roles=(),
+        tenant_context=tenant_context,
+        write=True,
+    )
     legacy_service.submit_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context)
     request = _legacy_helper("_load_request")(reliefrqst_id)
     if _legacy_request_is_syncable(request):

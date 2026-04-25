@@ -46,6 +46,14 @@ type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
   item_name?: string | null;
 };
 
+interface ReliefRequestBridgeState {
+  source_needs_list_id: number;
+  beneficiary_tenant_id: number | null;
+  beneficiary_agency_id: number | null;
+  suggested_event_id: number | null;
+  allowed_origin_modes: RequestOriginMode[];
+}
+
 @Component({
   selector: 'app-relief-request-wizard',
   standalone: true,
@@ -87,6 +95,8 @@ export class ReliefRequestWizardComponent implements OnInit {
   readonly requestDateIso = signal<string | null>(null);
   readonly initialAgencyName = signal<string | null>(null);
   readonly initialEventName = signal<string | null>(null);
+  readonly bridgeState = signal<ReliefRequestBridgeState | null>(null);
+  readonly sourceNeedsListId = signal<number | null>(null);
   readonly agencyOptions = signal<RequestReferenceOption[]>([]);
   readonly eventOptions = signal<RequestReferenceOption[]>([]);
   readonly itemOptions = signal<RequestReferenceOption[]>([]);
@@ -114,25 +124,23 @@ export class ReliefRequestWizardComponent implements OnInit {
 
   readonly capabilities = computed<OperationsCapabilities | null>(() => this.auth.operationsCapabilities());
 
+  readonly availableOriginModes = computed<RequestOriginMode[]>(() => {
+    const capabilityModes = normalizeCapabilityOriginModes(this.capabilities());
+    const bridgeModes = this.bridgeState()?.allowed_origin_modes ?? null;
+    if (bridgeModes) {
+      return capabilityModes.filter((mode) => bridgeModes.includes(mode));
+    }
+    return capabilityModes;
+  });
+
   readonly isDualMode = computed(() => {
-    const modes = this.capabilities()?.allowed_origin_modes ?? [];
-    return modes.includes('self') && modes.includes('for_subordinate');
+    const modes = this.availableOriginModes();
+    return modes.length > 1;
   });
 
   readonly explicitOriginMode = computed<RequestOriginMode | null>(() => {
-    if (this.isDualMode()) {
-      return null;
-    }
-    switch (this.capabilities()?.relief_request_submission_mode) {
-      case 'for_subordinate':
-        return 'FOR_SUBORDINATE';
-      case 'on_behalf_bridge':
-        return 'ODPEM_BRIDGE';
-      case 'self':
-        return 'SELF';
-      default:
-        return null;
-    }
+    const modes = this.availableOriginModes();
+    return modes.length === 1 ? modes[0] : null;
   });
 
   readonly isOnBehalfMode = computed(() => this.explicitOriginMode() === 'ODPEM_BRIDGE');
@@ -144,7 +152,10 @@ export class ReliefRequestWizardComponent implements OnInit {
   readonly creationBlocked = computed(() =>
     !this.isEditMode()
     && this.auth.loaded()
-    && !(this.capabilities()?.can_create_relief_request ?? false)
+    && (
+      !(this.capabilities()?.can_create_relief_request ?? false)
+      || this.availableOriginModes().length === 0
+    )
   );
 
   readonly pageTitle = computed(() =>
@@ -201,12 +212,12 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (this.isDualMode()) {
       return 'Your organisation or managed entity';
     }
-    switch (this.capabilities()?.relief_request_submission_mode) {
-      case 'for_subordinate':
+    switch (this.explicitOriginMode()) {
+      case 'FOR_SUBORDINATE':
         return 'Request on behalf of a managed entity';
-      case 'on_behalf_bridge':
+      case 'ODPEM_BRIDGE':
         return 'ODPEM-assisted request';
-      case 'self':
+      case 'SELF':
         return 'Your organisation\'s request';
       default:
         return this.isEditMode() ? 'Editing draft request' : 'Request creation is not available';
@@ -217,12 +228,12 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (this.isDualMode()) {
       return 'Choose the agency that needs supplies. You can select your own organisation or any entity you manage.';
     }
-    switch (this.capabilities()?.relief_request_submission_mode) {
-      case 'for_subordinate':
+    switch (this.explicitOriginMode()) {
+      case 'FOR_SUBORDINATE':
         return 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
-      case 'on_behalf_bridge':
+      case 'ODPEM_BRIDGE':
         return 'Choose the agency that needs support. As ODPEM, you are entering this request on their behalf.';
-      case 'self':
+      case 'SELF':
         return 'Choose the agency that needs relief supplies. This request will be submitted under your organisation\'s authority.';
       default:
         return 'Your account does not have permission to create relief requests. Contact your administrator if you believe this is incorrect.';
@@ -236,12 +247,12 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (this.isDualMode()) {
       return 'New request';
     }
-    switch (this.capabilities()?.relief_request_submission_mode) {
-      case 'for_subordinate':
+    switch (this.explicitOriginMode()) {
+      case 'FOR_SUBORDINATE':
         return 'New request (on behalf)';
-      case 'on_behalf_bridge':
+      case 'ODPEM_BRIDGE':
         return 'New request (ODPEM-assisted)';
-      case 'self':
+      case 'SELF':
         return 'New request';
       default:
         return 'New request';
@@ -300,6 +311,7 @@ export class ReliefRequestWizardComponent implements OnInit {
   readonly removeItemFn = (index: number): void => this.removeItem(index);
 
   ngOnInit(): void {
+    this.captureBridgeState();
     this.auth.load();
     this.loadReferenceData();
     this.bindFormReactivity();
@@ -341,6 +353,36 @@ export class ReliefRequestWizardComponent implements OnInit {
       });
   }
 
+  private captureBridgeState(): void {
+    const state = this.navigationState();
+    const sourceNeedsListId = toPositiveNumber(state['source_needs_list_id']);
+    if (!sourceNeedsListId) {
+      return;
+    }
+
+    const bridgeState: ReliefRequestBridgeState = {
+      source_needs_list_id: sourceNeedsListId,
+      beneficiary_tenant_id: toNullableNumber(state['beneficiary_tenant_id']),
+      beneficiary_agency_id: toNullableNumber(state['beneficiary_agency_id']),
+      suggested_event_id: toNullableNumber(state['suggested_event_id']),
+      allowed_origin_modes: normalizeRouteOriginModes(state['allowed_origin_modes']),
+    };
+    this.bridgeState.set(bridgeState);
+    this.sourceNeedsListId.set(sourceNeedsListId);
+    this.applyBridgeStateDefaults();
+  }
+
+  private navigationState(): Record<string, unknown> {
+    const routerWithOptionalNavigation = this.router as Router & {
+      getCurrentNavigation?: () => { extras?: { state?: unknown } } | null;
+    };
+    const navigationState = routerWithOptionalNavigation.getCurrentNavigation?.()?.extras?.state;
+    if (isRecord(navigationState)) {
+      return navigationState;
+    }
+    return isRecord(history.state) ? history.state : {};
+  }
+
   private loadReferenceData(): void {
     this.referenceLoading.set(true);
 
@@ -351,6 +393,7 @@ export class ReliefRequestWizardComponent implements OnInit {
           this.agencyOptions.update((current) => mergeReferenceOptions(current, references.agencies));
           this.eventOptions.update((current) => mergeReferenceOptions(current, references.events));
           this.itemOptions.update((current) => mergeReferenceOptions(current, references.items));
+          this.applyBridgeStateDefaults();
           this.applyDefaultAgencySelection();
           this.referenceLoading.set(false);
         },
@@ -368,11 +411,48 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (this.isEditMode()) {
       return;
     }
+    if (this.bridgeState()?.beneficiary_agency_id) {
+      return;
+    }
 
     const agencyControl = this.requestForm.get('agency_id');
     if (agencyControl && agencyControl.value == null && this.agencyOptions().length === 1) {
       agencyControl.setValue(this.agencyOptions()[0].value);
     }
+  }
+
+  private applyBridgeStateDefaults(): void {
+    if (this.isEditMode()) {
+      return;
+    }
+    const bridge = this.bridgeState();
+    if (!bridge) {
+      return;
+    }
+
+    if (bridge.beneficiary_agency_id) {
+      this.agencyOptions.update((current) => mergeReferenceOptions(current, [{
+        value: bridge.beneficiary_agency_id!,
+        label: `Agency ${bridge.beneficiary_agency_id}`,
+      }]));
+      const agencyControl = this.requestForm.get('agency_id');
+      if (agencyControl && agencyControl.value == null) {
+        agencyControl.setValue(bridge.beneficiary_agency_id);
+      }
+    }
+
+    if (bridge.suggested_event_id) {
+      this.eventOptions.update((current) => mergeReferenceOptions(current, [{
+        value: bridge.suggested_event_id!,
+        label: `Event ${bridge.suggested_event_id}`,
+      }]));
+      const eventControl = this.requestForm.get('eligible_event_id');
+      if (eventControl && eventControl.value == null) {
+        eventControl.setValue(bridge.suggested_event_id);
+      }
+    }
+
+    this.formVersion.update((version) => version + 1);
   }
 
   private loadExisting(): void {
@@ -405,6 +485,7 @@ export class ReliefRequestWizardComponent implements OnInit {
     this.requestDateIso.set(data.request_date ?? null);
     this.initialAgencyName.set(data.agency_name ?? null);
     this.initialEventName.set(data.event_name ?? null);
+    this.sourceNeedsListId.set(data.source_needs_list_id ?? null);
 
     this.requestForm.patchValue({
       agency_id: data.agency_id,
@@ -565,6 +646,7 @@ export class ReliefRequestWizardComponent implements OnInit {
 
     const notes = String(raw.rqst_notes_text ?? '').trim();
     const notesPayload = notes || undefined;
+    const sourceNeedsListId = this.sourceNeedsListId();
 
     if (this.isEditMode() && this.reliefrqstId) {
       const updatePayload: UpdateRequestPayload = {
@@ -574,6 +656,9 @@ export class ReliefRequestWizardComponent implements OnInit {
         rqst_notes_text: notesPayload,
         items,
       };
+      if (sourceNeedsListId != null) {
+        updatePayload.source_needs_list_id = sourceNeedsListId;
+      }
 
       this.operationsService.updateRequest(this.reliefrqstId, updatePayload)
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -591,6 +676,9 @@ export class ReliefRequestWizardComponent implements OnInit {
       rqst_notes_text: notesPayload,
       items,
     };
+    if (sourceNeedsListId != null) {
+      createPayload.source_needs_list_id = sourceNeedsListId;
+    }
     const originMode = this.explicitOriginMode();
     if (originMode) {
       createPayload.origin_mode = originMode;
@@ -740,6 +828,69 @@ function formatDisplayDate(value: string): string {
     return value;
   }
   return DATE_FORMATTER.format(parsed);
+}
+
+function normalizeCapabilityOriginModes(capabilities: OperationsCapabilities | null): RequestOriginMode[] {
+  const explicitModes = (capabilities?.allowed_origin_modes ?? [])
+    .map((mode) => toCanonicalOriginMode(mode))
+    .filter((mode): mode is RequestOriginMode => mode !== null);
+  if (explicitModes.length > 0) {
+    return [...new Set(explicitModes)];
+  }
+
+  const fallback = toCanonicalOriginMode(capabilities?.relief_request_submission_mode ?? null);
+  return fallback ? [fallback] : [];
+}
+
+function normalizeRouteOriginModes(value: unknown): RequestOriginMode[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(
+    value
+      .map((entry) => toCanonicalOriginMode(entry))
+      .filter((mode): mode is RequestOriginMode => mode !== null),
+  )];
+}
+
+function toCanonicalOriginMode(value: unknown): RequestOriginMode | null {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'SELF':
+      return 'SELF';
+    case 'FOR_SUBORDINATE':
+    case 'SUBORDINATE':
+      return 'FOR_SUBORDINATE';
+    case 'ODPEM_BRIDGE':
+      return 'ODPEM_BRIDGE';
+    default:
+      break;
+  }
+
+  const lower = String(value ?? '').trim().toLowerCase();
+  switch (lower) {
+    case 'self':
+      return 'SELF';
+    case 'for_subordinate':
+      return 'FOR_SUBORDINATE';
+    case 'on_behalf_bridge':
+      return 'ODPEM_BRIDGE';
+    default:
+      return null;
+  }
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  const parsed = toNullableNumber(value);
+  return parsed && parsed > 0 ? parsed : null;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

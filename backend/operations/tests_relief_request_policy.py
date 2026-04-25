@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from api.rbac import (
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
@@ -16,10 +17,11 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
 )
 from api.tenancy import TenantContext, TenantMembership
-from operations.constants import ORIGIN_MODE_FOR_SUBORDINATE, ORIGIN_MODE_ODPEM_BRIDGE
+from operations.constants import ORIGIN_MODE_FOR_SUBORDINATE, ORIGIN_MODE_ODPEM_BRIDGE, ORIGIN_MODE_SELF
 from operations import policy as operations_policy
 from operations import services as operations_service
 from operations.exceptions import OperationValidationError
+from replenishment.models import NeedsList
 
 
 def _tenant_context(
@@ -105,6 +107,203 @@ class ReliefRequestCapabilityTests(_DeterministicOdpemTenantResolutionMixin, Sim
         self.assertTrue(capabilities["can_create_relief_request_on_behalf"])
         self.assertEqual(capabilities["relief_request_submission_mode"], "for_subordinate")
         self.assertEqual(capabilities["allowed_origin_modes"], ["for_subordinate"])
+
+
+class ReliefRequestAuthorityPreviewTests(_DeterministicOdpemTenantResolutionMixin, TestCase):
+    def _create_needs_list(self, needs_list_id: int = 40) -> NeedsList:
+        return NeedsList.objects.create(
+            needs_list_id=needs_list_id,
+            needs_list_no=f"NL{needs_list_id:05d}",
+            event_id=12,
+            warehouse_id=11,
+            event_phase="SURGE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            status_code="APPROVED",
+            total_gap_qty=Decimal("1.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    @staticmethod
+    def _decision(
+        *,
+        origin_mode: str = ORIGIN_MODE_SELF,
+        requesting_tenant_id: int = 20,
+        beneficiary_tenant_id: int = 20,
+        agency_id: int = 501,
+    ) -> operations_policy.ReliefRequestWriteDecision:
+        return operations_policy.ReliefRequestWriteDecision(
+            agency_scope=operations_policy.AgencyScope(
+                agency_id=agency_id,
+                agency_name=f"Agency {agency_id}",
+                agency_type="SHELTER",
+                warehouse_id=11,
+                tenant_id=beneficiary_tenant_id,
+                tenant_code="ODPEM" if beneficiary_tenant_id == 27 else f"TENANT-{beneficiary_tenant_id}",
+                tenant_name=f"Tenant {beneficiary_tenant_id}",
+                tenant_type="NATIONAL" if beneficiary_tenant_id == 27 else "EXTERNAL",
+            ),
+            origin_mode=origin_mode,
+            requesting_tenant_id=requesting_tenant_id,
+            beneficiary_tenant_id=beneficiary_tenant_id,
+            requesting_agency_id=agency_id if origin_mode == ORIGIN_MODE_SELF else None,
+            beneficiary_agency_id=agency_id,
+        )
+
+    @staticmethod
+    def _policy_error(code: str) -> OperationValidationError:
+        return OperationValidationError({"agency_id": {"code": code, "message": "Authority preview blocked."}})
+
+    def test_authority_preview_allows_requester_owned_needs_list(self) -> None:
+        needs_list = self._create_needs_list()
+        decision = self._decision()
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            payload,
+            {
+                "can_create": True,
+                "allowed_origin_modes": [ORIGIN_MODE_SELF],
+                "required_authority_tenant_id": None,
+                "beneficiary_tenant_id": 20,
+                "beneficiary_agency_id": 501,
+                "suggested_event_id": 12,
+                "blocked_reason_code": None,
+            },
+        )
+
+    def test_authority_preview_blocks_odpem_hq_replenishment_needs_list(self) -> None:
+        needs_list = self._create_needs_list(41)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=27),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=901),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch("operations.services.operations_policy.validate_relief_request_agency_selection") as mock_validate,
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=27, tenant_code="ODPEM", tenant_type="NATIONAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "odpem_replenishment_only_needs_list")
+        self.assertEqual(payload["beneficiary_tenant_id"], 27)
+        mock_validate.assert_not_called()
+
+    def test_authority_preview_reports_escalation_required(self) -> None:
+        needs_list = self._create_needs_list(42)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=400),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("request_authority_escalation_required"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "escalation_required")
+        self.assertEqual(payload["required_authority_tenant_id"], 400)
+
+    def test_authority_preview_reports_agency_out_of_scope(self) -> None:
+        needs_list = self._create_needs_list(43)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("agency_out_of_scope"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=21, tenant_code="OTHER", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "agency_out_of_scope")
+
+    def test_authority_preview_maps_cross_tenant_source_mismatch_to_scope_block(self) -> None:
+        needs_list = self._create_needs_list(44)
+        mismatched_decision = self._decision(beneficiary_tenant_id=21)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=mismatched_decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=21, tenant_code="OTHER", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "agency_out_of_scope")
+
+    def test_authority_preview_reports_self_request_disabled(self) -> None:
+        needs_list = self._create_needs_list(45)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("self_request_disabled"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "self_request_disabled")
+
+    def test_authority_preview_missing_needs_list_raises_stable_error(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service.get_request_authority_preview(
+                source_needs_list_id=404,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(raised.exception.errors["source_needs_list_id"]["code"], "source_needs_list_not_found")
 
 
 class ResolveOdpemTenantIdTests(TestCase):
@@ -544,15 +743,36 @@ class ReliefRequestServiceTests(TestCase):
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 88, "status_label": "Awaiting Approval"})
     @patch("operations.services._request_item_rows_for_allocation", return_value=[{"item_id": 101, "request_qty": "1", "issue_qty": "0"}])
     @patch("operations.services._load_request")
+    @patch("operations.services.operations_policy.get_agency_scope")
     @patch("operations.services.operations_policy.validate_relief_request_agency_selection")
     def test_submit_request_revalidates_existing_agency_scope(
         self,
         validate_scope_mock,
+        get_agency_scope_mock,
         load_request_mock,
         _request_items_mock,
         _get_request_mock,
     ) -> None:
-        request_record = SimpleNamespace(agency_id=501, status_code=operations_service.STATUS_DRAFT, version_nbr=1)
+        agency_scope = operations_policy.AgencyScope(
+            agency_id=501,
+            agency_name="Food For The Poor Shelter",
+            agency_type="SHELTER",
+            warehouse_id=11,
+            tenant_id=20,
+            tenant_code="FFP",
+            tenant_name="Food For The Poor",
+            tenant_type="EXTERNAL",
+        )
+        get_agency_scope_mock.return_value = agency_scope
+        validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=agency_scope,
+            origin_mode=operations_policy.ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+        request_record = SimpleNamespace(reliefrqst_id=88, agency_id=501, status_code=operations_service.STATUS_DRAFT, version_nbr=1)
         request_record.save = lambda **kwargs: None
         load_request_mock.return_value = request_record
         tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
@@ -846,7 +1066,13 @@ class ReliefRequestServiceTests(TestCase):
             save=lambda **kwargs: saved.update(kwargs),
         )
 
-        with patch("operations.services._load_request", return_value=request_record):
+        with (
+            patch("operations.services._load_request", return_value=request_record),
+            patch(
+                "operations.services.operations_policy.get_agency_scope",
+                return_value=validate_scope_mock.return_value.agency_scope,
+            ),
+        ):
             operations_service.update_request(
                 70,
                 payload={"urgency_ind": "H"},

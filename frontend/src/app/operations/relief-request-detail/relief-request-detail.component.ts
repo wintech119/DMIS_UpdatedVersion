@@ -8,6 +8,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { AppAccessService } from '../../core/app-access.service';
@@ -18,8 +19,9 @@ import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-ske
 import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
-import { RequestDetailResponse, RequestItem, PackageSummary } from '../models/operations.model';
+import { AuditEvent, RequestDetailResponse, RequestItem, PackageSummary } from '../models/operations.model';
 import {
+  formatOperationsAge,
   formatOperationsDateTime,
   formatOperationsLineCount,
   formatOperationsPackageStatus,
@@ -52,6 +54,7 @@ interface WorkflowStep {
     MatButtonModule,
     MatCardModule,
     MatIconModule,
+    MatListModule,
     MatTooltipModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
@@ -150,6 +153,7 @@ export class ReliefRequestDetailComponent implements OnInit {
   });
 
   readonly primaryPackage = computed(() => this.request()?.packages?.[0] ?? null);
+  readonly auditTimeline = computed(() => this.request()?.audit_timeline ?? []);
 
   readonly splitParentInfo = computed(() => {
     const split = this.primaryPackage()?.split;
@@ -285,4 +289,60 @@ export class ReliefRequestDetailComponent implements OnInit {
   trackPackage(_index: number, item: PackageSummary): number {
     return item.reliefpkg_id;
   }
+
+  trackAuditEvent(index: number, item: AuditEvent): string {
+    return [
+      index,
+      item.event_kind,
+      item.occurred_at,
+      item.action_code ?? '',
+      item.from_status_code ?? '',
+      item.to_status_code ?? '',
+    ].join(':');
+  }
+
+  formatAuditOccurredAt(event: AuditEvent): string {
+    const age = formatOperationsAge(event.occurred_at);
+    return age === 'Pending'
+      ? formatOperationsDateTime(event.occurred_at)
+      : `${age} ago`;
+  }
+
+  formatAuditEventLabel(event: AuditEvent): string {
+    if (event.event_kind === 'ACTION_AUDIT') {
+      return formatAuditCode(event.action_code);
+    }
+    const fromLabel = event.from_status_code
+      ? formatOperationsRequestStatus(event.from_status_code)
+      : 'Start';
+    const toLabel = event.to_status_code
+      ? formatOperationsRequestStatus(event.to_status_code)
+      : 'Unknown';
+    return `${fromLabel} to ${toLabel}`;
+  }
+
+  formatAuditActor(event: AuditEvent): string {
+    const role = event.actor_role_code?.trim();
+    const label = event.actor_user_label?.trim();
+    if (!role && !label) {
+      return 'External actor';
+    }
+    if (role && label) {
+      return `${role} | ${label}`;
+    }
+    return role ?? label ?? 'External actor';
+  }
+}
+
+function formatAuditCode(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim();
+  if (!normalized) {
+    return 'Action recorded';
+  }
+  return normalized
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }

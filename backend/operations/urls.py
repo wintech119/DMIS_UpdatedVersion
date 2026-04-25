@@ -30,6 +30,8 @@ from operations.views import (
     operations_partial_release_request,
     operations_pickup_release,
     operations_receipt_confirm,
+    operations_request_authority_preview,
+    operations_request_cancel,
     operations_request_detail,
     operations_request_reference_data,
     operations_request_submit,
@@ -40,8 +42,10 @@ from operations.views import (
 urlpatterns = [
     path("requests", operations_requests, name="operations_requests"),
     path("requests/reference-data", operations_request_reference_data, name="operations_request_reference_data"),
+    path("requests/authority-preview", operations_request_authority_preview, name="operations_request_authority_preview"),
     path("requests/<int:reliefrqst_id>", operations_request_detail, name="operations_request_detail"),
     path("requests/<int:reliefrqst_id>/submit", operations_request_submit, name="operations_request_submit"),
+    path("requests/<int:reliefrqst_id>/cancel", operations_request_cancel, name="operations_request_cancel"),
     path("eligibility/queue", operations_eligibility_queue, name="operations_eligibility_queue"),
     path("eligibility/<int:reliefrqst_id>", operations_eligibility_detail, name="operations_eligibility_detail"),
     path(

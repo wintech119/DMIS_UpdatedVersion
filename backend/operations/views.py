@@ -38,6 +38,7 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
     PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
+    PERM_OPERATIONS_REQUEST_CANCEL,
     PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
     PERM_OPERATIONS_REQUEST_SUBMIT,
     PERM_OPERATIONS_WAYBILL_VIEW,
@@ -63,6 +64,7 @@ from replenishment.views import _parse_positive_int
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
+_READ_LIMIT_PER_MINUTE = 120
 _WRITE_LIMIT_PER_MINUTE = 40
 _HIGH_RISK_LIMIT_PER_MINUTE = 10
 _WORKFLOW_LIMIT_PER_MINUTE = 15
@@ -108,8 +110,33 @@ def _permissions(request) -> list[str]:
     return permissions
 
 
+def _operation_validation_code(errors: Mapping[str, Any]) -> str | None:
+    def _walk(value: Any) -> str | None:
+        if isinstance(value, Mapping):
+            code = value.get("code")
+            if code:
+                return str(code)
+            for nested in value.values():
+                found = _walk(nested)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for nested in value:
+                found = _walk(nested)
+                if found:
+                    return found
+        return None
+
+    return _walk(errors)
+
+
 def _service_error_response(exc: Exception) -> Response:
     if isinstance(exc, OperationValidationError):
+        code = _operation_validation_code(exc.errors)
+        if code == "source_needs_list_not_found":
+            return Response({"detail": "Not found."}, status=404)
+        if code == "request_not_cancellable":
+            return Response({"errors": exc.errors}, status=409)
         normalized_errors = {
             str(field_name).strip().lower(): str(message).strip().lower()
             for field_name, message in exc.errors.items()
@@ -522,6 +549,46 @@ operations_request_reference_data.required_permission = [
 ]
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_request_authority_preview(request):
+    """Read-tier (120 req/min) pre-check for needs-list-to-relief-request intake."""
+    try:
+        errors: dict[str, str] = {}
+        source_needs_list_id = _parse_positive_int(
+            request.query_params.get("source_needs_list_id"),
+            "source_needs_list_id",
+            errors,
+        )
+        if errors or source_needs_list_id is None:
+            return Response({"errors": errors or {"source_needs_list_id": "Must be a positive integer."}}, status=400)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_authority_preview",
+            limit=_READ_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
+        return Response(
+            operations_service.get_request_authority_preview(
+                source_needs_list_id=source_needs_list_id,
+                tenant_context=_tenant_context(request),
+                permissions=_permissions(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_request_authority_preview.required_permission = [
+    PERM_OPERATIONS_REQUEST_CREATE_SELF,
+    PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
+    PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
+    PERM_OPERATIONS_QUEUE_VIEW,
+]
+
+
 @api_view(["GET", "PATCH"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
@@ -600,6 +667,49 @@ def operations_request_submit(request, reliefrqst_id: int):
 
 
 operations_request_submit.required_permission = PERM_OPERATIONS_REQUEST_SUBMIT
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_request_cancel(request, reliefrqst_id: int):
+    """Workflow-tier (15 req/min) cancellation for pre-fulfillment relief requests."""
+    try:
+        idempotency_key = _required_idempotency_key(request)
+        actor_id = _actor_id(request)
+        tenant_context = _tenant_context(request)
+        cached_response = _cached_idempotent_response(
+            endpoint="request_cancel",
+            resource_id=reliefrqst_id,
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            idempotency_key=idempotency_key,
+        )
+        if cached_response is not None:
+            return cached_response
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_cancel",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
+        return Response(
+            operations_service.cancel_request(
+                reliefrqst_id,
+                payload=_payload_object(request.data),
+                actor_id=actor_id,
+                actor_roles=_roles(request),
+                tenant_context=tenant_context,
+                permissions=_permissions(request),
+                idempotency_key=idempotency_key,
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_request_cancel.required_permission = PERM_OPERATIONS_REQUEST_CANCEL
 
 
 @api_view(["GET"])

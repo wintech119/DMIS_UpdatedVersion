@@ -774,6 +774,39 @@ describe('OperationsService', () => {
     request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
   });
 
+  it('loads and normalizes the needs-list authority preview contract', () => {
+    let result: unknown;
+
+    service.getRequestAuthorityPreview(40).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne((req) =>
+      req.url === '/api/v1/operations/requests/authority-preview'
+      && req.params.get('source_needs_list_id') === '40'
+    );
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      can_create: true,
+      allowed_origin_modes: ['self', 'SUBORDINATE', 'BOGUS'],
+      required_authority_tenant_id: null,
+      beneficiary_tenant_id: '12',
+      beneficiary_agency_id: '501',
+      suggested_event_id: '44',
+      blocked_reason_code: null,
+    });
+
+    expect(result).toEqual({
+      can_create: true,
+      allowed_origin_modes: ['SELF', 'FOR_SUBORDINATE'],
+      required_authority_tenant_id: null,
+      beneficiary_tenant_id: 12,
+      beneficiary_agency_id: 501,
+      suggested_event_id: 44,
+      blocked_reason_code: null,
+    });
+  });
+
   it('adds an idempotency key when submitting an eligibility decision', () => {
     service.submitEligibilityDecision(12, { decision: 'APPROVED' }).subscribe();
 
@@ -816,6 +849,17 @@ describe('OperationsService', () => {
         requesting_agency_id: 17,
         beneficiary_tenant_id: 5,
         beneficiary_agency_id: 21,
+        source_needs_list_id: 40,
+        audit_timeline: [
+          {
+            event_kind: 'ACTION_AUDIT',
+            action_code: 'REQUEST_CANCELLED',
+            action_reason: 'Duplicate entry.',
+            occurred_at: '2026-04-25T10:00:00Z',
+            actor_role_code: null,
+            actor_user_label: null,
+          },
+        ],
       });
 
       expect(result.request_mode).toBe('FOR_SUBORDINATE');
@@ -823,6 +867,17 @@ describe('OperationsService', () => {
       expect(result.requesting_agency_id).toBe(17);
       expect(result.beneficiary_tenant_id).toBe(5);
       expect(result.beneficiary_agency_id).toBe(21);
+      expect(result.source_needs_list_id).toBe(40);
+      expect(result.audit_timeline).toEqual([
+        jasmine.objectContaining({
+          event_kind: 'ACTION_AUDIT',
+          action_code: 'REQUEST_CANCELLED',
+          action_reason: 'Duplicate entry.',
+          occurred_at: '2026-04-25T10:00:00Z',
+          actor_role_code: null,
+          actor_user_label: null,
+        }),
+      ]);
     });
 
     it('falls back to origin_mode when request_mode is missing', () => {

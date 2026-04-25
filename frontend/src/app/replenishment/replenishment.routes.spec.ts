@@ -25,6 +25,10 @@ describe('REPLENISHMENT_ROUTES', () => {
     expect(findRoute('needs-list/:id/review')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('needs-list/:id/review')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.review' }));
 
+    expect(findRoute('needs-list/:id/apply-relief-request')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('needs-list/:id/apply-relief-request')?.data).toEqual(jasmine.objectContaining({ accessKey: 'operations.relief-requests.create' }));
+    expect(findRoute('needs-list/:id/apply-relief-request')?.loadChildren).toEqual(jasmine.any(Function));
+
     expect(findRoute('needs-list/:id/transfers')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('needs-list/:id/transfers')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.execution' }));
 

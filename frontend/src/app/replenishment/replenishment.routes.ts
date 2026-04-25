@@ -22,6 +22,12 @@ export const REPLENISHMENT_ROUTES: Routes = [
   { path: 'needs-list-review', component: NeedsListReviewQueueComponent, canActivate: [appAccessGuard], data: { accessKey: 'replenishment.review' } },
   { path: 'needs-list-review/:id', redirectTo: 'needs-list/:id/review', pathMatch: 'full' },
   { path: 'needs-list/:id/review', component: NeedsListReviewDetailComponent, canActivate: [appAccessGuard], data: { accessKey: 'replenishment.review' } },
+  {
+    path: 'needs-list/:id/apply-relief-request',
+    canActivate: [appAccessGuard],
+    data: { accessKey: 'operations.relief-requests.create' },
+    loadChildren: () => import('./apply-relief-request/apply-relief-request.routes').then((m) => m.APPLY_RELIEF_REQUEST_ROUTES),
+  },
   { path: 'needs-list/:id/track', redirectTo: 'needs-list/:id/review', pathMatch: 'full' },
   { path: 'needs-list/:id/allocation', redirectTo: 'needs-list/:id/review', pathMatch: 'full' },
   { path: 'needs-list/:id/dispatch', redirectTo: 'needs-list/:id/review', pathMatch: 'full' },

@@ -79,8 +79,10 @@ describe('ReliefRequestDetailComponent', () => {
       requesting_agency_id: 17,
       beneficiary_tenant_id: 5,
       beneficiary_agency_id: 21,
+      source_needs_list_id: null,
       items: [],
       packages: [pkg],
+      audit_timeline: [],
       ...detailOverrides,
     };
   }
@@ -347,6 +349,46 @@ describe('ReliefRequestDetailComponent', () => {
     expect(text).toContain('agency 17');
     expect(text).toContain('Beneficiary tenant 5');
     expect(text).toContain('agency 21');
+  });
+
+  it('renders the chronological audit timeline with redacted actor fallback', async () => {
+    await createComponent(
+      buildDetail(
+        {},
+        {
+          audit_timeline: [
+            {
+              event_kind: 'STATUS_TRANSITION',
+              from_status_code: 'DRAFT',
+              to_status_code: 'SUBMITTED',
+              action_code: null,
+              action_reason: null,
+              occurred_at: '2026-03-26T08:30:00Z',
+              actor_role_code: 'REQUESTER',
+              actor_user_label: 'Kemar Blake',
+            },
+            {
+              event_kind: 'ACTION_AUDIT',
+              from_status_code: null,
+              to_status_code: null,
+              action_code: 'REQUEST_CANCELLED',
+              action_reason: 'Duplicate entry.',
+              occurred_at: '2026-03-26T09:00:00Z',
+              actor_role_code: null,
+              actor_user_label: null,
+            },
+          ],
+        },
+      ),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('Audit timeline');
+    expect(host.textContent).toContain('Draft to Submitted');
+    expect(host.textContent).toContain('REQUESTER | Kemar Blake');
+    expect(host.textContent).toContain('Request Cancelled');
+    expect(host.textContent).toContain('External actor');
+    expect(host.textContent).toContain('Duplicate entry.');
   });
 
   it('reuses the same idempotency key when submit-for-review is retried after an ambiguous failure', async () => {

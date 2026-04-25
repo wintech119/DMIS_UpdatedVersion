@@ -15,6 +15,7 @@ import {
   ConsolidationLegsResponse,
   ConsolidationWaybillResponse,
   CreateRequestPayload,
+  RequestAuthorityPreviewResponse,
   RequestReferenceDataResponse,
   DispatchDetailResponse,
   DispatchHandoffPayload,
@@ -51,6 +52,7 @@ import {
   normalizeAllocationCommitResponse,
   normalizeAllocationItemGroup,
   normalizeAllocationOptions,
+  normalizeAuthorityPreview,
   normalizeConsolidationLegDispatchResponse,
   normalizeConsolidationLegReceiveResponse,
   normalizeConsolidationLegsResponse,
@@ -121,6 +123,13 @@ export class OperationsService {
         events: normalizeReferenceOptions(response.events),
         items: normalizeReferenceOptions(response.items),
       })),
+    );
+  }
+
+  getRequestAuthorityPreview(sourceNeedsListId: number): Observable<RequestAuthorityPreviewResponse> {
+    const params = new HttpParams().set('source_needs_list_id', String(sourceNeedsListId));
+    return this.http.get<unknown>(`${this.apiUrl}/requests/authority-preview`, { params }).pipe(
+      map(normalizeAuthorityPreview),
     );
   }
 
