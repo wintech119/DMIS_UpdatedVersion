@@ -763,6 +763,9 @@ export class OperationsWorkspaceStateService {
             this.loadStagingRecommendation(requestReliefrqstId);
           } else {
             this.consolidationLegs.set([]);
+            this.latestLegsRequestId += 1;
+            this.legsLoading.set(false);
+            this.legsError.set(null);
             this.latestRecommendationRequestId += 1;
             this.stagingRecommendation.set(null);
             this.recommendationLoading.set(false);

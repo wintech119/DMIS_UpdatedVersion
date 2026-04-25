@@ -51,6 +51,8 @@ const OPERATIONAL_WORKSPACE_STATUSES: ReadonlySet<string> = new Set([
   styleUrl: './needs-list-fulfillment-tracker.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
+// The backend contract still names these records fulfillment sources; the UI
+// presents them as sourcing to match Replenishment Execution terminology.
 export class NeedsListFulfillmentTrackerComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

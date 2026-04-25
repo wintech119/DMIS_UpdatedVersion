@@ -218,6 +218,35 @@ describe('FulfillmentDetailsStepComponent', () => {
     ]);
   });
 
+  it('keeps the saved staging hub selectable when the recommendation has no hub options', () => {
+    isStagedFulfillment.set(true);
+    stagingRecommendation.set({
+      reliefrqst_id: 95009,
+      recommended_staging_warehouse_id: 9501,
+      recommended_staging_warehouse_name: 'ODPEM Staging Hub',
+      recommended_staging_parish_code: '01',
+      staging_selection_basis: 'SAME_PARISH',
+      staging_hubs: [],
+    });
+    draftState.update((current) => ({
+      ...current,
+      fulfillment_mode: 'DELIVER_FROM_STAGING',
+      staging_warehouse_id: '9501',
+    }));
+
+    const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.savedStagingWarehouseId()).toBe('9501');
+    expect(component.stagingWarehouseOptions()).toEqual([
+      { value: '9501', label: 'ODPEM Staging Hub' },
+    ]);
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(
+      'No active ODPEM staging hubs are available.',
+    );
+  });
+
   it('does not overwrite destination warehouse when switching to a staged mode', () => {
     reliefrqstId.set(95009);
     draftState.update((current) => ({

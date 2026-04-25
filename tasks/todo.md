@@ -102,3 +102,11 @@
 1. Completed: re-verified the newly cited backend and frontend findings against the live tree, classifying them as already fixed, stale, or still actionable under the no-frontend-visual-change constraint.
 2. Completed: applied the remaining backend control fixes and only non-visual frontend behavior, accessibility, idempotency, error-handling, and lint updates that still reproduced.
 3. Completed: ran focused Django and Angular verification where the local environment supports it, added direct replenishment smoke checks for the blocked module surfaces, and completed the architecture-alignment closeout against the canonical docs.
+
+## Review Comment Verification Sweep - 2026-04-25
+
+1. Completed: verified each cited backend and frontend finding against the current code before editing.
+2. Completed: patched only confirmed backend service/test gaps, preserving tenant-scope enforcement.
+3. Completed: patched only confirmed frontend behavior and explicitly requested copy consistency gaps without layout/style changes.
+4. Completed: ran focused Django and Angular verification for changed paths.
+5. Completed: completed backend/frontend and architecture-review closeout before final response.

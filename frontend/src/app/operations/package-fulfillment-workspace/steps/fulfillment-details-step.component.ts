@@ -88,7 +88,7 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
             <mat-select
               [ngModel]="draft().staging_warehouse_id"
               (ngModelChange)="onStagingHubChange($event)"
-              [disabled]="lockOperationalFields || !stagingWarehouseOptions().length"
+              [disabled]="lockOperationalFields || (!stagingWarehouseOptions().length && !savedStagingWarehouseId())"
               aria-label="Select staging hub">
               <mat-select-trigger>
                 {{ draft().staging_warehouse_id ? warehouseLabel(draft().staging_warehouse_id) : 'Not selected' }}
@@ -476,15 +476,16 @@ export class FulfillmentDetailsStepComponent {
   readonly draft = this.store.draft;
 
   readonly warehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
+  readonly savedStagingWarehouseId = computed(() => String(this.draft().staging_warehouse_id ?? '').trim());
   readonly stagingWarehouseOptions = computed<LookupItem[]>(() => {
-    const selectedId = String(this.draft().staging_warehouse_id ?? '').trim();
+    const selectedId = this.savedStagingWarehouseId();
     const recommendation = this.store.stagingRecommendation();
     const options = (recommendation?.staging_hubs ?? [])
       .map((hub) => ({
         value: String(hub.warehouse_id),
         label: hub.warehouse_name || `Warehouse ${hub.warehouse_id}`,
       }));
-    if (!recommendation && selectedId) {
+    if (selectedId && !options.some((option) => option.value === selectedId)) {
       const selectedLookup = this.warehouseOptions().find((entry) => String(entry.value) === selectedId);
       options.push({
         value: selectedId,

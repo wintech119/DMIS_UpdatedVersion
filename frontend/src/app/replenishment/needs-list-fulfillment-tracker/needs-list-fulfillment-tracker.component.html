@@ -122,8 +122,8 @@
             </div>
             <p class="action-card-desc">{{ allocationActionDescription() }}</p>
             <div class="action-card-meta">
-              <span>Execution ref: {{ list.request_tracking_no || 'Pending' }}</span>
-              <span>Reservation ref: {{ list.package_tracking_no || 'Pending' }}</span>
+              <span>Request Tracking Number: {{ list.request_tracking_no || 'Pending' }}</span>
+              <span>Package Tracking Number: {{ list.package_tracking_no || 'Pending' }}</span>
             </div>
             <button mat-flat-button color="primary" type="button" (click)="navigateToAllocationWorkspace()">
               <mat-icon>inventory</mat-icon>
@@ -252,7 +252,7 @@
           </div>
           <h2 class="approval-title">Approved</h2>
           <p class="approval-message">
-            This needs list has been approved and is now ready for fulfillment execution.
+            This needs list has been approved and is now ready for Replenishment Execution.
           </p>
           <button mat-flat-button color="primary" class="approval-ok-btn" type="button" (click)="dismissApprovalSuccess()">
             OK
@@ -266,7 +266,7 @@
       <dmis-empty-state
         icon="inventory_2"
         title="No line items"
-        message="This needs list does not have any fulfillment line items recorded.">
+        message="This needs list does not have any sourcing line items recorded.">
       </dmis-empty-state>
     } @else {
       <div class="lines-section">
@@ -360,7 +360,7 @@
                             </tbody>
                           </table>
                         } @else {
-                          <p class="no-sources">No fulfillment sources recorded yet.</p>
+                          <p class="no-sources">No sourcing records yet.</p>
                         }
                       </div>
                     </td>
@@ -424,7 +424,7 @@
                       </div>
                     }
                   } @else {
-                    <p class="no-sources">No fulfillment sources recorded yet.</p>
+                    <p class="no-sources">No sourcing records yet.</p>
                   }
                 </div>
               }

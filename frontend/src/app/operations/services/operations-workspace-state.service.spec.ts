@@ -12,6 +12,7 @@ import {
   AllocationItemGroup,
   AllocationOptionsResponse,
   AllocationCommitPayload,
+  ConsolidationLeg,
   PackageDetailResponse,
   PackageDraftPayload,
   PackageLockReleaseResponse,
@@ -749,6 +750,96 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
     expect(service.draft().fulfillment_mode).toBe('PICKUP_AT_STAGING');
     expect(service.draft().staging_warehouse_id).toBe('9501');
     expect(service.draft().staging_override_reason).toBe('Closer to field site');
+  });
+
+  it('ignores in-flight consolidation leg loads after switching back to direct fulfillment', () => {
+    const legsResponse$ = new Subject<{
+      results: ConsolidationLeg[];
+      package: PackageSummary | null;
+    }>();
+    const directResponse = {
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DIRECT',
+        staging_warehouse_id: null,
+        staging_override_reason: null,
+      },
+      items: [],
+      compatibility_only: false,
+    } as PackageDetailResponse;
+    const saveSpy = jasmine.createSpy('savePackageDraft').and.returnValue(of(directResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: jasmine
+              .createSpy('getConsolidationLegs')
+              .and.returnValue(legsResponse$.asObservable()),
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.consolidationLegs.set([{ leg_id: 1 } as ConsolidationLeg]);
+
+    service.loadConsolidationLegs(77001);
+    service.saveFulfillmentModeDraft('DIRECT', null, null).subscribe();
+
+    legsResponse$.next({
+      results: [{ leg_id: 2 } as ConsolidationLeg],
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DELIVER_FROM_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: null,
+      },
+    });
+    legsResponse$.complete();
+
+    expect(service.consolidationLegs()).toEqual([]);
+    expect(service.legsLoading()).toBeFalse();
+    expect(service.packageDetail()?.package?.fulfillment_mode).toBe('DIRECT');
   });
 
   it('ignores stale fulfillment-mode save responses after the request context changes', () => {

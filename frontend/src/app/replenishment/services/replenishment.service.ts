@@ -361,6 +361,7 @@ export class ReplenishmentService {
   getNeedsListFulfillmentSources(
     needsListId: string
   ): Observable<NeedsListFulfillmentSourcesResponse> {
+    // API/model names remain fulfillment-sources; screens label the same data as sourcing.
     return this.http.get<NeedsListFulfillmentSourcesResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/fulfillment-sources`
     );

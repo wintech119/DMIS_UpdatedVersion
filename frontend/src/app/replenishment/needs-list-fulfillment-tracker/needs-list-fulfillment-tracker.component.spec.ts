@@ -105,11 +105,12 @@ describe('NeedsListFulfillmentTrackerComponent', () => {
     const title = component.pageTitle();
     const subtitle = component.pageSubtitle();
     const allocationDescription = component.allocationActionDescription();
+    const normalizedAllocationDescription = allocationDescription.toLowerCase();
 
     expect(title).toBe('Sourcing Tracker');
     expect(subtitle).toBe('Track replenishment sourcing progress');
-    expect(allocationDescription).toContain('replenishment');
-    expect(allocationDescription.toLowerCase()).not.toContain('relief request');
-    expect(allocationDescription.toLowerCase()).not.toContain('request and package');
+    expect(normalizedAllocationDescription).toContain('replenishment');
+    expect(normalizedAllocationDescription).not.toContain('relief request');
+    expect(normalizedAllocationDescription).not.toContain('request and package');
   });
 });

@@ -79,6 +79,7 @@ describe('RequestItemsStepComponent', () => {
     component.itemOptions = [{ value: 23, label: 'Blankets' }];
     component.submissionModeLabel = 'Request on behalf of a managed entity';
     component.submissionModeHint = 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
+    component.requestingEntityLabel = 'Requesting entity';
     component.creationBlocked = false;
 
     fixture.detectChanges();
@@ -146,6 +147,18 @@ describe('RequestItemsStepComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Represented requester is required.');
     expect(text).not.toContain('Requesting entity is required.');
+  });
+
+  it('normalizes blank requesting entity labels for help text and errors', () => {
+    const agency = component.form.get('agency_id')!;
+    component.requestingEntityLabel = '   ';
+
+    agency.markAsTouched();
+    fixture.detectChanges();
+
+    expect(component.requestingAgencyHelpLabel).toBe('More information about Requesting entity');
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Requesting entity is required.');
   });
 
   it('flags item reason entries longer than 255 characters and renders the bound error', () => {

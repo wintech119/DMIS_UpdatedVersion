@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+import logging
 import uuid
 import hashlib
 from dataclasses import dataclass
@@ -200,6 +201,8 @@ from replenishment.legacy_models import (
     Transfer,
     TransferItem,
 )
+
+logger = logging.getLogger(__name__)
 
 _UNSET = object()
 
@@ -6417,13 +6420,23 @@ def get_staging_recommendation(
     recommendation = recommend_staging_hub(
         beneficiary_parish_code=beneficiary_parish_code_for_request(reliefrqst_id)
     )
+    try:
+        staging_hubs = list_staging_hubs()
+    except Exception as exc:
+        logger.warning(
+            "failed to list staging hubs for recommendation: %s",
+            exc,
+            extra={"reliefrqst_id": int(reliefrqst_id), "actor_id": actor_id},
+            exc_info=True,
+        )
+        staging_hubs = []
     return {
         "reliefrqst_id": int(reliefrqst_id),
         "recommended_staging_warehouse_id": recommendation.recommended_staging_warehouse_id,
         "recommended_staging_warehouse_name": recommendation.recommended_staging_warehouse_name,
         "recommended_staging_parish_code": recommendation.recommended_staging_parish_code,
         "staging_selection_basis": recommendation.staging_selection_basis,
-        "staging_hubs": list_staging_hubs(),
+        "staging_hubs": staging_hubs,
     }
 
 
