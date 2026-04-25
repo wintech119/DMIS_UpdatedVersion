@@ -58,6 +58,7 @@ export type EligibilityDecision = 'Y' | 'APPROVED' | 'REJECTED' | 'INELIGIBLE';
 export type AllocationSourceType = 'ON_HAND' | 'TRANSFER' | 'DONATION' | 'PROCUREMENT';
 export type AllocationMethod = 'FEFO' | 'FIFO' | 'MIXED' | 'MANUAL';
 export type OperationsEntityType = 'RELIEF_REQUEST' | 'REQUEST' | 'PACKAGE' | 'DISPATCH';
+export type RequestOriginMode = 'SELF' | 'FOR_SUBORDINATE' | 'ODPEM_BRIDGE';
 
 export interface RequestReferenceOption {
   value: number;
@@ -163,7 +164,7 @@ export interface RequestSummary {
   execution_status: string | null;
   needs_list_id: number | null;
   compatibility_bridge: boolean;
-  request_mode: 'SELF' | 'FOR_SUBORDINATE' | 'ODPEM_BRIDGE' | null;
+  request_mode: RequestOriginMode | null;
   authority_context: string | null;
   requesting_tenant_id: number | null;
   requesting_agency_id: number | null;
@@ -191,6 +192,8 @@ export interface CreateRequestItemPayload {
 
 export interface CreateRequestPayload {
   agency_id: number;
+  beneficiary_agency_id?: number | null;
+  origin_mode?: RequestOriginMode;
   urgency_ind: UrgencyCode;
   eligible_event_id?: number | null;
   rqst_notes_text?: string;

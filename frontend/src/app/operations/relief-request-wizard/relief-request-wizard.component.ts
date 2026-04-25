@@ -18,6 +18,7 @@ import {
   CreateRequestPayload,
   RequestReferenceOption,
   RequestDetailResponse,
+  RequestOriginMode,
   UpdateRequestPayload,
   UrgencyCode,
 } from '../models/operations.model';
@@ -117,6 +118,28 @@ export class ReliefRequestWizardComponent implements OnInit {
     const modes = this.capabilities()?.allowed_origin_modes ?? [];
     return modes.includes('self') && modes.includes('for_subordinate');
   });
+
+  readonly explicitOriginMode = computed<RequestOriginMode | null>(() => {
+    if (this.isDualMode()) {
+      return null;
+    }
+    switch (this.capabilities()?.relief_request_submission_mode) {
+      case 'for_subordinate':
+        return 'FOR_SUBORDINATE';
+      case 'on_behalf_bridge':
+        return 'ODPEM_BRIDGE';
+      case 'self':
+        return 'SELF';
+      default:
+        return null;
+    }
+  });
+
+  readonly isOnBehalfMode = computed(() => this.explicitOriginMode() === 'ODPEM_BRIDGE');
+
+  readonly requestingEntityLabel = computed(() =>
+    this.isOnBehalfMode() ? 'Represented requester' : 'Requesting entity'
+  );
 
   readonly creationBlocked = computed(() =>
     !this.isEditMode()
@@ -232,6 +255,7 @@ export class ReliefRequestWizardComponent implements OnInit {
     return {
       agency_id: raw.agency_id,
       agency_name: this.selectedAgencyName(),
+      requester_label: this.requestingEntityLabel(),
       urgency_ind: raw.urgency_ind,
       eligible_event_id: raw.eligible_event_id,
       event_name: this.selectedEventName(),
@@ -567,6 +591,13 @@ export class ReliefRequestWizardComponent implements OnInit {
       rqst_notes_text: notesPayload,
       items,
     };
+    const originMode = this.explicitOriginMode();
+    if (originMode) {
+      createPayload.origin_mode = originMode;
+    }
+    if (originMode === 'ODPEM_BRIDGE' || originMode === 'FOR_SUBORDINATE') {
+      createPayload.beneficiary_agency_id = raw.agency_id;
+    }
 
     this.operationsService.createRequest(createPayload)
       .pipe(takeUntilDestroyed(this.destroyRef))

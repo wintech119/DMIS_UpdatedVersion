@@ -306,6 +306,7 @@ describe('ReliefRequestWizardComponent', () => {
 
     it('shows dual-mode label when both self and for_subordinate modes are available', () => {
       expect(fixture.componentInstance.isDualMode()).toBeTrue();
+      expect(fixture.componentInstance.explicitOriginMode()).toBeNull();
       expect(fixture.componentInstance.submissionModeLabel()).toBe('Your organisation or managed entity');
       expect(fixture.componentInstance.workflowLabel()).toBe('New request');
     });
@@ -366,6 +367,7 @@ describe('ReliefRequestWizardComponent', () => {
 
     it('labels intake as ODPEM-assisted while keeping the selected beneficiary agency in the payload', () => {
       const component = fixture.componentInstance;
+      const compiled = fixture.nativeElement as HTMLElement;
       const savedResponse = {
         reliefrqst_id: 77,
         status_code: 'DRAFT',
@@ -380,15 +382,21 @@ describe('ReliefRequestWizardComponent', () => {
       fixture.detectChanges();
 
       expect(component.isDualMode()).toBeFalse();
+      expect(component.explicitOriginMode()).toBe('ODPEM_BRIDGE');
+      expect(component.requestingEntityLabel()).toBe('Represented requester');
       expect(component.submissionModeLabel()).toBe('ODPEM-assisted request');
       expect(component.submissionModeHint()).toContain('entering this request on their behalf');
       expect(component.workflowLabel()).toBe('New request (ODPEM-assisted)');
+      expect(component.reviewFormValue().requester_label).toBe('Represented requester');
+      expect(compiled.textContent).toContain('Represented requester');
 
       component.onSaveAsDraft();
 
       expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
       const payload = operationsService.createRequest.calls.mostRecent().args[0];
       expect(payload.agency_id).toBe(501);
+      expect(payload.beneficiary_agency_id).toBe(501);
+      expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
       expect(payload.items[0].item_id).toBe(88);
     });
   });

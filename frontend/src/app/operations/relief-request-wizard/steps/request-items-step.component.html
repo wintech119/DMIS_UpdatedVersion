@@ -22,7 +22,7 @@
 
     <div class="request-context-grid">
       <mat-form-field appearance="outline">
-        <mat-label>Requesting Entity</mat-label>
+        <mat-label>{{ requestingEntityLabel }}</mat-label>
         <mat-select formControlName="agency_id">
           @for (option of agencyOptions; track option.value) {
             <mat-option [value]="option.value">{{ option.label }}</mat-option>
@@ -34,7 +34,7 @@
           type="button"
           class="field-help-button"
           [matTooltip]="requestingAgencyTooltip"
-          aria-label="More information about Requesting entity">
+          [attr.aria-label]="requestingAgencyHelpLabel">
           <mat-icon>help_outline</mat-icon>
         </button>
         <mat-hint>{{ submissionModeHint }}</mat-hint>

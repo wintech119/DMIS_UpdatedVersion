@@ -54,6 +54,7 @@ export class RequestItemsStepComponent implements OnChanges {
   @Input({ required: true }) itemOptions: RequestReferenceOption[] = [];
   @Input({ required: true }) submissionModeLabel = '';
   @Input({ required: true }) submissionModeHint = '';
+  @Input({ required: true }) requestingEntityLabel = 'Requesting entity';
   @Input({ required: true }) creationBlocked = false;
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -92,6 +93,10 @@ export class RequestItemsStepComponent implements OnChanges {
     }
   }
 
+  get requestingAgencyHelpLabel(): string {
+    return `More information about ${this.requestingEntityLabel}`;
+  }
+
   get isHighUrgency(): boolean {
     return this.form?.get('urgency_ind')?.value === 'H';
   }
@@ -116,7 +121,8 @@ export class RequestItemsStepComponent implements OnChanges {
 
     if (control.hasError('required')) {
       if (controlName === 'agency_id') {
-        return 'Requesting entity is required.';
+        const label = this.requestingEntityLabel.trim() || 'Requesting entity';
+        return `${label} is required.`;
       }
       if (controlName === 'urgency_ind') {
         return 'Request urgency is required.';
