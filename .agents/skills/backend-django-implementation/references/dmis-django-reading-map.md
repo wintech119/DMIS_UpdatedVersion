@@ -3,6 +3,10 @@
 A canonical pointer-set the skill loads on demand. Verified 2026-04-25.
 This file is duplicated across the three backend skills; the pre-commit drift hook keeps the copies identical.
 
+Read `backend/lessons_learned.md` before changing workflow, tenancy, queue-routing, or approval logic.
+Consult approved feature docs in `../docs` before implementing features.
+Treat `../docs/adr/system_application_architecture.md` as the primary architecture source of truth.
+
 ## Apps and entry points
 - `backend/dmis_api/` — project config (`settings.py`, `urls.py`, `wsgi.py`)
 - `backend/api/` — auth, `Principal`, RBAC, tenancy, task engine
@@ -23,15 +27,15 @@ This file is duplicated across the three backend skills; the pre-commit drift ho
 - Burn rate from `reliefpkg` + `reliefpkg_item` (statuses `D`, `R`).
 
 ## Validation helpers (must reuse — never duplicate)
-- `backend/replenishment/views.py:315` `_parse_positive_int(value, field_name, errors)` — int regex + type + > 0 range
-- `backend/replenishment/views.py:339` `_parse_optional_bool(value, field_name, errors)` — whitelist boolean parse
-- `backend/replenishment/views.py:354` `_parse_optional_datetime(value, …)` — ISO with timezone awareness
-- `backend/replenishment/views.py:373` `_parse_selected_item_keys(raw_keys, errors)` — array of `\d+_\d+` keys
-- `backend/masterdata/services/validation.py:20` `validate_record(cfg, data)` — config-driven field validation (required, max_length, pattern, choices, uniqueness, FK existence, cross-field rules)
+- `backend.replenishment.views:_parse_positive_int(value, field_name, errors)` — int regex + type + > 0 range
+- `backend.replenishment.views:_parse_optional_bool(value, field_name, errors)` — whitelist boolean parse
+- `backend.replenishment.views:_parse_optional_datetime(value, …)` — ISO with timezone awareness
+- `backend.replenishment.views:_parse_selected_item_keys(raw_keys, errors)` — array of `\d+_\d+` keys
+- `backend.masterdata.services.validation:validate_record(cfg, data)` — config-driven field validation (required, max_length, pattern, choices, uniqueness, FK existence, cross-field rules)
 
 ## AuthN / AuthZ
 - `backend/api/authentication.py` — `KeycloakJWTAuthentication`, `LegacyCompatAuthentication`, `Principal(user_id, username, roles, permissions)`
-- `backend/api/rbac.py:522` `resolve_roles_and_permissions(request, request.user)` — call inside views before authorizing actions
+- `backend.api.rbac:resolve_roles_and_permissions(request, request.user)` — call inside views before authorizing actions
 - `Principal.permissions` — list-checked before reads/writes
 - DB RBAC tables: `role`, `permission`, `user_role`, `role_permission` when `AUTH_USE_DB_RBAC=1`
 - Local-harness only: `LegacyCompatAuthentication` accepts the allowlisted `X-DMIS-Local-User` header; backend rejects legacy `X-Dev-User`.

@@ -162,4 +162,4 @@ See `references/hooks-recommendations.md`. Apply via the `update-config` skill.
 - Do not bypass the service layer with direct `HttpClient` use in components.
 - Do not regress to NgModules where standalone components are the convention.
 - Do not duplicate or drift the design tokens defined in `frontend/src/lib/prompts/generation.tsx` (warm-neutral palette, status tones, typography, spacing, radius). Cite that file when introducing or changing visual values; surface the canonical values through `frontend/src/styles.scss` rather than hardcoding them in components.
-- Do not declare medium- or high-risk work complete until `system-architecture-review` returns `Aligned` or until each `Conditionally Aligned` Required Change has been closed.
+- Do not declare low-medium and higher risk work complete until `system-architecture-review` returns `Aligned` or until each `Conditionally Aligned` Required Change has been closed.

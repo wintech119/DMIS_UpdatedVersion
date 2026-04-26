@@ -329,7 +329,7 @@ If any item is incomplete, label the design `Draft - pending closure` and call o
 - Reinventing visual tokens, status tones, typography, or component patterns when `frontend/src/lib/prompts/generation.tsx` already encodes them and `frontend/src/styles.scss` / the relevant module theme / `frontend/src/app/shared/` already implement them. Reference both spec and runtime file; do not duplicate or drift.
 
 ## Required Output Structure
-Structure responses as below. Skip a section only when it does not apply, and say so explicitly.
+Structure responses as follows. Skip a section only when it does not apply, and say so explicitly.
 
 ### A. Scope and source
 Feature, module, backlog rows, deltas, personas, out-of-scope.

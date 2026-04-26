@@ -37,7 +37,7 @@ This file is duplicated across the three frontend skills; the pre-commit drift h
 - ESLint frontend config — selector prefix rules (`app-*` element, `dmis-*` element; `app*` / `dmis*` attribute).
 - Angular Material is integrated through `styles.scss`.
 
-`generation.tsx` may be absent on older worktree branches that predate its merge; in that case, treat it as a canonical reference whose tokens still apply via `styles.scss` and pull from `main` to surface the prompt itself.
+If `generation.tsx` is absent, do not pull UI rules from `main` by default. Use `frontend/src/styles.scss` in the current worktree for runtime tokens, consult mirrored skill docs in `../docs` or the current branch for prompt/component rules, and allow cross-branch retrieval only when an explicit approved doc or flag authorizes it.
 
 ## Build / test commands
 - `npm start` — `ng serve` with proxy

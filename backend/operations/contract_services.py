@@ -7016,7 +7016,7 @@ def get_staging_recommendation(
     )
     try:
         staging_hubs = list_staging_hubs()
-    except Exception as exc:
+    except DatabaseError as exc:
         logger.warning(
             "failed to list staging hubs for recommendation: %s",
             exc,

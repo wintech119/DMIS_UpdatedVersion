@@ -558,7 +558,6 @@ export class OperationsWorkspaceStateService {
     }
     const workspaceGeneration = this.latestWorkspaceGeneration;
     const requestId = ++this.latestRecommendationRequestId;
-    this.stagingRecommendation.set(null);
     this.recommendationLoading.set(true);
     this.recommendationError.set(null);
 

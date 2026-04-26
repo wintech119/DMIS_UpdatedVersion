@@ -240,7 +240,7 @@ describe('FulfillmentDetailsStepComponent', () => {
 
     expect(component.savedStagingWarehouseId()).toBe('9501');
     expect(component.stagingWarehouseOptions()).toEqual([
-      { value: '9501', label: 'ODPEM Staging Hub' },
+      { value: '9501', label: 'ODPEM Staging Hub (previously saved - not in current recommendations)' },
     ]);
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(
       'No active ODPEM staging hubs are available.',

@@ -75,10 +75,10 @@ Avoid putting non-trivial business logic in views, serializers, model `save()`, 
 
 1. **Score the change** with the rubric in `references/architecture-review-handoff.md`. Treat any axis = 2 or total ≥ 4 as architecture-review-mandatory.
 2. **Run the architecture-review gate before plan finalization** if the score or any always-on trigger applies. Resolve `Misaligned` before writing code.
-3. **Reuse first**. Check `references/dmis-django-reading-map.md` for an existing helper before authoring a new validator, parser, or data-access function. Reuse `_parse_*` from `replenishment/views.py:315-373` and `validate_record` from `masterdata/services/validation.py:20`.
+3. **Reuse first**. Check `references/dmis-django-reading-map.md` for an existing helper before authoring a new validator, parser, or data-access function. Reuse `_parse_*` from `backend.replenishment.views` and `validate_record` from `backend.masterdata.services.validation`.
 4. **Write the model / migration**. Add `tenant_id` to anything that is tenant-scoped. Use `UniqueConstraint`, `CheckConstraint`, indexes for filters/joins/ordering. Plan the rollout: nullable column → backfill → make required.
 5. **Write the data-access / service layer**. Raw SQL goes through `data_access.py` for legacy tables; ORM only for new EP-02 tables. `%s` parameterized placeholders only. Wrap multi-step writes in `transaction.atomic()`.
-6. **Write the view**. Authenticate → resolve permissions via `resolve_roles_and_permissions(request, request.user)` (`backend/api/rbac.py:522`) → check `Principal.permissions` → assign rate-limit tier (`Read 120/min`, `Write 40/min`, `Workflow 15/min`, `High-risk 10/min`) → require idempotency key on approve / dispatch / receipt → call service or selector → return predictable shape and status. Always include `tenant_id` in the lookup; never authorize by ID alone.
+6. **Write the view**. Authenticate → resolve permissions via `backend.api.rbac:resolve_roles_and_permissions(request, request.user)` → check `Principal.permissions` → assign rate-limit tier (`Read 120/min`, `Write 40/min`, `Workflow 15/min`, `High-risk 10/min`) → require idempotency key on approve / dispatch / receipt → call service or selector → return predictable shape and status. Always include `tenant_id` in the lookup; never authorize by ID alone.
 7. **Write tests**. Tenant-boundary negative test (different tenant → 404), wrong-role negative test (different role → 403), happy path, validation failure path. Override pattern: `@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)`.
 8. **Run gates**. `python manage.py check`, `python manage.py migrate --check`, focused app tests. The `PostToolUse` hook (see `references/hooks-recommendations.md`) does this automatically when configured.
 9. **Run the architecture-review gate before final output**. If `Misaligned`, do not declare the work complete.
@@ -151,6 +151,6 @@ See `references/hooks-recommendations.md`. Apply via the `update-config` skill.
 - Do not introduce a new endpoint that takes an object ID without a negative cross-tenant test.
 - Do not write raw SQL that is not parameterized with `%s`.
 - Do not normalize dev-user / impersonation behavior into non-local code paths.
-- Do not declare medium- or high-risk work complete until `system-architecture-review` returns `Aligned` or until each `Conditionally Aligned` Required Change has been closed.
+- Do not declare low-medium and higher risk work complete until `system-architecture-review` returns `Aligned` or until each `Conditionally Aligned` Required Change has been closed.
 - Do not regress to ViewSets where the surrounding code uses function-based `@api_view`.
 - Do not reintroduce executable Flask paths (decommissioned in DMIS-10).

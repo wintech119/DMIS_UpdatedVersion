@@ -487,9 +487,11 @@ export class FulfillmentDetailsStepComponent {
       }));
     if (selectedId && !options.some((option) => option.value === selectedId)) {
       const selectedLookup = this.warehouseOptions().find((entry) => String(entry.value) === selectedId);
+      const selectedLabel = selectedLookup?.label ?? `Selected warehouse ${selectedId}`;
+      const staleSuffix = recommendation ? ' (previously saved - not in current recommendations)' : '';
       options.push({
         value: selectedId,
-        label: selectedLookup?.label ?? `Selected warehouse ${selectedId}`,
+        label: `${selectedLabel}${staleSuffix}`,
       });
     }
     return options;

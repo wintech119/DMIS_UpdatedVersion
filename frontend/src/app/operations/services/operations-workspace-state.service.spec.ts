@@ -1056,7 +1056,7 @@ describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {
     TestBed.resetTestingModule();
   });
 
-  it('clears stale recommendations while loading and after errors', () => {
+  it('preserves the previous recommendation while loading and clears it after errors', () => {
     const response$ = new Subject<StagingRecommendationResponse>();
     const getStagingRecommendationSpy = jasmine
       .createSpy('getStagingRecommendation')
@@ -1086,7 +1086,7 @@ describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {
 
     service.loadStagingRecommendation(RELIEFRQST_ID);
 
-    expect(service.stagingRecommendation()).toBeNull();
+    expect(service.stagingRecommendation()?.recommended_staging_warehouse_name).toBe('Old recommendation');
     expect(service.recommendationLoading()).toBeTrue();
 
     response$.error(new HttpErrorResponse({

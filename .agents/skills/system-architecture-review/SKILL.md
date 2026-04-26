@@ -1,6 +1,6 @@
 ---
 name: system-architecture-review
-description: Review medium- and high-risk plans and completed work for alignment to the DMIS system/application architecture, security architecture, threat model, controls, production-readiness expectations, and recognized international architecture, security, and quality standards (ISO/IEC/IEEE 42010, ISO 25010, OWASP ASVS/SAMM, NIST CSF, WCAG, OpenTelemetry, 12-factor, DORA, C4). Detect and prevent architecture drift introduced by Claude Code or Codex through fitness functions, ADR discipline, CI gates, conformance evidence, and explicit AI-agent anti-drift checks.
+description: Review low-medium and higher risk plans and completed work for alignment to the DMIS system/application architecture, security architecture, threat model, controls, production-readiness expectations, and recognized international architecture, security, and quality standards (ISO/IEC/IEEE 42010, ISO 25010, OWASP ASVS/SAMM, NIST CSF, WCAG, OpenTelemetry, 12-factor, DORA, C4). Detect and prevent architecture drift introduced by Claude Code or Codex through fitness functions, ADR discipline, CI gates, conformance evidence, and explicit AI-agent anti-drift checks.
 allowed-tools: Read, Grep, Glob, Skill, Bash
 model: sonnet
 ---
@@ -22,7 +22,7 @@ You are responsible for catching drift across:
 - production-readiness expectations
 - ADR and decision-record discipline
 
-Use this skill for medium- and high-risk work before the work is treated as complete, and as a periodic drift-audit lens.
+Use this skill for low-medium and higher risk work before the work is treated as complete, and as a periodic drift-audit lens.
 
 ## International Standards Anchor
 DMIS architecture decisions are evaluated against the following recognized references in addition to repo-local source-of-truth docs. Do not invoke a standard for trivia; cite it only where it sharpens a finding.
@@ -89,7 +89,7 @@ Evaluate the work across the eight ISO 25010 characteristics. Skip a characteris
 For each finding, cite the affected characteristic so the report stays consistent across reviews.
 
 ## Mandatory Review Triggers
-Use this skill for medium- and high-risk work touching any of the following:
+Use this skill for low-medium and higher risk work touching any of the following:
 
 - auth, RBAC, tenancy, impersonation, tokens, session handling, or route guards
 - secure settings, headers, cookies, CORS, secrets, uploads, input validation, IDOR, throttling, or rate limits
@@ -135,7 +135,7 @@ If there is any reasonable doubt, perform the review.
 Use progressive disclosure to keep review focused.
 
 ### Step 1: Read architecture first
-For every medium- or high-risk review, read `docs/adr/system_application_architecture.md` first.
+For every low-medium and higher risk review, read `docs/adr/system_application_architecture.md` first.
 
 At minimum, load:
 - current-state architecture

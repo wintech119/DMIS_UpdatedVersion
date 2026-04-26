@@ -491,6 +491,53 @@ redis_posture_validation:
           verdict = "passed" if expect_success else "failed as expected"
           print(f"[OK] {name}: {verdict}")
       PY
+
+markdown_symbol_reference_validation:
+  stage: test
+  script:
+    - |
+      python - <<'PY'
+      import ast
+      import re
+      import sys
+      from pathlib import Path
+
+      root = Path.cwd()
+      docs = [
+          root / ".agents/skills/backend-django-analysis/references/dmis-django-reading-map.md",
+          root / ".agents/skills/backend-django-implementation/references/dmis-django-reading-map.md",
+          root / ".agents/skills/backend-review-project/references/dmis-django-reading-map.md",
+      ]
+      symbol_ref = re.compile(r"`(backend(?:\.[A-Za-z_]\w*)+):([A-Za-z_]\w*)\b")
+      legacy_line_ref = re.compile(r"`backend/[^`]+\.py:\d+`")
+      failures = []
+
+      for doc_path in docs:
+          text = doc_path.read_text(encoding="utf-8")
+          for line_ref in sorted(set(legacy_line_ref.findall(text))):
+              failures.append(f"{doc_path}: replace hardcoded line reference {line_ref} with module:symbol")
+          for module_name, symbol_name in sorted(set(symbol_ref.findall(text))):
+              source_path = root / (module_name.replace(".", "/") + ".py")
+              if not source_path.exists():
+                  failures.append(f"{doc_path}: {module_name}:{symbol_name} target file missing at {source_path}")
+                  continue
+              tree = ast.parse(source_path.read_text(encoding="utf-8-sig"), filename=str(source_path))
+              found = any(
+                  isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  and node.name == symbol_name
+                  for node in ast.walk(tree)
+              )
+              if not found:
+                  failures.append(f"{doc_path}: {module_name}:{symbol_name} symbol not found in {source_path}")
+
+      if failures:
+          print("Markdown symbol reference validation failed:")
+          for failure in failures:
+              print(f" - {failure}")
+          sys.exit(1)
+
+      print("[OK] Markdown symbol references are valid.")
+      PY
 #----- DAST SCAN
 dast_api:
   stage: dast

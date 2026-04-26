@@ -41,7 +41,8 @@
 - Keep the detailed review workflow in the skill; do not duplicate it here.
 
 ## Backend Skill Chain
-- Use the canonical backend chain in this order: `backend-django-analysis` -> `backend-django-implementation` -> `backend-review-project` -> `system-architecture-review`.
+- Use the canonical backend chain in this order: `backend-django-analysis` -> `system-architecture-review` (pre-plan) -> `backend-django-implementation` -> `backend-review-project` -> `system-architecture-review` (post-implementation).
+- For low-medium, medium, and high backend work, the shared reviewer at `../.agents/skills/system-architecture-review/SKILL.md` runs before finalizing the plan and again before final output after implementation.
 - Each backend skill loads its own `references/` subfolder on demand through progressive disclosure; keep AGENTS.md focused on policy and let the skills pull detailed inventories only when relevant.
 - Use `../.agents/skills/backend-django-analysis/references/dmis-django-reading-map.md` for the helper inventory and `../.agents/skills/backend-django-analysis/references/dmis-controls-checklist.md` for the per-change controls list instead of duplicating those lists here.
 - Prefer the `django-ai-boost` MCP server (`mcp__django-ai-boost__*`) when it is loaded; otherwise fall back to the codebase, project docs, lint, and targeted tests.

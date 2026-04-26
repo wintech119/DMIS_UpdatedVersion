@@ -1,6 +1,6 @@
 # Architecture-Review Handoff
 
-The DMIS architecture-review gate is mandatory by `backend/AGENTS.md:31` and `frontend/AGENTS.md:24` for low-medium and higher risk work. This file is duplicated across all six analysis/implementation/review skills and kept in lockstep by the pre-commit drift hook.
+The DMIS architecture-review gate is mandatory by `backend/AGENTS.md#mandatory-architecture-review` and `frontend/AGENTS.md#mandatory-architecture-review` for low-medium and higher risk work. This file is duplicated across all six analysis/implementation/review skills and kept in lockstep by the pre-commit drift hook.
 
 ## Risk rubric
 
@@ -11,9 +11,9 @@ Score the change with the rubric in `.agents/skills/system-architecture-review/S
 | Blast radius | One screen / endpoint, isolated | One module | Cross-module or platform-wide |
 | Data sensitivity | Reference / public | Operational, tenant-scoped | Beneficiary, audit-relevant, or PII |
 | Authority change | None | Touches role gating or workflow guard | Adds/removes a permission or transition |
-| Reversibility | Pure refactor | Schema-additive | Schema-destructive or contract-breaking |
+| Reversibility | Pure refactor, easy revert | Schema-additive, behavior-preserving | Schema-destructive, contract-breaking, or releases sensitive data |
 | External surface | Internal only | Internal API contract change | Public/partner contract or new third-party |
-| Operational impact | None | Affects logging, metrics, runtime config | Affects deploy topology, HA, backup, rollback |
+| Operational impact | No change to deploy/runtime | Affects logging, metrics, runtime config | Affects deploy topology, HA, backup, rollback |
 
 - 0–3: **Low** — skip unless an explicit trigger applies.
 - 4–6: **Low-Medium** — abbreviated workflow (steps 1–3 of the skill).
@@ -45,7 +45,7 @@ Use the Skill tool: `Skill skill="system-architecture-review"`. When invoking fr
 
 If the result is `Conditionally Aligned`, complete the required changes (each named with the gate that proves closure: test, ADR, hook, evidence) before declaring the work done.
 
-If the result is `Misaligned`, the work is not complete. Resolve and re-review.
+If the result is `Misaligned`, the work is incomplete. Resolve and re-review.
 
 ## Low-risk exemptions
 
