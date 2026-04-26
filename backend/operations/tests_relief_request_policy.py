@@ -182,12 +182,44 @@ class ReliefRequestAuthorityPreviewTests(_DeterministicOdpemTenantResolutionMixi
                 "can_create": True,
                 "allowed_origin_modes": [ORIGIN_MODE_SELF],
                 "required_authority_tenant_id": None,
+                "required_authority_tenant_name": None,
                 "beneficiary_tenant_id": 20,
                 "beneficiary_agency_id": 501,
                 "suggested_event_id": 12,
                 "blocked_reason_code": None,
             },
         )
+
+    def test_authority_preview_allows_tenant_agency_without_warehouse(self) -> None:
+        needs_list = self._create_needs_list(46)
+        decision = self._decision(agency_id=501)
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (501,)
+        connection_mock = MagicMock()
+        connection_mock.cursor.return_value = cursor
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_table_has_tenant_id", return_value=True),
+            patch("operations.services.connection", connection_mock),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertTrue(payload["can_create"])
+        self.assertEqual(payload["beneficiary_agency_id"], 501)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("a.warehouse_id IS NULL AND a.tenant_id = %s", sql)
+        self.assertEqual(params, [20, 20, 11])
 
     def test_authority_preview_blocks_odpem_hq_replenishment_needs_list(self) -> None:
         needs_list = self._create_needs_list(41)

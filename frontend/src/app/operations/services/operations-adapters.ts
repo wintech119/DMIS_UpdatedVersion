@@ -291,6 +291,17 @@ function normalizeAuditEvent(raw: unknown): AuditEvent {
   };
 }
 
+function compareAuditEvents(left: AuditEvent, right: AuditEvent): number {
+  const leftTime = Date.parse(left.occurred_at);
+  const rightTime = Date.parse(right.occurred_at);
+  const leftRank = Number.isFinite(leftTime) ? leftTime : Number.MAX_SAFE_INTEGER;
+  const rightRank = Number.isFinite(rightTime) ? rightTime : Number.MAX_SAFE_INTEGER;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return left.event_kind.localeCompare(right.event_kind);
+}
+
 export function normalizeAuthorityPreview(raw: unknown): RequestAuthorityPreviewResponse {
   const source = asRecord(raw);
   const allowedOriginModes = asArray(source['allowed_origin_modes'])
@@ -300,6 +311,7 @@ export function normalizeAuthorityPreview(raw: unknown): RequestAuthorityPreview
     can_create: asBoolean(source['can_create']),
     allowed_origin_modes: [...new Set(allowedOriginModes)],
     required_authority_tenant_id: asNullableNumber(source['required_authority_tenant_id']),
+    required_authority_tenant_name: asNullableString(source['required_authority_tenant_name']),
     beneficiary_tenant_id: asNumber(source['beneficiary_tenant_id']),
     beneficiary_agency_id: asNullableNumber(source['beneficiary_agency_id']),
     suggested_event_id: asNullableNumber(source['suggested_event_id']),
@@ -358,7 +370,8 @@ export function normalizeRequestDetail(raw: unknown): RequestDetailResponse {
     ...normalizeRequestSummary(source),
     items: asArray(source['items']).map(normalizeRequestItem),
     packages: asArray(source['packages']).map(normalizePackageSummary),
-    audit_timeline: asArray(source['audit_timeline']).map(normalizeAuditEvent),
+    audit_timeline: asArray(source['audit_timeline']).map(normalizeAuditEvent).sort(compareAuditEvents),
+    audit_timeline_truncated: asBoolean(source['audit_timeline_truncated']),
   };
 }
 

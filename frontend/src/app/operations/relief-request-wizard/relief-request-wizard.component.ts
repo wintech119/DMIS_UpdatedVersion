@@ -1,15 +1,16 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, OnInit, ViewChild, computed, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, OnInit, ViewChild, computed, effect, inject, signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
-  FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators,
+  FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators,
 } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatRadioModule } from '@angular/material/radio';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
@@ -63,6 +64,7 @@ interface ReliefRequestBridgeState {
     MatIconModule,
     MatStepperModule,
     MatProgressBarModule,
+    MatRadioModule,
     MatTooltipModule,
     DmisSkeletonLoaderComponent,
     DmisStepTrackerComponent,
@@ -105,6 +107,7 @@ export class ReliefRequestWizardComponent implements OnInit {
   private reliefrqstId: number | null = null;
 
   readonly requestForm: FormGroup = this.fb.nonNullable.group({
+    origin_mode: [null as RequestOriginMode | null],
     agency_id: [null as number | null, [Validators.required]],
     urgency_ind: [null as UrgencyCode | null, [Validators.required]],
     eligible_event_id: [null as number | null],
@@ -114,6 +117,10 @@ export class ReliefRequestWizardComponent implements OnInit {
 
   get itemsArray(): FormArray<FormGroup> {
     return this.requestForm.get('items') as FormArray<FormGroup>;
+  }
+
+  get originModeControl(): FormControl<RequestOriginMode | null> {
+    return this.requestForm.get('origin_mode') as FormControl<RequestOriginMode | null>;
   }
 
   readonly pageBusy = computed(() =>
@@ -143,7 +150,16 @@ export class ReliefRequestWizardComponent implements OnInit {
     return modes.length === 1 ? modes[0] : null;
   });
 
-  readonly isOnBehalfMode = computed(() => this.explicitOriginMode() === 'ODPEM_BRIDGE');
+  readonly selectedOriginMode = computed<RequestOriginMode | null>(() => {
+    this.formVersion();
+    return toCanonicalOriginMode(this.originModeControl.value);
+  });
+
+  readonly effectiveOriginMode = computed<RequestOriginMode | null>(() =>
+    this.explicitOriginMode() ?? this.selectedOriginMode()
+  );
+
+  readonly isOnBehalfMode = computed(() => this.effectiveOriginMode() === 'ODPEM_BRIDGE');
 
   readonly requestingEntityLabel = computed(() =>
     this.isOnBehalfMode() ? 'Represented requester' : 'Requesting entity'
@@ -297,9 +313,11 @@ export class ReliefRequestWizardComponent implements OnInit {
     const agencyValid = form.get('agency_id')?.valid ?? false;
     const urgencyValid = form.get('urgency_ind')?.valid ?? false;
     const notesValid = form.get('rqst_notes_text')?.valid ?? true;
+    const originModeValid = this.availableOriginModes().length <= 1
+      || (form.get('origin_mode')?.valid ?? false);
     const hasItems = this.itemsArray.length > 0;
     const itemsValid = this.itemsArray.valid;
-    return agencyValid && urgencyValid && notesValid && hasItems && itemsValid;
+    return originModeValid && agencyValid && urgencyValid && notesValid && hasItems && itemsValid;
   });
 
   readonly trackerSteps = computed<StepDefinition[]>(() => [
@@ -309,6 +327,12 @@ export class ReliefRequestWizardComponent implements OnInit {
 
   readonly addItemFn = (): void => this.addItem();
   readonly removeItemFn = (index: number): void => this.removeItem(index);
+
+  constructor() {
+    effect(() => {
+      this.syncOriginModeControl(this.availableOriginModes());
+    });
+  }
 
   ngOnInit(): void {
     this.captureBridgeState();
@@ -340,8 +364,14 @@ export class ReliefRequestWizardComponent implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe(() => {
           clearServerError(this.requestForm.get(controlName));
-        });
+      });
     });
+
+    this.originModeControl.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        clearServerError(this.originModeControl);
+      });
 
     const urgencyCtrl = this.requestForm.get('urgency_ind')!;
     this.applyRequestNotesValidators(urgencyCtrl.value);
@@ -453,6 +483,34 @@ export class ReliefRequestWizardComponent implements OnInit {
     }
 
     this.formVersion.update((version) => version + 1);
+  }
+
+  private syncOriginModeControl(modes: RequestOriginMode[]): void {
+    const control = this.originModeControl;
+    if (this.isEditMode() || modes.length === 0) {
+      control.clearValidators();
+      if (control.value !== null) {
+        control.setValue(null);
+      }
+      control.updateValueAndValidity({ emitEvent: false });
+      return;
+    }
+
+    if (modes.length === 1) {
+      control.clearValidators();
+      if (control.value !== modes[0]) {
+        control.setValue(modes[0]);
+      }
+      control.updateValueAndValidity({ emitEvent: false });
+      return;
+    }
+
+    control.setValidators([Validators.required]);
+    const selected = toCanonicalOriginMode(control.value);
+    if (!selected || !modes.includes(selected)) {
+      control.setValue(null);
+    }
+    control.updateValueAndValidity({ emitEvent: false });
   }
 
   private loadExisting(): void {
@@ -679,7 +737,7 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (sourceNeedsListId != null) {
       createPayload.source_needs_list_id = sourceNeedsListId;
     }
-    const originMode = this.explicitOriginMode();
+    const originMode = this.effectiveOriginMode();
     if (originMode) {
       createPayload.origin_mode = originMode;
     }
@@ -774,6 +832,30 @@ export class ReliefRequestWizardComponent implements OnInit {
       return;
     }
     this.router.navigate(['/operations/relief-requests']);
+  }
+
+  originModeLabel(mode: RequestOriginMode): string {
+    switch (mode) {
+      case 'FOR_SUBORDINATE':
+        return 'Managed entity';
+      case 'ODPEM_BRIDGE':
+        return 'ODPEM-assisted';
+      case 'SELF':
+      default:
+        return 'Own organisation';
+    }
+  }
+
+  originModeHint(mode: RequestOriginMode): string {
+    switch (mode) {
+      case 'FOR_SUBORDINATE':
+        return 'Submit for an entity under your authority.';
+      case 'ODPEM_BRIDGE':
+        return 'Enter the request on behalf of another tenant.';
+      case 'SELF':
+      default:
+        return 'Submit for your own organisation.';
+    }
   }
 }
 

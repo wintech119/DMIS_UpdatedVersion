@@ -672,7 +672,6 @@ def _compat_operations_permissions_for_permissions(permissions: Iterable[str]) -
             PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
             PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
             PERM_OPERATIONS_REQUEST_SUBMIT,
-            PERM_OPERATIONS_REQUEST_CANCEL,
             PERM_OPERATIONS_QUEUE_VIEW,
             PERM_OPERATIONS_NOTIFICATION_RECEIVE,
         }
@@ -701,5 +700,4 @@ def _compat_operations_permissions_for_permissions(permissions: Iterable[str]) -
         PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
     }.intersection(compat):
         compat.add(PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE)
-        compat.add(PERM_OPERATIONS_REQUEST_CANCEL)
     return compat

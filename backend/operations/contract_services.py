@@ -301,6 +301,8 @@ PKG_STATUS_LABELS = {
     PKG_STATUS_COMPLETED: "Completed",
 }
 
+AUDIT_TIMELINE_LIMIT = 200
+
 REQUEST_LIST_FILTERS = {
     "draft": {STATUS_DRAFT},
     "awaiting": {STATUS_AWAITING_APPROVAL},
@@ -967,6 +969,25 @@ def _needs_list_is_odpem_replenishment_only(needs_list: NeedsList) -> bool:
     return owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id)
 
 
+@lru_cache(maxsize=1)
+def _agency_table_has_tenant_id() -> bool:
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'agency'
+                  AND column_name = 'tenant_id'
+                LIMIT 1
+                """
+            )
+            return cursor.fetchone() is not None
+    except DatabaseError:
+        return False
+
+
 def _agency_id_for_needs_list_owner(needs_list: NeedsList, owner_tenant_id: int | None) -> int | None:
     if owner_tenant_id is None:
         return None
@@ -975,13 +996,31 @@ def _agency_id_for_needs_list_owner(needs_list: NeedsList, owner_tenant_id: int 
     except (TypeError, ValueError):
         warehouse_id = None
     try:
-        with transaction.atomic():
-            with connection.cursor() as cursor:
+        with connection.cursor() as cursor:
+            if _agency_table_has_tenant_id():
                 cursor.execute(
                     """
                     SELECT a.agency_id
                     FROM agency a
                     LEFT JOIN warehouse w ON w.warehouse_id = a.warehouse_id
+                    WHERE (
+                        w.tenant_id = %s
+                        OR (a.warehouse_id IS NULL AND a.tenant_id = %s)
+                    )
+                      AND COALESCE(a.status_code, 'A') = 'A'
+                    ORDER BY
+                      CASE WHEN a.warehouse_id = %s THEN 0 ELSE 1 END,
+                      a.agency_id
+                    LIMIT 1
+                    """,
+                    [int(owner_tenant_id), int(owner_tenant_id), warehouse_id],
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT a.agency_id
+                    FROM agency a
+                    JOIN warehouse w ON w.warehouse_id = a.warehouse_id
                     WHERE w.tenant_id = %s
                       AND COALESCE(a.status_code, 'A') = 'A'
                     ORDER BY
@@ -991,7 +1030,7 @@ def _agency_id_for_needs_list_owner(needs_list: NeedsList, owner_tenant_id: int 
                     """,
                     [int(owner_tenant_id), warehouse_id],
                 )
-                row = cursor.fetchone()
+            row = cursor.fetchone()
     except DatabaseError:
         return None
     if not row or row[0] in (None, ""):
@@ -1019,6 +1058,27 @@ def _active_request_authority_tenant_id(tenant_id: int | None) -> int | None:
     if policy is None or not policy.request_authority_tenant_id:
         return None
     return int(policy.request_authority_tenant_id)
+
+
+def _tenant_name_for_id(tenant_id: int | None) -> str | None:
+    if tenant_id is None:
+        return None
+    try:
+        tenant_id_value = int(tenant_id)
+    except (TypeError, ValueError):
+        return None
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT tenant_name FROM tenant WHERE tenant_id = %s LIMIT 1",
+                [tenant_id_value],
+            )
+            row = cursor.fetchone()
+    except DatabaseError:
+        return None
+    if not row or not row[0]:
+        return None
+    return str(row[0]).strip() or None
 
 
 def _source_needs_list_payload(
@@ -1850,6 +1910,7 @@ def _authority_preview_payload(
     can_create: bool,
     allowed_origin_modes: Iterable[str],
     required_authority_tenant_id: int | None,
+    required_authority_tenant_name: str | None,
     beneficiary_tenant_id: int | None,
     beneficiary_agency_id: int | None,
     suggested_event_id: int | None,
@@ -1859,6 +1920,7 @@ def _authority_preview_payload(
         "can_create": bool(can_create),
         "allowed_origin_modes": list(dict.fromkeys(allowed_origin_modes)),
         "required_authority_tenant_id": required_authority_tenant_id,
+        "required_authority_tenant_name": required_authority_tenant_name,
         "beneficiary_tenant_id": beneficiary_tenant_id,
         "beneficiary_agency_id": beneficiary_agency_id,
         "suggested_event_id": suggested_event_id,
@@ -1892,12 +1954,14 @@ def get_request_authority_preview(
     beneficiary_agency_id = _agency_id_for_needs_list_owner(needs_list, owner_tenant_id)
     suggested_event_id = int(needs_list.event_id) if needs_list.event_id else None
     required_authority_tenant_id = _active_request_authority_tenant_id(owner_tenant_id)
+    required_authority_tenant_name = _tenant_name_for_id(required_authority_tenant_id)
 
     if owner_tenant_id is not None and operations_policy.is_odpem_tenant(owner_tenant_id):
         return _authority_preview_payload(
             can_create=False,
             allowed_origin_modes=[],
             required_authority_tenant_id=required_authority_tenant_id,
+            required_authority_tenant_name=required_authority_tenant_name,
             beneficiary_tenant_id=owner_tenant_id,
             beneficiary_agency_id=beneficiary_agency_id,
             suggested_event_id=suggested_event_id,
@@ -1909,6 +1973,7 @@ def get_request_authority_preview(
             can_create=False,
             allowed_origin_modes=[],
             required_authority_tenant_id=required_authority_tenant_id,
+            required_authority_tenant_name=required_authority_tenant_name,
             beneficiary_tenant_id=owner_tenant_id,
             beneficiary_agency_id=beneficiary_agency_id,
             suggested_event_id=suggested_event_id,
@@ -1935,6 +2000,7 @@ def get_request_authority_preview(
             can_create=False,
             allowed_origin_modes=[],
             required_authority_tenant_id=required_authority_tenant_id,
+            required_authority_tenant_name=required_authority_tenant_name,
             beneficiary_tenant_id=owner_tenant_id,
             beneficiary_agency_id=beneficiary_agency_id,
             suggested_event_id=suggested_event_id,
@@ -1945,6 +2011,7 @@ def get_request_authority_preview(
         can_create=True,
         allowed_origin_modes=[decision.origin_mode],
         required_authority_tenant_id=None,
+        required_authority_tenant_name=None,
         beneficiary_tenant_id=int(decision.beneficiary_tenant_id),
         beneficiary_agency_id=decision.beneficiary_agency_id,
         suggested_event_id=suggested_event_id,
@@ -3076,9 +3143,7 @@ def _actor_user_label(actor_id: str | None) -> str | None:
     text = str(actor_id or "").strip()
     if not text:
         return None
-    if text.isdigit():
-        return f"User ...{text[-4:]}" if len(text) > 4 else "User"
-    return text
+    return f"User ...{text[-4:]}" if len(text) > 4 else "User"
 
 
 def _request_actor_details_visible(
@@ -3101,7 +3166,7 @@ def _request_audit_timeline(
     request_record: OperationsReliefRequest,
     *,
     tenant_context: TenantContext,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     show_actor = _request_actor_details_visible(request_record, tenant_context=tenant_context)
     events: list[dict[str, Any]] = []
 
@@ -3147,10 +3212,12 @@ def _request_audit_timeline(
 
     minimum_datetime = datetime.min.replace(tzinfo=timezone.get_current_timezone())
     events.sort(key=lambda item: (item["_sort_at"] or minimum_datetime, item["_sort_id"]))
+    truncated = len(events) > AUDIT_TIMELINE_LIMIT
+    events = events[:AUDIT_TIMELINE_LIMIT]
     for item in events:
         item.pop("_sort_at", None)
         item.pop("_sort_id", None)
-    return events
+    return events, truncated
 
 
 def _package_summary_payload(package: ReliefPkg, package_record: OperationsPackage | None = None) -> dict[str, Any]:
@@ -5841,7 +5908,9 @@ def get_request(reliefrqst_id: int, *, actor_id: str | None = None, tenant_conte
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
     payload.update(_request_summary_payload(request, request_record))
-    payload["audit_timeline"] = _request_audit_timeline(request_record, tenant_context=tenant_context)
+    audit_timeline, audit_timeline_truncated = _request_audit_timeline(request_record, tenant_context=tenant_context)
+    payload["audit_timeline"] = audit_timeline
+    payload["audit_timeline_truncated"] = audit_timeline_truncated
     payload["packages"] = []
     for package in ReliefPkg.objects.filter(reliefrqst_id=reliefrqst_id).order_by("-reliefpkg_id"):
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
@@ -6051,7 +6120,8 @@ def _mark_legacy_request_cancelled(legacy_request: ReliefRqst | None) -> None:
         legacy_request.status_code = STATUS_CANCELLED
         legacy_request.version_nbr = int(getattr(legacy_request, "version_nbr", 0) or 0) + 1
         legacy_request.save(update_fields=["status_code", "version_nbr"])
-    except (AttributeError, DatabaseError):
+    except AttributeError:
+        logger.error("Legacy relief request schema did not support cancel status propagation", exc_info=True)
         return
 
 
@@ -6069,6 +6139,7 @@ def _request_cancel_fallback(request_record: OperationsReliefRequest) -> dict[st
         "beneficiary_agency_id": request_record.beneficiary_agency_id,
         "source_needs_list_id": request_record.source_needs_list_id,
         "audit_timeline": [],
+        "audit_timeline_truncated": False,
         "items": [],
         "packages": [],
     }
@@ -6198,7 +6269,9 @@ def cancel_request(
     )
 
     fallback = _request_cancel_fallback(request_record)
-    fallback["audit_timeline"] = _request_audit_timeline(request_record, tenant_context=tenant_context)
+    audit_timeline, audit_timeline_truncated = _request_audit_timeline(request_record, tenant_context=tenant_context)
+    fallback["audit_timeline"] = audit_timeline
+    fallback["audit_timeline_truncated"] = audit_timeline_truncated
     result = _compat_request_response(
         int(reliefrqst_id),
         actor_id=actor_id,

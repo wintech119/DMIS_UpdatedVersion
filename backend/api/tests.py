@@ -2449,6 +2449,50 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("replenishment.needs_list.submit", permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_needs_list_submit_permission_compat_does_not_grant_request_cancel(self) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="replenishment-submit-only",
+            roles=[],
+            permissions=[rbac.PERM_NEEDS_LIST_SUBMIT],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn(rbac.PERM_OPERATIONS_REQUEST_SUBMIT, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_cross_tenant_permission_compat_does_not_grant_request_cancel(self) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="cross-tenant-submit-only",
+            roles=[],
+            permissions=[rbac.PERM_NEEDS_LIST_SUBMIT, rbac.PERM_NATIONAL_ACT_CROSS_TENANT],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn(rbac.PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_request_cancel_remains_explicit_for_authorized_requester_roles(self) -> None:
+        for role_code in ("AGENCY_DISTRIBUTOR", "AGENCY_SHELTER", "CUSTODIAN", "SYSTEM_ADMINISTRATOR"):
+            with self.subTest(role_code=role_code):
+                request = type("Request", (), {})()
+                principal = Principal(
+                    user_id=None,
+                    username=role_code.lower(),
+                    roles=[role_code],
+                    permissions=[],
+                )
+
+                _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+                self.assertIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
 
     @patch(
         "api.rbac._fetch_permissions_for_role_codes",

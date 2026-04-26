@@ -39,6 +39,26 @@
     }
   </div>
 
+  @if (!pageBusy() && !creationBlocked() && isDualMode()) {
+    <div class="request-wizard-origin-mode">
+      <mat-radio-group
+        [formControl]="originModeControl"
+        aria-label="Relief request submission mode">
+        @for (mode of availableOriginModes(); track mode) {
+          <mat-radio-button [value]="mode">
+            <span>{{ originModeLabel(mode) }}</span>
+            <small>{{ originModeHint(mode) }}</small>
+          </mat-radio-button>
+        }
+      </mat-radio-group>
+      @if (originModeControl.invalid && originModeControl.touched) {
+        <p class="request-wizard-origin-mode__error" role="alert">
+          Select how this request is being submitted.
+        </p>
+      }
+    </div>
+  }
+
   @if (pageBusy()) {
     <dmis-skeleton-loader variant="form-field" [count]="4" />
     <dmis-skeleton-loader variant="table-row" [count]="3" />

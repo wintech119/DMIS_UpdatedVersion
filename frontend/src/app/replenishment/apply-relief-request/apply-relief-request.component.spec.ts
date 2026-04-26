@@ -42,6 +42,7 @@ describe('ApplyReliefRequestComponent', () => {
       can_create: true,
       allowed_origin_modes: ['SELF'],
       required_authority_tenant_id: null,
+      required_authority_tenant_name: null,
       beneficiary_tenant_id: 12,
       beneficiary_agency_id: 501,
       suggested_event_id: 44,
@@ -67,6 +68,7 @@ describe('ApplyReliefRequestComponent', () => {
       can_create: false,
       allowed_origin_modes: [],
       required_authority_tenant_id: 7,
+      required_authority_tenant_name: 'Parish Authority',
       beneficiary_tenant_id: 12,
       beneficiary_agency_id: 501,
       suggested_event_id: null,
@@ -78,8 +80,8 @@ describe('ApplyReliefRequestComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(router.navigate).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Relief request cannot be created');
-    expect(host.textContent).toContain('escalation_required');
-    expect(host.textContent).toContain('7');
+    expect(host.textContent).toContain('A higher-level tenant must create this relief request.');
+    expect(host.textContent).toContain('Parish Authority');
   });
 
   it('renders an error state when the route id is invalid', async () => {

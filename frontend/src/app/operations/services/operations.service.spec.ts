@@ -774,6 +774,25 @@ describe('OperationsService', () => {
     request.flush({ reliefrqst_id: 12, status_code: 'SUBMITTED' });
   });
 
+  it('adds an idempotency key when cancelling a relief request', () => {
+    service.cancelRequest(12, '  Duplicate intake  ').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/cancel');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^request-cancel-12-/);
+    expect(request.request.body).toEqual({ cancellation_reason: 'Duplicate intake' });
+    request.flush({ reliefrqst_id: 12, status_code: 'CANCELLED' });
+  });
+
+  it('uses the caller-supplied idempotency key when cancelling a relief request', () => {
+    service.cancelRequest(12, 'Duplicate intake', 'request-cancel-12-fixed').subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/requests/12/cancel');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('request-cancel-12-fixed');
+    request.flush({ reliefrqst_id: 12, status_code: 'CANCELLED' });
+  });
+
   it('loads and normalizes the needs-list authority preview contract', () => {
     let result: unknown;
 
@@ -790,6 +809,7 @@ describe('OperationsService', () => {
       can_create: true,
       allowed_origin_modes: ['self', 'SUBORDINATE', 'BOGUS'],
       required_authority_tenant_id: null,
+      required_authority_tenant_name: null,
       beneficiary_tenant_id: '12',
       beneficiary_agency_id: '501',
       suggested_event_id: '44',
@@ -800,6 +820,7 @@ describe('OperationsService', () => {
       can_create: true,
       allowed_origin_modes: ['SELF', 'FOR_SUBORDINATE'],
       required_authority_tenant_id: null,
+      required_authority_tenant_name: null,
       beneficiary_tenant_id: 12,
       beneficiary_agency_id: 501,
       suggested_event_id: 44,
@@ -855,11 +876,22 @@ describe('OperationsService', () => {
             event_kind: 'ACTION_AUDIT',
             action_code: 'REQUEST_CANCELLED',
             action_reason: 'Duplicate entry.',
-            occurred_at: '2026-04-25T10:00:00Z',
+            occurred_at: '2026-04-25T10:10:00Z',
             actor_role_code: null,
             actor_user_label: null,
           },
+          {
+            event_kind: 'STATUS_TRANSITION',
+            from_status_code: 'DRAFT',
+            to_status_code: 'SUBMITTED',
+            action_code: null,
+            action_reason: null,
+            occurred_at: '2026-04-25T10:00:00Z',
+            actor_role_code: 'REQUESTER',
+            actor_user_label: 'User ...er-a',
+          },
         ],
+        audit_timeline_truncated: true,
       });
 
       expect(result.request_mode).toBe('FOR_SUBORDINATE');
@@ -870,14 +902,20 @@ describe('OperationsService', () => {
       expect(result.source_needs_list_id).toBe(40);
       expect(result.audit_timeline).toEqual([
         jasmine.objectContaining({
+          event_kind: 'STATUS_TRANSITION',
+          to_status_code: 'SUBMITTED',
+          occurred_at: '2026-04-25T10:00:00Z',
+        }),
+        jasmine.objectContaining({
           event_kind: 'ACTION_AUDIT',
           action_code: 'REQUEST_CANCELLED',
           action_reason: 'Duplicate entry.',
-          occurred_at: '2026-04-25T10:00:00Z',
+          occurred_at: '2026-04-25T10:10:00Z',
           actor_role_code: null,
           actor_user_label: null,
         }),
       ]);
+      expect(result.audit_timeline_truncated).toBeTrue();
     });
 
     it('falls back to origin_mode when request_mode is missing', () => {

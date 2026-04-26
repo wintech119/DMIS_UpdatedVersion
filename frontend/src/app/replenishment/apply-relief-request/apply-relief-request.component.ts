@@ -36,8 +36,8 @@ import { OperationsService } from '../../operations/services/operations.service'
             <mat-card-subtitle>Needs list {{ sourceNeedsListId() }}</mat-card-subtitle>
           </mat-card-header>
           <mat-card-content>
-            <p>Reason: {{ result.blocked_reason_code ?? 'agency_out_of_scope' }}</p>
-            <p>Required authority tenant: {{ result.required_authority_tenant_id ?? 'Not available' }}</p>
+            <p>Reason: {{ blockedReasonLabel(result.blocked_reason_code) }}</p>
+            <p>Required authority tenant: {{ requiredAuthorityTenantLabel(result) }}</p>
           </mat-card-content>
           <mat-card-actions>
             <button mat-stroked-button type="button" (click)="goBack()">
@@ -61,6 +61,7 @@ import { OperationsService } from '../../operations/services/operations.service'
       </mat-card>
     </section>
   `,
+  styleUrls: ['../../operations/operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ApplyReliefRequestComponent implements OnInit {
@@ -102,6 +103,19 @@ export class ApplyReliefRequestComponent implements OnInit {
     this.router.navigate(['/replenishment/needs-list-review']);
   }
 
+  blockedReasonLabel(code: string | null): string {
+    return BLOCKED_REASON_LABELS[code ?? ''] ?? 'Agency is outside your relief-request authority.';
+  }
+
+  requiredAuthorityTenantLabel(result: RequestAuthorityPreviewResponse): string {
+    if (result.required_authority_tenant_name?.trim()) {
+      return result.required_authority_tenant_name.trim();
+    }
+    return result.required_authority_tenant_id
+      ? `Tenant ${result.required_authority_tenant_id}`
+      : 'Not available';
+  }
+
   private handlePreview(preview: RequestAuthorityPreviewResponse, sourceNeedsListId: number): void {
     this.loading.set(false);
     if (!preview.can_create) {
@@ -120,3 +134,10 @@ export class ApplyReliefRequestComponent implements OnInit {
     });
   }
 }
+
+const BLOCKED_REASON_LABELS: Record<string, string> = {
+  odpem_replenishment_only_needs_list: 'ODPEM HQ needs lists are replenishment-only.',
+  agency_out_of_scope: 'Agency is outside your relief-request authority.',
+  escalation_required: 'A higher-level tenant must create this relief request.',
+  self_request_disabled: 'Self-service relief requests are disabled for this tenant.',
+};

@@ -13,13 +13,20 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { AppAccessService } from '../../core/app-access.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import { DmisReasonDialogComponent, DmisReasonDialogData, DmisReasonDialogResult } from '../../replenishment/shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
-import { AuditEvent, RequestDetailResponse, RequestItem, PackageSummary } from '../models/operations.model';
+import {
+  AuditEvent,
+  RequestDetailResponse,
+  RequestItem,
+  PackageSummary,
+  RequestStatusCode,
+} from '../models/operations.model';
 import {
   formatOperationsAge,
   formatOperationsDateTime,
@@ -45,6 +52,13 @@ interface WorkflowStep {
   tone: 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
   timestamp?: string;
 }
+
+const CANCELLABLE_REQUEST_STATUSES = new Set<RequestStatusCode>([
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_ELIGIBILITY_REVIEW',
+]);
+const CANCELLATION_REASON_MAX_LENGTH = 500;
 
 @Component({
   selector: 'app-relief-request-detail',
@@ -74,11 +88,14 @@ export class ReliefRequestDetailComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly appAccess = inject(AppAccessService);
   private pendingSubmitIdempotencyKey: string | null = null;
+  private pendingCancelIdempotencyKey: string | null = null;
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly request = signal<RequestDetailResponse | null>(null);
   readonly submitting = signal(false);
+  readonly cancelling = signal(false);
+  readonly cancelError = signal<string | null>(null);
 
   readonly formatOperationsRequestStatus = formatOperationsRequestStatus;
   readonly formatOperationsPackageStatus = formatOperationsPackageStatus;
@@ -101,6 +118,12 @@ export class ReliefRequestDetailComponent implements OnInit {
 
   readonly canEditDraft = computed(() => this.appAccess.canEditReliefRequestDraft());
   readonly canSubmitRequest = computed(() => this.appAccess.canSubmitReliefRequest());
+  readonly canCancelRequest = computed(() => {
+    const request = this.request();
+    return Boolean(request)
+      && CANCELLABLE_REQUEST_STATUSES.has(request!.status_code)
+      && this.appAccess.canCancelReliefRequest();
+  });
 
   readonly workflow = computed<WorkflowStep[]>(() => {
     const request = this.request();
@@ -186,6 +209,7 @@ export class ReliefRequestDetailComponent implements OnInit {
       .subscribe({
         next: (data) => {
           this.request.set(data);
+          this.cancelError.set(null);
           this.loading.set(false);
         },
         error: (err: HttpErrorResponse) => {
@@ -280,6 +304,77 @@ export class ReliefRequestDetailComponent implements OnInit {
             },
           });
       });
+  }
+
+  cancelRequest(): void {
+    const request = this.request();
+    if (!request || !this.canCancelRequest()) {
+      return;
+    }
+
+    const dialogData: DmisReasonDialogData = {
+      title: 'Cancel Relief Request',
+      actionLabel: 'Cancel Request',
+      actionColor: 'warn',
+      reasonLabel: 'Cancellation reason',
+      reasonPlaceholder: 'Explain why this relief request is being cancelled.',
+      maxLength: CANCELLATION_REASON_MAX_LENGTH,
+    };
+    const dialogRef = this.dialog.open(DmisReasonDialogComponent, {
+      width: '520px',
+      autoFocus: false,
+      data: dialogData,
+    });
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result?: DmisReasonDialogResult) => {
+        const reason = result?.reason?.trim() ?? '';
+        if (!reason) {
+          return;
+        }
+        this.cancelling.set(true);
+        this.cancelError.set(null);
+        const idempotencyKey = this.pendingCancelIdempotencyKey
+          ?? this.operationsService.createIdempotencyKey('request-cancel', request.reliefrqst_id);
+        this.pendingCancelIdempotencyKey = idempotencyKey;
+        this.operationsService.cancelRequest(request.reliefrqst_id, reason, idempotencyKey)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (updated) => {
+              this.pendingCancelIdempotencyKey = null;
+              this.request.set(updated);
+              this.cancelling.set(false);
+              this.notify.showSuccess('Request cancelled.');
+            },
+            error: (err: HttpErrorResponse) => {
+              this.cancelling.set(false);
+              this.handleCancelError(err);
+            },
+          });
+      });
+  }
+
+  private handleCancelError(err: HttpErrorResponse): void {
+    const code = (err.error as { errors?: { status?: { code?: string } } } | null)?.errors?.status?.code;
+    if (err.status === 409 && code === 'request_not_cancellable') {
+      this.cancelError.set('This request is no longer cancellable.');
+      return;
+    }
+    if (err.status === 404) {
+      this.cancelError.set('Request no longer available.');
+      return;
+    }
+    if (err.status === 429) {
+      const retryAfter = err.headers?.get('Retry-After');
+      this.cancelError.set(retryAfter
+        ? `Too many cancel attempts. Retry in ${retryAfter} seconds.`
+        : 'Too many cancel attempts. Please retry shortly.');
+      return;
+    }
+
+    const fallback = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to cancel request.';
+    this.notify.showError(extractOperationsErrorMessage(err.error) ?? fallback);
   }
 
   trackItem(_index: number, item: RequestItem): number {

@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { of, throwError } from 'rxjs';
@@ -117,6 +117,7 @@ describe('ReliefRequestDetailComponent', () => {
       'getRequest',
       'createIdempotencyKey',
       'submitRequest',
+      'cancelRequest',
     ]);
     operationsService.createIdempotencyKey.and.returnValue('request-submit-95009-fixed');
     router = jasmine.createSpyObj<Router>('Router', ['navigate', 'navigateByUrl']);
@@ -129,10 +130,12 @@ describe('ReliefRequestDetailComponent', () => {
       'canAccessNavKey',
       'canEditReliefRequestDraft',
       'canSubmitReliefRequest',
+      'canCancelReliefRequest',
     ]);
     appAccess.canAccessNavKey.and.returnValue(true);
     appAccess.canEditReliefRequestDraft.and.returnValue(true);
     appAccess.canSubmitReliefRequest.and.returnValue(true);
+    appAccess.canCancelReliefRequest.and.returnValue(true);
     dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
   });
 
@@ -283,6 +286,113 @@ describe('ReliefRequestDetailComponent', () => {
 
     expect(actionButtons().some((label) => label.includes('Edit Draft'))).toBeTrue();
     expect(actionButtons().some((label) => label.includes('Submit for Review'))).toBeTrue();
+  });
+
+  it('cancels a cancellable relief request and refreshes the detail state', async () => {
+    const updated = buildDetail(
+      { status_code: 'DRAFT', execution_status: 'DRAFT' },
+      {
+        status_code: 'CANCELLED',
+        packages: [],
+        audit_timeline: [
+          {
+            event_kind: 'ACTION_AUDIT',
+            from_status_code: null,
+            to_status_code: null,
+            action_code: 'REQUEST_CANCELLED',
+            action_reason: 'Duplicate intake',
+            occurred_at: '2026-03-26T10:00:00Z',
+            actor_role_code: 'AGENCY_DISTRIBUTOR',
+            actor_user_label: 'User ...er-a',
+          },
+        ],
+      },
+    );
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+    operationsService.createIdempotencyKey.and.returnValue('request-cancel-95009-fixed');
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: '  Duplicate intake  ' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.cancelRequest.and.returnValue(of(updated));
+
+    component.cancelRequest();
+
+    expect(operationsService.createIdempotencyKey).toHaveBeenCalledWith('request-cancel', 95009);
+    expect(operationsService.cancelRequest).toHaveBeenCalledWith(
+      95009,
+      'Duplicate intake',
+      'request-cancel-95009-fixed',
+    );
+    expect(component.request()?.status_code).toBe('CANCELLED');
+    expect(component.auditTimeline()[0].action_code).toBe('REQUEST_CANCELLED');
+    expect(notifications.showSuccess).toHaveBeenCalledWith('Request cancelled.');
+  });
+
+  it('renders no Cancel Request action when the actor lacks operations.request.cancel', async () => {
+    appAccess.canCancelReliefRequest.and.returnValue(false);
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const actionLabels = Array.from(host.querySelectorAll('.ops-hero__actions button'))
+      .map((button) => (button.textContent ?? '').trim());
+
+    expect(actionLabels.some((label) => label.includes('Cancel Request'))).toBeFalse();
+  });
+
+  it('shows an inline not-cancellable error when cancel returns request_not_cancellable', async () => {
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Duplicate intake' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.cancelRequest.and.returnValue(throwError(() => new HttpErrorResponse({
+      status: 409,
+      error: { errors: { status: { code: 'request_not_cancellable' } } },
+    })));
+
+    component.cancelRequest();
+    fixture.detectChanges();
+
+    expect(component.cancelError()).toBe('This request is no longer cancellable.');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('This request is no longer cancellable.');
+  });
+
+  it('shows an inline unavailable error when cancel returns 404', async () => {
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Duplicate intake' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.cancelRequest.and.returnValue(throwError(() => new HttpErrorResponse({ status: 404 })));
+
+    component.cancelRequest();
+    fixture.detectChanges();
+
+    expect(component.cancelError()).toBe('Request no longer available.');
+  });
+
+  it('surfaces Retry-After when cancel is rate limited', async () => {
+    await createComponent(
+      buildDetail({ status_code: 'DRAFT', execution_status: 'DRAFT' }, { status_code: 'DRAFT' }),
+    );
+    dialog.open.and.returnValue({
+      afterClosed: () => of({ reason: 'Duplicate intake' }),
+    } as ReturnType<MatDialog['open']>);
+    operationsService.cancelRequest.and.returnValue(throwError(() => new HttpErrorResponse({
+      status: 429,
+      headers: new HttpHeaders({ 'Retry-After': '12' }),
+    })));
+
+    component.cancelRequest();
+    fixture.detectChanges();
+
+    expect(component.cancelError()).toBe('Too many cancel attempts. Retry in 12 seconds.');
   });
 
   it('hides Edit Draft when the user lacks operations.request.edit.draft', async () => {

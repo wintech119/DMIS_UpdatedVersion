@@ -555,6 +555,13 @@ operations_request_reference_data.required_permission = [
 def operations_request_authority_preview(request):
     """Read-tier (120 req/min) pre-check for needs-list-to-relief-request intake."""
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_authority_preview",
+            limit=_READ_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         errors: dict[str, str] = {}
         source_needs_list_id = _parse_positive_int(
             request.query_params.get("source_needs_list_id"),
@@ -563,13 +570,6 @@ def operations_request_authority_preview(request):
         )
         if errors or source_needs_list_id is None:
             return Response({"errors": errors or {"source_needs_list_id": "Must be a positive integer."}}, status=400)
-        rate_limited = _rate_limit_response(
-            request,
-            scope="request_authority_preview",
-            limit=_READ_LIMIT_PER_MINUTE,
-        )
-        if rate_limited is not None:
-            return rate_limited
         return Response(
             operations_service.get_request_authority_preview(
                 source_needs_list_id=source_needs_list_id,

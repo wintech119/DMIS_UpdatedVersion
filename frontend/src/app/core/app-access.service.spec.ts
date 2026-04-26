@@ -204,6 +204,20 @@ describe('AppAccessService', () => {
     expect(creatorOnly.canAccessNavKey('operations.relief-requests.edit')).toBeFalse();
   });
 
+  it('exposes cancel capability only from operations.request.cancel', () => {
+    const cancelAccess = setup({
+      permissions: ['operations.request.cancel'],
+    });
+
+    expect(cancelAccess.canCancelReliefRequest()).toBeTrue();
+
+    const submitOnlyAccess = setup({
+      permissions: ['operations.request.submit'],
+    });
+
+    expect(submitOnlyAccess.canCancelReliefRequest()).toBeFalse();
+  });
+
   it('uses backend eligibility permissions to expose the eligibility lane without a frontend role allowlist', () => {
     const directorAccess = setup({
       roles: ['ODPEM_DIR_PEOD'],

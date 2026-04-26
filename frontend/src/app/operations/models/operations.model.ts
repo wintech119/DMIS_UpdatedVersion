@@ -76,6 +76,7 @@ export interface RequestAuthorityPreviewResponse {
   can_create: boolean;
   allowed_origin_modes: RequestOriginMode[];
   required_authority_tenant_id: number | null;
+  required_authority_tenant_name?: string | null;
   beneficiary_tenant_id: number;
   beneficiary_agency_id: number | null;
   suggested_event_id: number | null;
@@ -199,6 +200,7 @@ export interface RequestDetailResponse extends RequestSummary {
   items: RequestItem[];
   packages: PackageSummary[];
   audit_timeline?: AuditEvent[];
+  audit_timeline_truncated?: boolean;
 }
 
 export interface RequestListResponse {

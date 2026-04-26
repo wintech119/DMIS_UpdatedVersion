@@ -78,6 +78,7 @@ type OperationsIdempotencyScope =
   | 'receipt'
   | 'override'
   | 'request-submit'
+  | 'request-cancel'
   | 'eligibility-decision'
   | 'allocation-commit'
   | 'package-abandon'
@@ -146,6 +147,22 @@ export class OperationsService {
     return this.http.post<RequestDetailResponse>(
       `${this.apiUrl}/requests/${reliefrqstId}/submit`,
       {},
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    ).pipe(map(normalizeRequestDetail));
+  }
+
+  cancelRequest(
+    reliefrqstId: number,
+    reason: string,
+    idempotencyKey = this.createIdempotencyKey('request-cancel', reliefrqstId),
+  ): Observable<RequestDetailResponse> {
+    return this.http.post<RequestDetailResponse>(
+      `${this.apiUrl}/requests/${reliefrqstId}/cancel`,
+      { cancellation_reason: reason.trim() },
       {
         headers: {
           'Idempotency-Key': idempotencyKey,
