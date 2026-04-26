@@ -2,6 +2,8 @@
 
 - When a review pass mixes backend control gaps with a frontend no-visual constraint, verify the live tree first and keep frontend fixes to behavior, validation, accessibility, and lint-safe syntax unless the user explicitly authorizes visual changes.
 
+- For repo-local MCP repairs, keep a single canonical MCP alias per launcher, align the MCP-only requirements pin with the installed backend venv, and validate both TOML parsing and a short launcher startup smoke before closing the task.
+
 - When a dashboard preset or search label changes, verify the underlying sort/filter contract directly and add regression tests that prove the label matches the behavior users see.
 - When a review comment flags sensitive identifiers stored in both columns and JSON artifacts, fix both storage paths together and add a data migration so old rows do not keep the plaintext value.
 - For staged dispatch flows, keep dispatch persistence aligned with `effective_dispatch_source_warehouse_id` rather than assuming `source_warehouse_id` is already normalized.
@@ -24,4 +26,5 @@
 - When a backend read path already grants `SYSTEM_ADMINISTRATOR` a cross-tenant workflow bypass, keep the paired write-scope helper aligned as well; otherwise the UI can load a record and then fail its submit action with a masked 404 that looks like missing data.
 - When allocation UI caps quantities, base card-level clamps on residual `remaining_qty` and only add back the active card's own reservation; using original `request_qty` reopens quantities already issued on other package legs.
 - When allocation commits accept submitted source/destination warehouses, validate every warehouse against the caller's tenant write scope before override detection or commit helpers run; route permission alone is not enough for stock movement.
+- When backend contract tests assert validation order after tenant-scope enforcement, create the current operations request record explicitly; do not rely on incidental legacy agency scope or retained `--keepdb` rows to satisfy access preconditions.
 - When local-harness queue visibility depends on an ODPEM tenant-scoped workflow lane, drive the harness personas from the same explicit `ODPEM_TENANT_ID` setting that the backend routing code uses; do not let test-user seeding and workflow assignment each guess a different “national” tenant.

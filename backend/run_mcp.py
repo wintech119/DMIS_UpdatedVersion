@@ -1,5 +1,6 @@
 """Launcher for django-ai-boost MCP server. Sets up Django env and calls the package entry point."""
 from importlib.metadata import PackageNotFoundError, version
+import logging
 import os
 import sys
 
@@ -20,6 +21,7 @@ os.environ.setdefault("LOCAL_AUTH_HARNESS_ENABLED", "1")
 os.environ.setdefault("DMIS_LOAD_LOCAL_ENV", "1")
 
 _MINIMUM_VERSIONS = {
+    "django-ai-boost": (0, 8, 0),
     "fastmcp": (3, 2, 0),
     "authlib": (1, 6, 9),
     "cryptography": (46, 0, 6),
@@ -55,6 +57,32 @@ def _assert_mcp_dependencies() -> None:
 
 
 _assert_mcp_dependencies()
+
+
+def _route_logging_off_stdout() -> None:
+    # MCP stdio transport reserves stdout for JSON-RPC frames. Project LOGGING
+    # routes the dmis console handler to sys.stdout, and ApiConfig.ready() emits
+    # a posture-init log line during django.setup(). Either would corrupt the
+    # protocol stream and force Claude Code to close the connection during the
+    # initialize handshake. Swap stdout for the duration of django.setup() so
+    # the LOGGING dict resolves "ext://sys.stdout" to stderr, then patch any
+    # surviving stdout-bound handlers as a safety net.
+    import django
+
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        django.setup()
+    finally:
+        sys.stdout = real_stdout
+
+    for logger_name in ("", "dmis", "django"):
+        for handler in logging.getLogger(logger_name).handlers:
+            if isinstance(handler, logging.StreamHandler) and handler.stream is real_stdout:
+                handler.stream = sys.stderr
+
+
+_route_logging_off_stdout()
 
 try:
     from django_ai_boost import main

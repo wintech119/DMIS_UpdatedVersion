@@ -46,7 +46,7 @@
   @if (!loading() && error()) {
     <dmis-empty-state
       icon="error_outline"
-      title="Unable to load fulfillment details"
+      title="Unable to load sourcing details"
       message="There was an error loading this needs list. Please try again."
       actionLabel="Retry"
       actionIcon="refresh"
@@ -110,24 +110,24 @@
 
     @if (operationalWorkspacesVisible()) {
       <div class="execution-actions">
-        <span class="section-label">Allocation & Dispatch</span>
+        <span class="section-label">Replenishment Execution</span>
         <div class="actions-grid">
           <div class="action-card action-card-execution">
             <div class="action-card-header">
               <mat-icon aria-hidden="true">inventory</mat-icon>
               <div>
-                <span class="action-card-title">Allocation Workspace</span>
+                <span class="action-card-title">Stock Reservation</span>
                 <span class="action-card-count">{{ executionStatusLabel() }}</span>
               </div>
             </div>
             <p class="action-card-desc">{{ allocationActionDescription() }}</p>
             <div class="action-card-meta">
-              <span>Request: {{ list.request_tracking_no || 'Pending' }}</span>
-              <span>Package: {{ list.package_tracking_no || 'Pending' }}</span>
+              <span>Request Tracking Number: {{ list.request_tracking_no || 'Pending' }}</span>
+              <span>Package Tracking Number: {{ list.package_tracking_no || 'Pending' }}</span>
             </div>
             <button mat-flat-button color="primary" type="button" (click)="navigateToAllocationWorkspace()">
               <mat-icon>inventory</mat-icon>
-              Open Allocation
+              Review Reservation
             </button>
           </div>
 
@@ -135,7 +135,7 @@
             <div class="action-card-header">
               <mat-icon aria-hidden="true">local_shipping</mat-icon>
               <div>
-                <span class="action-card-title">Dispatch Workspace</span>
+                <span class="action-card-title">Dispatch Follow-Through</span>
                 <span class="action-card-count">{{ list.waybill_no || 'Waybill pending' }}</span>
               </div>
             </div>
@@ -151,14 +151,14 @@
               [disabled]="dispatchBlocked()"
               (click)="navigateToDispatchWorkspace()">
               <mat-icon>local_shipping</mat-icon>
-              Open Dispatch
+              Review Dispatch
             </button>
             @if (dispatchBlocked()) {
               <p class="action-card-hint">
                 {{
                   (list.execution_status || '').toUpperCase() === 'PENDING_OVERRIDE_APPROVAL'
                     ? 'Override approval must finish before dispatch.'
-                    : 'Commit a reservation first in the allocation workspace.'
+                    : 'Commit a reservation first.'
                 }}
               </p>
             }
@@ -252,7 +252,7 @@
           </div>
           <h2 class="approval-title">Approved</h2>
           <p class="approval-message">
-            This needs list has been approved and is now ready for fulfillment execution.
+            This needs list has been approved and is now ready for Replenishment Execution.
           </p>
           <button mat-flat-button color="primary" class="approval-ok-btn" type="button" (click)="dismissApprovalSuccess()">
             OK
@@ -266,7 +266,7 @@
       <dmis-empty-state
         icon="inventory_2"
         title="No line items"
-        message="This needs list does not have any fulfillment line items recorded.">
+        message="This needs list does not have any sourcing line items recorded.">
       </dmis-empty-state>
     } @else {
       <div class="lines-section">
@@ -360,7 +360,7 @@
                             </tbody>
                           </table>
                         } @else {
-                          <p class="no-sources">No fulfillment sources recorded yet.</p>
+                          <p class="no-sources">No sourcing records yet.</p>
                         }
                       </div>
                     </td>
@@ -424,7 +424,7 @@
                       </div>
                     }
                   } @else {
-                    <p class="no-sources">No fulfillment sources recorded yet.</p>
+                    <p class="no-sources">No sourcing records yet.</p>
                   }
                 </div>
               }

@@ -1,5 +1,16 @@
 # Current Task Plan
 
+## EP-05 Module 1 Relief Request Intake Closure - 2026-04-25
+
+Risk score: 8 / Medium using the architecture-review handoff rubric.
+Axes: blast radius 2, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.tsx` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
+2. Completed: implemented backend cancel, authority-preview, audit timeline, permission, and IDOR regression coverage using existing function-based DRF and operations service patterns.
+3. Completed: implemented frontend model/service contracts, apply-from-needs-list bridge route/component, wizard bridge-state ingestion, and detail audit timeline rendering without visual polish.
+4. Completed: ran required Django and Angular verification gates; manual smoke behavior is covered by automated backend/frontend probes in this worktree.
+5. Completed: ran architecture-review checkpoint 2 on the resulting diff and closed required changes with test/check evidence.
+
 ## Branch Cleanup
 
 1. Completed: refreshed remote-tracking refs with `git fetch --prune origin`.
@@ -79,6 +90,13 @@
 
 ## Review Comment Verification Sweep - 2026-04-23
 
+## django-ai-boost MCP Server Cleanup
+
+1. Completed: identified duplicate Codex MCP aliases and repo-local launcher files for `django-ai-boost`.
+2. Completed: confirmed the local backend venv has `django-ai-boost==0.8.0` and the MCP-only requirements pin now matches it.
+3. Completed: updated the MCP-only requirements pin and launcher dependency guard while keeping the server installed.
+4. Completed: cleaned up the duplicate Codex MCP alias and verified TOML parsing plus a short launcher startup smoke.
+
 1. Completed: verified each cited backend and frontend finding against the current code before editing.
 2. Completed: patched only backend service, view, and test findings that still reproduced.
 3. Completed: applied only non-visual frontend fixes needed for idempotency headers and lint-safe SCSS syntax/spacing; visual frontend comments were left untouched per instruction.
@@ -95,3 +113,18 @@
 1. Completed: re-verified the newly cited backend and frontend findings against the live tree, classifying them as already fixed, stale, or still actionable under the no-frontend-visual-change constraint.
 2. Completed: applied the remaining backend control fixes and only non-visual frontend behavior, accessibility, idempotency, error-handling, and lint updates that still reproduced.
 3. Completed: ran focused Django and Angular verification where the local environment supports it, added direct replenishment smoke checks for the blocked module surfaces, and completed the architecture-alignment closeout against the canonical docs.
+
+## Review Comment Verification Sweep - 2026-04-25
+
+1. Completed: verified each cited backend and frontend finding against the current code before editing.
+2. Completed: patched only confirmed backend service/test gaps, preserving tenant-scope enforcement.
+
+## Review Comment Verification Sweep - 2026-04-26
+
+Risk score: 4 / Low-Medium using the architecture-review handoff rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 0, external surface 0, operational impact 1.
+
+1. Completed: verified each cited skill-doc, backend, frontend, and CI finding against the current tree before editing.
+2. Completed: patched only confirmed gaps while preserving backend authorization enforcement and avoiding visual layout/style changes.
+3. Completed: ran focused Django, Angular, markdown-reference, and diff verification.
+4. Completed: completed post-implementation backend/frontend and architecture-review closeout.

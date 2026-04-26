@@ -1,4 +1,5 @@
 import {
+  AuditEvent,
   AllocationCandidate,
   AllocationCommitResponse,
   AllocationItemGroup,
@@ -36,7 +37,10 @@ import {
   PickupReleaseResponse,
   RequestDetailResponse,
   RequestItem,
+  RequestAuthorityPreviewResponse,
+  RequestOriginMode,
   RequestSummary,
+  StagingHubOption,
   StagingRecommendationResponse,
   StagingSelectionBasis,
   SuggestedAllocationLine,
@@ -150,6 +154,15 @@ function normalizeStagingBasis(value: unknown): StagingSelectionBasis | null {
   return null;
 }
 
+function normalizeStagingHubOption(raw: unknown): StagingHubOption {
+  const source = asRecord(raw);
+  return {
+    warehouse_id: asNumber(source['warehouse_id']),
+    warehouse_name: asString(source['warehouse_name']),
+    parish_code: asNullableString(source['parish_code']),
+  };
+}
+
 function normalizeConsolidationStatus(value: unknown): ConsolidationStatus | null {
   const normalized = asNullableString(value)?.trim().toUpperCase();
   if (
@@ -242,21 +255,68 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
   };
 }
 
-const CANONICAL_REQUEST_MODES = new Set<string>(['SELF', 'FOR_SUBORDINATE', 'ODPEM_BRIDGE']);
+const CANONICAL_REQUEST_MODES = new Set<RequestOriginMode>(['SELF', 'FOR_SUBORDINATE', 'ODPEM_BRIDGE']);
 
-function normalizeRequestMode(source: UnknownRecord): RequestSummary['request_mode'] {
-  const trimmedPrimary = asNullableString(source['request_mode'])?.trim() || null;
-  const trimmedFallback = asNullableString(source['origin_mode'])?.trim() || null;
-  const raw = (trimmedPrimary ?? trimmedFallback ?? '').toUpperCase();
+function normalizeOriginMode(value: unknown): RequestOriginMode | null {
+  const raw = asNullableString(value)?.trim().toUpperCase();
   if (!raw) {
     return null;
   }
   // Legacy compatibility: the superseded 'SUBORDINATE' value maps to the
   // canonical 'FOR_SUBORDINATE' backend contract.
   const canonical = raw === 'SUBORDINATE' ? 'FOR_SUBORDINATE' : raw;
-  return CANONICAL_REQUEST_MODES.has(canonical)
-    ? (canonical as RequestSummary['request_mode'])
+  return CANONICAL_REQUEST_MODES.has(canonical as RequestOriginMode)
+    ? (canonical as RequestOriginMode)
     : null;
+}
+
+function normalizeRequestMode(source: UnknownRecord): RequestSummary['request_mode'] {
+  const trimmedPrimary = asNullableString(source['request_mode'])?.trim() || null;
+  const trimmedFallback = asNullableString(source['origin_mode'])?.trim() || null;
+  return normalizeOriginMode(trimmedPrimary ?? trimmedFallback);
+}
+
+function normalizeAuditEvent(raw: unknown): AuditEvent {
+  const source = asRecord(raw);
+  const eventKind = asString(source['event_kind']).trim().toUpperCase();
+  return {
+    event_kind: eventKind === 'ACTION_AUDIT' ? 'ACTION_AUDIT' : 'STATUS_TRANSITION',
+    from_status_code: asNullableString(source['from_status_code']) as AuditEvent['from_status_code'],
+    to_status_code: asNullableString(source['to_status_code']) as AuditEvent['to_status_code'],
+    action_code: asNullableString(source['action_code']),
+    action_reason: asNullableString(source['action_reason']),
+    occurred_at: asNullableString(source['occurred_at']) ?? '',
+    actor_role_code: asNullableString(source['actor_role_code']),
+    actor_user_label: asNullableString(source['actor_user_label']),
+  };
+}
+
+function compareAuditEvents(left: AuditEvent, right: AuditEvent): number {
+  const leftTime = Date.parse(left.occurred_at);
+  const rightTime = Date.parse(right.occurred_at);
+  const leftRank = Number.isFinite(leftTime) ? leftTime : Number.MAX_SAFE_INTEGER;
+  const rightRank = Number.isFinite(rightTime) ? rightTime : Number.MAX_SAFE_INTEGER;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return left.event_kind.localeCompare(right.event_kind);
+}
+
+export function normalizeAuthorityPreview(raw: unknown): RequestAuthorityPreviewResponse {
+  const source = asRecord(raw);
+  const allowedOriginModes = asArray(source['allowed_origin_modes'])
+    .map(normalizeOriginMode)
+    .filter((mode): mode is RequestOriginMode => mode !== null);
+  return {
+    can_create: asBoolean(source['can_create']),
+    allowed_origin_modes: [...new Set(allowedOriginModes)],
+    required_authority_tenant_id: asNullableNumber(source['required_authority_tenant_id']),
+    required_authority_tenant_name: asNullableString(source['required_authority_tenant_name']),
+    beneficiary_tenant_id: asNumber(source['beneficiary_tenant_id']),
+    beneficiary_agency_id: asNullableNumber(source['beneficiary_agency_id']),
+    suggested_event_id: asNullableNumber(source['suggested_event_id']),
+    blocked_reason_code: asNullableString(source['blocked_reason_code']),
+  };
 }
 
 export function normalizeRequestSummary(raw: unknown): RequestSummary {
@@ -300,6 +360,7 @@ export function normalizeRequestSummary(raw: unknown): RequestSummary {
     requesting_agency_id: asNullableNumber(source['requesting_agency_id']),
     beneficiary_tenant_id: asNullableNumber(source['beneficiary_tenant_id']),
     beneficiary_agency_id: asNullableNumber(source['beneficiary_agency_id']),
+    source_needs_list_id: asNullableNumber(source['source_needs_list_id']),
   };
 }
 
@@ -309,6 +370,8 @@ export function normalizeRequestDetail(raw: unknown): RequestDetailResponse {
     ...normalizeRequestSummary(source),
     items: asArray(source['items']).map(normalizeRequestItem),
     packages: asArray(source['packages']).map(normalizePackageSummary),
+    audit_timeline: asArray(source['audit_timeline']).map(normalizeAuditEvent).sort(compareAuditEvents),
+    audit_timeline_truncated: asBoolean(source['audit_timeline_truncated']),
   };
 }
 
@@ -966,6 +1029,9 @@ export function normalizeStagingRecommendation(raw: unknown): StagingRecommendat
     recommended_staging_warehouse_name: asNullableString(source['recommended_staging_warehouse_name']),
     recommended_staging_parish_code: asNullableString(source['recommended_staging_parish_code']),
     staging_selection_basis: normalizeStagingBasis(source['staging_selection_basis']),
+    staging_hubs: asArray(source['staging_hubs'])
+      .map(normalizeStagingHubOption)
+      .filter((hub) => hub.warehouse_id > 0),
   };
 }
 

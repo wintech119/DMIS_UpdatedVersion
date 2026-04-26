@@ -9,6 +9,7 @@ import { formatUrgency, getUrgencyCssClass } from '../../models/operations-statu
 export interface ReviewFormValue {
   agency_id: number | null;
   agency_name: string | null;
+  requester_label: string;
   urgency_ind: string | null;
   eligible_event_id: number | null;
   event_name: string | null;

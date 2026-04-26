@@ -136,6 +136,9 @@ const URGENCY_TONES: Record<string, OperationsTone> = {
 
 const FULFILLMENT_ENTRY_REQUEST_STATUSES = new Set([
   'APPROVED_FOR_FULFILLMENT',
+]);
+
+const FULFILLMENT_RESUME_REQUEST_STATUSES = new Set([
   'PARTIALLY_FULFILLED',
   'FULFILLED',
 ]);
@@ -246,13 +249,15 @@ export function getFulfillmentEntryAction(options: {
   const packageStatus = normalizeOperationsPackageStatus(options.packageStatus, options.executionStatus);
   const hasFulfillmentAccess = options.hasFulfillmentAccess ?? true;
   const hasExistingPackage = Boolean(options.hasExistingPackage) || Boolean(packageStatus);
+  const canStartFulfillment = FULFILLMENT_ENTRY_REQUEST_STATUSES.has(requestStatus);
+  const canResumeFulfillment =
+    hasExistingPackage && FULFILLMENT_RESUME_REQUEST_STATUSES.has(requestStatus);
 
-  if (!FULFILLMENT_ENTRY_REQUEST_STATUSES.has(requestStatus) && !hasExistingPackage) {
+  if (!canStartFulfillment && !canResumeFulfillment) {
     return null;
   }
 
-  const shouldContinue = requestStatus === 'PARTIALLY_FULFILLED'
-    || requestStatus === 'FULFILLED'
+  const shouldContinue = canResumeFulfillment
     || (hasExistingPackage && FULFILLMENT_RESUME_PACKAGE_STATUSES.has(packageStatus));
 
   return {

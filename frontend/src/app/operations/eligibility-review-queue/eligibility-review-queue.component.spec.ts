@@ -259,7 +259,7 @@ describe('EligibilityReviewQueueComponent', () => {
     const fallbackRow = fixture.componentInstance.filteredRequests().find((row) => row.reliefrqst_id === 23);
 
     expect(fixture.componentInstance.filteredRequests().map((row) => row.reliefrqst_id)).toEqual([22, 21, 23]);
-    expect(fixture.componentInstance.metrics().find((metric) => metric.label === 'Oldest waiting (h)')?.value).toBe(76);
+    expect(fixture.componentInstance.metrics().find((metric) => metric.label === 'Oldest Waiting (h)')?.value).toBe(76);
     expect(fallbackRow).toBeDefined();
     expect(fixture.componentInstance.requestTimestamp(fallbackRow!)).toBe('2026-04-09T08:00:00Z');
     expect(host.textContent).toContain(

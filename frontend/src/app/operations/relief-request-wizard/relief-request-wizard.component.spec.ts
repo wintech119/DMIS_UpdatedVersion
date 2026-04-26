@@ -306,8 +306,258 @@ describe('ReliefRequestWizardComponent', () => {
 
     it('shows dual-mode label when both self and for_subordinate modes are available', () => {
       expect(fixture.componentInstance.isDualMode()).toBeTrue();
+      expect(fixture.componentInstance.explicitOriginMode()).toBeNull();
       expect(fixture.componentInstance.submissionModeLabel()).toBe('Your organisation or managed entity');
       expect(fixture.componentInstance.workflowLabel()).toBe('New request');
+    });
+
+    it('renders a constrained origin-mode picker for dual-mode intake', () => {
+      const host = fixture.nativeElement as HTMLElement;
+      const radioButtons = Array.from(host.querySelectorAll('mat-radio-button'))
+        .map((button) => button.textContent ?? '');
+
+      expect(radioButtons.length).toBe(2);
+      expect(radioButtons[0]).toContain('Own organisation');
+      expect(radioButtons[1]).toContain('Managed entity');
+      expect(fixture.componentInstance.originModeControl.hasError('required')).toBeTrue();
+    });
+
+    it('blocks save until a dual-mode origin mode is selected', () => {
+      const component = fixture.componentInstance;
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(3);
+      component.requestForm.get('agency_id')?.setValue(13);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      fixture.detectChanges();
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).not.toHaveBeenCalled();
+      expect(component.originModeControl.touched).toBeTrue();
+    });
+
+    it('sends the selected dual-mode origin_mode in the create payload', () => {
+      const component = fixture.componentInstance;
+      const savedResponse = {
+        reliefrqst_id: 79,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(3);
+      component.requestForm.get('agency_id')?.setValue(13);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      component.originModeControl.setValue('FOR_SUBORDINATE');
+      fixture.detectChanges();
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.origin_mode).toBe('FOR_SUBORDINATE');
+      expect(payload.beneficiary_agency_id).toBe(13);
+    });
+  });
+
+  describe('when creation is blocked by zero available modes', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
+
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [],
+        events: [],
+        items: [],
+      }));
+
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
+          },
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: null,
+                allowed_origin_modes: [],
+              }),
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: convertToParamMap({}) },
+            },
+          },
+          {
+            provide: Router,
+            useValue: jasmine.createSpyObj('Router', ['navigate']),
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
+    });
+
+    it('keeps the creation-blocked panel when no origin modes are available', () => {
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(fixture.componentInstance.creationBlocked()).toBeTrue();
+      expect(host.textContent).toContain('You cannot create requests at this time');
+      expect(host.querySelector('mat-radio-group')).toBeNull();
+    });
+  });
+
+  describe('when ODPEM bridge intake is available', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
+    let router: jasmine.SpyObj<Router>;
+
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+      router = jasmine.createSpyObj<Router>('Router', ['navigate', 'getCurrentNavigation']);
+      router.getCurrentNavigation.and.returnValue(null);
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [{ value: 501, label: 'FFP Shelter' }],
+        events: [{ value: 44, label: 'Flood Response 2026' }],
+        items: [{ value: 88, label: 'Tarps' }],
+      }));
+
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
+          },
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: 'on_behalf_bridge',
+                allowed_origin_modes: ['on_behalf_bridge'],
+              }),
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: convertToParamMap({}) },
+            },
+          },
+          {
+            provide: Router,
+            useValue: router,
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
+    });
+
+    it('labels intake as ODPEM-assisted while keeping the selected beneficiary agency in the payload', () => {
+      const component = fixture.componentInstance;
+      const compiled = fixture.nativeElement as HTMLElement;
+      const savedResponse = {
+        reliefrqst_id: 77,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(6);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      fixture.detectChanges();
+
+      expect(component.isDualMode()).toBeFalse();
+      expect(component.explicitOriginMode()).toBe('ODPEM_BRIDGE');
+      expect(component.requestingEntityLabel()).toBe('Represented requester');
+      expect(component.submissionModeLabel()).toBe('ODPEM-assisted request');
+      expect(component.submissionModeHint()).toContain('entering this request on their behalf');
+      expect(component.workflowLabel()).toBe('New request (ODPEM-assisted)');
+      expect(component.reviewFormValue().requester_label).toBe('Represented requester');
+      expect(compiled.textContent).toContain('Represented requester');
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.agency_id).toBe(501);
+      expect(payload.beneficiary_agency_id).toBe(501);
+      expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
+      expect(payload.items[0].item_id).toBe(88);
+    });
+
+    it('ingests bridge route state and carries the source needs list into the create payload', () => {
+      router.getCurrentNavigation.and.returnValue({
+        extras: {
+          state: {
+            source_needs_list_id: 40,
+            beneficiary_tenant_id: 12,
+            beneficiary_agency_id: 501,
+            suggested_event_id: 44,
+            allowed_origin_modes: ['ODPEM_BRIDGE'],
+          },
+        },
+      } as unknown as ReturnType<Router['getCurrentNavigation']>);
+      const bridgeFixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      bridgeFixture.detectChanges();
+
+      const component = bridgeFixture.componentInstance;
+      const savedResponse = {
+        reliefrqst_id: 78,
+        status_code: 'DRAFT',
+        items: [],
+      } as unknown as RequestDetailResponse;
+      operationsService.createRequest.and.returnValue(of(savedResponse));
+
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(6);
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      bridgeFixture.detectChanges();
+
+      expect(component.sourceNeedsListId()).toBe(40);
+      expect(component.explicitOriginMode()).toBe('ODPEM_BRIDGE');
+      expect(component.requestForm.get('agency_id')?.value).toBe(501);
+      expect(component.requestForm.get('eligible_event_id')?.value).toBe(44);
+
+      component.onSaveAsDraft();
+
+      expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
+      const payload = operationsService.createRequest.calls.mostRecent().args[0];
+      expect(payload.source_needs_list_id).toBe(40);
+      expect(payload.agency_id).toBe(501);
+      expect(payload.beneficiary_agency_id).toBe(501);
+      expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
     });
   });
 });

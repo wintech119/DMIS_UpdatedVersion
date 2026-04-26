@@ -15,6 +15,7 @@ import {
   ConsolidationLegsResponse,
   ConsolidationWaybillResponse,
   CreateRequestPayload,
+  RequestAuthorityPreviewResponse,
   RequestReferenceDataResponse,
   DispatchDetailResponse,
   DispatchHandoffPayload,
@@ -51,6 +52,7 @@ import {
   normalizeAllocationCommitResponse,
   normalizeAllocationItemGroup,
   normalizeAllocationOptions,
+  normalizeAuthorityPreview,
   normalizeConsolidationLegDispatchResponse,
   normalizeConsolidationLegReceiveResponse,
   normalizeConsolidationLegsResponse,
@@ -76,6 +78,7 @@ type OperationsIdempotencyScope =
   | 'receipt'
   | 'override'
   | 'request-submit'
+  | 'request-cancel'
   | 'eligibility-decision'
   | 'allocation-commit'
   | 'package-abandon'
@@ -124,6 +127,13 @@ export class OperationsService {
     );
   }
 
+  getRequestAuthorityPreview(sourceNeedsListId: number): Observable<RequestAuthorityPreviewResponse> {
+    const params = new HttpParams().set('source_needs_list_id', String(sourceNeedsListId));
+    return this.http.get<unknown>(`${this.apiUrl}/requests/authority-preview`, { params }).pipe(
+      map(normalizeAuthorityPreview),
+    );
+  }
+
   updateRequest(reliefrqstId: number, payload: UpdateRequestPayload): Observable<RequestDetailResponse> {
     return this.http.patch<RequestDetailResponse>(`${this.apiUrl}/requests/${reliefrqstId}`, payload).pipe(
       map(normalizeRequestDetail),
@@ -137,6 +147,22 @@ export class OperationsService {
     return this.http.post<RequestDetailResponse>(
       `${this.apiUrl}/requests/${reliefrqstId}/submit`,
       {},
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    ).pipe(map(normalizeRequestDetail));
+  }
+
+  cancelRequest(
+    reliefrqstId: number,
+    reason: string,
+    idempotencyKey = this.createIdempotencyKey('request-cancel', reliefrqstId),
+  ): Observable<RequestDetailResponse> {
+    return this.http.post<RequestDetailResponse>(
+      `${this.apiUrl}/requests/${reliefrqstId}/cancel`,
+      { cancellation_reason: reason.trim() },
       {
         headers: {
           'Idempotency-Key': idempotencyKey,

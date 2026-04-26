@@ -8,6 +8,7 @@ import { FulfillmentDetailsStepComponent } from './fulfillment-details-step.comp
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
+import { StagingRecommendationResponse } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 
 describe('FulfillmentDetailsStepComponent', () => {
@@ -23,7 +24,7 @@ describe('FulfillmentDetailsStepComponent', () => {
   });
   const loading = signal(false);
   const isStagedFulfillment = signal(false);
-  const stagingRecommendation = signal(null);
+  const stagingRecommendation = signal<StagingRecommendationResponse | null>(null);
   const stagingWarehouseId = signal<number | null>(null);
   const stagingSelectionBasis = signal<string | null>(null);
   const recommendationLoading = signal(false);
@@ -168,6 +169,82 @@ describe('FulfillmentDetailsStepComponent', () => {
     expect(host.textContent).toContain('Select the ODPEM staging warehouse that will receive this staged package.');
     expect(host.textContent).toContain('How the package is expected to move or be released after stock is reserved.');
     expect(host.textContent).toContain('Notes for warehouse, dispatch, or receiving staff. Keep this short and operational.');
+  });
+
+  it('uses backend-vetted staging hubs instead of the generic warehouse lookup list', () => {
+    isStagedFulfillment.set(true);
+    stagingRecommendation.set({
+      reliefrqst_id: 95009,
+      recommended_staging_warehouse_id: 9501,
+      recommended_staging_warehouse_name: 'ODPEM Staging Hub',
+      recommended_staging_parish_code: '01',
+      staging_selection_basis: 'SAME_PARISH',
+      staging_hubs: [
+        { warehouse_id: 9501, warehouse_name: 'ODPEM Staging Hub', parish_code: '01' },
+      ],
+    });
+    draftState.update((current) => ({
+      ...current,
+      fulfillment_mode: 'DELIVER_FROM_STAGING',
+    }));
+
+    const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.stagingWarehouseOptions()).toEqual([
+      { value: '9501', label: 'ODPEM Staging Hub' },
+    ]);
+    expect(component.stagingWarehouseOptions().some((option) => option.value === '9002')).toBeFalse();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Recommended: ODPEM Staging Hub (Same parish as destination)',
+    );
+  });
+
+  it('keeps the saved staging hub visible before the latest option response arrives', () => {
+    isStagedFulfillment.set(true);
+    draftState.update((current) => ({
+      ...current,
+      fulfillment_mode: 'DELIVER_FROM_STAGING',
+      staging_warehouse_id: '9555',
+    }));
+
+    const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.stagingWarehouseOptions()).toEqual([
+      { value: '9555', label: 'Selected warehouse 9555' },
+    ]);
+  });
+
+  it('keeps the saved staging hub selectable when the recommendation has no hub options', () => {
+    isStagedFulfillment.set(true);
+    stagingRecommendation.set({
+      reliefrqst_id: 95009,
+      recommended_staging_warehouse_id: 9501,
+      recommended_staging_warehouse_name: 'ODPEM Staging Hub',
+      recommended_staging_parish_code: '01',
+      staging_selection_basis: 'SAME_PARISH',
+      staging_hubs: [],
+    });
+    draftState.update((current) => ({
+      ...current,
+      fulfillment_mode: 'DELIVER_FROM_STAGING',
+      staging_warehouse_id: '9501',
+    }));
+
+    const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.savedStagingWarehouseId()).toBe('9501');
+    expect(component.stagingWarehouseOptions()).toEqual([
+      { value: '9501', label: 'ODPEM Staging Hub (previously saved - not in current recommendations)' },
+    ]);
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(
+      'No active ODPEM staging hubs are available.',
+    );
   });
 
   it('does not overwrite destination warehouse when switching to a staged mode', () => {

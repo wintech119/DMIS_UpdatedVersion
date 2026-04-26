@@ -12,6 +12,7 @@ import {
   AllocationItemGroup,
   AllocationOptionsResponse,
   AllocationCommitPayload,
+  ConsolidationLeg,
   PackageDetailResponse,
   PackageDraftPayload,
   PackageLockReleaseResponse,
@@ -532,6 +533,19 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
     TestBed.resetTestingModule();
   });
 
+  function stagingRecommendationResponse(): StagingRecommendationResponse {
+    return {
+      reliefrqst_id: RELIEFRQST_ID,
+      recommended_staging_warehouse_id: 9501,
+      recommended_staging_warehouse_name: 'ODPEM Staging Hub',
+      recommended_staging_parish_code: '01',
+      staging_selection_basis: 'SAME_PARISH',
+      staging_hubs: [
+        { warehouse_id: 9501, warehouse_name: 'ODPEM Staging Hub', parish_code: '01' },
+      ],
+    };
+  }
+
   it('includes the current allocation rows when auto-saving fulfillment changes', () => {
     const response = {
       request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
@@ -574,6 +588,9 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
           useValue: {
             savePackageDraft: saveSpy,
             getConsolidationLegs: getConsolidationLegsSpy,
+            getStagingRecommendation: jasmine
+              .createSpy('getStagingRecommendation')
+              .and.returnValue(of(stagingRecommendationResponse())),
           } satisfies Partial<OperationsService>,
         },
       ],
@@ -678,6 +695,9 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
             getConsolidationLegs: jasmine.createSpy('getConsolidationLegs').and.returnValue(
               of({ results: [], package: null }),
             ),
+            getStagingRecommendation: jasmine
+              .createSpy('getStagingRecommendation')
+              .and.returnValue(of(stagingRecommendationResponse())),
           } satisfies Partial<OperationsService>,
         },
       ],
@@ -730,6 +750,96 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
     expect(service.draft().fulfillment_mode).toBe('PICKUP_AT_STAGING');
     expect(service.draft().staging_warehouse_id).toBe('9501');
     expect(service.draft().staging_override_reason).toBe('Closer to field site');
+  });
+
+  it('ignores in-flight consolidation leg loads after switching back to direct fulfillment', () => {
+    const legsResponse$ = new Subject<{
+      results: ConsolidationLeg[];
+      package: PackageSummary | null;
+    }>();
+    const directResponse = {
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DIRECT',
+        staging_warehouse_id: null,
+        staging_override_reason: null,
+      },
+      items: [],
+      compatibility_only: false,
+    } as PackageDetailResponse;
+    const saveSpy = jasmine.createSpy('savePackageDraft').and.returnValue(of(directResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: jasmine
+              .createSpy('getConsolidationLegs')
+              .and.returnValue(legsResponse$.asObservable()),
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.consolidationLegs.set([{ leg_id: 1 } as ConsolidationLeg]);
+
+    service.loadConsolidationLegs(77001);
+    service.saveFulfillmentModeDraft('DIRECT', null, null).subscribe();
+
+    legsResponse$.next({
+      results: [{ leg_id: 2 } as ConsolidationLeg],
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DELIVER_FROM_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: null,
+      },
+    });
+    legsResponse$.complete();
+
+    expect(service.consolidationLegs()).toEqual([]);
+    expect(service.legsLoading()).toBeFalse();
+    expect(service.packageDetail()?.package?.fulfillment_mode).toBe('DIRECT');
   });
 
   it('ignores stale fulfillment-mode save responses after the request context changes', () => {
@@ -810,6 +920,9 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
           useValue: {
             savePackageDraft: saveSpy,
             getConsolidationLegs: getConsolidationLegsSpy,
+            getStagingRecommendation: jasmine
+              .createSpy('getStagingRecommendation')
+              .and.returnValue(of(stagingRecommendationResponse())),
           } satisfies Partial<OperationsService>,
         },
       ],
@@ -943,7 +1056,7 @@ describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {
     TestBed.resetTestingModule();
   });
 
-  it('clears stale recommendations while loading and after errors', () => {
+  it('preserves the previous recommendation while loading and clears it after errors', () => {
     const response$ = new Subject<StagingRecommendationResponse>();
     const getStagingRecommendationSpy = jasmine
       .createSpy('getStagingRecommendation')
@@ -968,11 +1081,12 @@ describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {
       recommended_staging_warehouse_name: 'Old recommendation',
       recommended_staging_parish_code: '01',
       staging_selection_basis: null,
+      staging_hubs: [],
     });
 
     service.loadStagingRecommendation(RELIEFRQST_ID);
 
-    expect(service.stagingRecommendation()).toBeNull();
+    expect(service.stagingRecommendation()?.recommended_staging_warehouse_name).toBe('Old recommendation');
     expect(service.recommendationLoading()).toBeTrue();
 
     response$.error(new HttpErrorResponse({
@@ -1052,6 +1166,55 @@ describe('OperationsWorkspaceStateService.load', () => {
     expect(getPackageSpy).toHaveBeenCalledWith(RELIEFRQST_ID);
     expect(getAllocationOptionsSpy).toHaveBeenCalledWith(RELIEFRQST_ID, SOURCE_WAREHOUSE_ID);
     expect(service.draft().source_warehouse_id).toBe(String(SOURCE_WAREHOUSE_ID));
+  });
+
+  it('loads staging recommendation details when the package is already staged', () => {
+    const packageDetail = buildPackageDetail();
+    packageDetail.package!.fulfillment_mode = 'DELIVER_FROM_STAGING';
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(packageDetail));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValue(of({ request: packageDetail.request, items: [] } as AllocationOptionsResponse));
+    const getConsolidationLegsSpy = jasmine
+      .createSpy('getConsolidationLegs')
+      .and.returnValue(of({ package: packageDetail.package, results: [] }));
+    const getStagingRecommendationSpy = jasmine
+      .createSpy('getStagingRecommendation')
+      .and.returnValue(of({
+        reliefrqst_id: RELIEFRQST_ID,
+        recommended_staging_warehouse_id: 9501,
+        recommended_staging_warehouse_name: 'ODPEM Staging Hub',
+        recommended_staging_parish_code: '01',
+        staging_selection_basis: 'SAME_PARISH',
+        staging_hubs: [
+          { warehouse_id: 9501, warehouse_name: 'ODPEM Staging Hub', parish_code: '01' },
+        ],
+      } satisfies StagingRecommendationResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getPackage: getPackageSpy,
+            getAllocationOptions: getAllocationOptionsSpy,
+            getConsolidationLegs: getConsolidationLegsSpy,
+            getStagingRecommendation: getStagingRecommendationSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+
+    service.load(RELIEFRQST_ID, true);
+
+    expect(getConsolidationLegsSpy).toHaveBeenCalledWith(77001);
+    expect(getStagingRecommendationSpy).toHaveBeenCalledWith(RELIEFRQST_ID);
+    expect(service.stagingRecommendation()?.staging_hubs).toEqual([
+      { warehouse_id: 9501, warehouse_name: 'ODPEM Staging Hub', parish_code: '01' },
+    ]);
   });
 
   it('populates itemWarehouseOverrides when committed lines reference a different warehouse', () => {

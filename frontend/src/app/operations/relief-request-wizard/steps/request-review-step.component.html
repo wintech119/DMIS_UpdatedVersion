@@ -31,7 +31,7 @@
 
       <div class="review-info-grid">
         <div class="review-info-item">
-        <span class="review-info-label">Requesting entity</span>
+        <span class="review-info-label">{{ formValue.requester_label || 'Requesting entity' }}</span>
         <span class="review-info-value">{{ formValue.agency_name || (formValue.agency_id ? 'Agency ' + formValue.agency_id : 'Not selected') }}</span>
         </div>
       <div class="review-info-item">

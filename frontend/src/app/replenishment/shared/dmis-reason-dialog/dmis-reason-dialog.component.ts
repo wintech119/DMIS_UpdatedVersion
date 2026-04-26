@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -58,6 +58,8 @@ export interface DmisReasonDialogResult {
               matInput
               rows="3"
               formControlName="reason"
+              required
+              [attr.maxlength]="data.maxLength ?? null"
               [attr.placeholder]="data.reasonPlaceholder ?? null"
               [attr.aria-describedby]="data.maxLength ? 'dmis-reason-count' : null"></textarea>
           @if (data.maxLength) {
@@ -103,7 +105,7 @@ export class DmisReasonDialogComponent {
 
   readonly form = this.fb.nonNullable.group({
     reason_code: [''],
-    reason: ['', [Validators.required]],
+    reason: ['', [trimmedRequiredValidator]],
     notes: ['']
   });
 
@@ -136,4 +138,8 @@ export class DmisReasonDialogComponent {
       notes: notes || undefined
     });
   }
+}
+
+function trimmedRequiredValidator(control: AbstractControl): ValidationErrors | null {
+  return String(control.value ?? '').trim().length > 0 ? null : { required: true };
 }

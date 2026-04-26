@@ -45,6 +45,17 @@
           }
         </div>
         <div class="ops-hero__actions">
+          @if (canCancelRequest()) {
+            <button
+              mat-stroked-button
+              color="warn"
+              type="button"
+              (click)="cancelRequest()"
+              [disabled]="cancelling()">
+              <mat-icon>cancel</mat-icon>
+              @if (cancelling()) { Cancelling... } @else { Cancel Request }
+            </button>
+          }
           @if (rq.status_code === 'DRAFT') {
             @if (canEditDraft()) {
               <button mat-stroked-button type="button" (click)="openEdit()">
@@ -71,6 +82,9 @@
             </span>
           }
         </div>
+        @if (cancelError()) {
+          <p class="ops-inline-error" role="alert">{{ cancelError() }}</p>
+        }
       </div>
     </header>
 
@@ -346,6 +360,40 @@
             </div>
           </div>
         </section>
+
+        <mat-card class="ops-card">
+          <mat-card-header>
+            <mat-card-title>Audit timeline</mat-card-title>
+            <mat-card-subtitle>Chronological request activity</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            @if (auditTimeline().length === 0) {
+              <p class="ops-empty__copy">No audit events have been recorded for this request.</p>
+            } @else {
+              <mat-list aria-label="Relief request audit timeline">
+                @for (event of auditTimeline(); track trackAuditEvent($index, event)) {
+                  <mat-list-item>
+                    <mat-icon matListItemIcon aria-hidden="true">
+                      {{ event.event_kind === 'ACTION_AUDIT' ? 'fact_check' : 'swap_horiz' }}
+                    </mat-icon>
+                    <div matListItemTitle>{{ formatAuditEventLabel(event) }}</div>
+                    <div matListItemLine>
+                      <time
+                        [attr.datetime]="event.occurred_at"
+                        [matTooltip]="formatOperationsDateTime(event.occurred_at)">
+                        {{ formatAuditOccurredAt(event) }}
+                      </time>
+                      | {{ formatAuditActor(event) }}
+                    </div>
+                    @if (event.event_kind === 'ACTION_AUDIT' && event.action_reason) {
+                      <div matListItemLine>{{ event.action_reason }}</div>
+                    }
+                  </mat-list-item>
+                }
+              </mat-list>
+            }
+          </mat-card-content>
+        </mat-card>
       </aside>
     </div>
   </div>

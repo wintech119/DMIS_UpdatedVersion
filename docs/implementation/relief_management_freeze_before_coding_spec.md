@@ -1,8 +1,8 @@
 # Relief Management Freeze Before Coding Specification
 
-Last updated: 2026-04-22
-Status: Pre-implementation freeze baseline with approved consolidation, staged fulfillment, and request-authority discipline additions from backlog v3.2
-Scope: Relief Request, Eligibility Review, Package Fulfillment, Consolidation and Staged Fulfillment, Dispatch, Receipt, Notifications, Tenancy, and target Operations data ownership
+Last updated: 2026-04-25
+Status: Pre-implementation freeze baseline with approved consolidation, staged fulfillment, and request-authority discipline additions from backlog v3.2 plus EP-05 module-by-module clarifications (apply-from-needs-list bridge, wizard guardrail UX, detail audit timeline, cancel actor + permission, damaged-stock disposition Phase 2, variance-based partial release Phase 2)
+Scope: Relief Request, Eligibility Review, Package Fulfillment, Consolidation and Staged Fulfillment, Damaged Stock Disposition (Phase 2), Variance-Based Partial Release (Phase 2), Dispatch, Receipt, Notifications, Tenancy, and target Operations data ownership
 
 ## Purpose
 
@@ -221,6 +221,60 @@ The following rules override any earlier simplified assumptions:
 - users must not be able to view or act on consolidation packages, legs, or artifacts outside their authorized tenant and role scope
 - invalid status transitions and duplicate processing must be blocked for all consolidation, staging receipt, pickup release, and staged dispatch actions
 
+### Damaged stock disposition rules (Phase 2, frozen 2026-04-25, source: backlog v3.2 EP05 FR05.66 / FR-CON-45 through FR05.77 / FR-CON-56)
+
+These rules govern handling of damaged stock recorded at staging receipt. Phase 2 scope: backend, schema, queue, and audit must land before Module 4 implementation that touches the disposition surface.
+
+- a damaged-stock case must be created automatically when a staging receipt line records `damaged_qty > 0` (FR-CON-45)
+- the case must link to consolidation leg, receipt record, item, batch, staging warehouse, source warehouse, package, waybill, receiver, damaged quantity, and variance reason
+- damaged received quantity must enter a non-usable damaged / quarantine inventory state immediately on staging receipt (FR-CON-46)
+- damaged quantity must not be available for package reservation, dispatch, pickup release, allocation, or stock availability calculations
+- an authorized warehouse supervisor, quality / inspection officer, Logistics Officer, or Logistics Manager may inspect the case and record condition, severity, inspection notes, and recommended disposition (FR-CON-47)
+- evidence may be attached to a damaged-stock case, including photos, scanned forms, waybill notes, supplier / donor references, transport notes, and inspection documents; evidence is retained as audit material (FR-CON-48)
+- an authorized approver selects final disposition from a controlled list (FR-CON-49):
+  - `RELEASE_TO_USABLE`
+  - `REPACKAGE_RECONDITION`
+  - `KEEP_IN_QUARANTINE`
+  - `RETURN_TO_SOURCE`
+  - `DISPOSE_WRITE_OFF`
+  - `INITIATE_CLAIM_RECOVERY`
+- approval is required before damaged stock can be written off, disposed, returned, or released back to usable stock; rules are role-based and configurable by value, item category, quantity, or emergency policy (FR-CON-50)
+- on approved disposition, inventory balances must update accordingly (FR-CON-51):
+  - released quantity moves to usable stock
+  - disposed / write-off quantity is removed from available inventory
+  - returned quantity is transferred out
+  - quarantined quantity remains non-usable
+- a package must not become ready for pickup or dispatch when damaged stock leaves insufficient usable staged stock for the package's intended next step (FR-CON-52)
+- the system must retain an immutable audit trail for each damaged-stock case including creator, inspector, approver, timestamps, quantity changes, status changes, reason text, evidence references, and final disposition (FR-CON-53)
+- the system must provide a damaged-stock disposition queue for authorized users showing open, pending approval, approved, rejected, completed, and overdue cases by staging warehouse, item, batch, package, and severity (FR-CON-54)
+- the system must notify configured warehouse / logistics roles when damaged stock is recorded and must escalate cases that remain unresolved beyond a configurable time threshold (FR-CON-55)
+- the system must provide reports and exportable views of damaged stock by item, batch, warehouse, source warehouse, donor / supplier / transport reference where available, disposition status, value, and date range (FR-CON-56)
+
+Damaged-stock case lifecycle:
+
+| From | Trigger | Actor | To | Notes |
+| --- | --- | --- | --- | --- |
+| none | Staging receipt records `damaged_qty > 0` | System | `OPEN` | Inventory entry posts to damaged / quarantine state |
+| `OPEN` | Inspect | Warehouse supervisor / Quality officer / Logistics Officer / Logistics Manager | `INSPECTED` | Capture condition, severity, recommended disposition, evidence |
+| `INSPECTED` | Submit for approval | Inspector | `PENDING_APPROVAL` | Reason required; route by configured approval rules |
+| `PENDING_APPROVAL` | Approve disposition | Authorized approver | `APPROVED` | Cannot self-approve when inspector also requests; apply disposition outcome |
+| `PENDING_APPROVAL` | Reject disposition | Authorized approver | `REJECTED` | Reason required; case returns to inspection |
+| `APPROVED` | Apply disposition outcome | System | `COMPLETED` | Update inventory balances; emit linked stock adjustment |
+| any non-terminal | Cancel | Authorized actor | `CANCELLED` | Reason required; audit |
+
+### Variance-based partial release rules (Phase 2, frozen 2026-04-25, source: backlog v3.2 EP05 FR05.57A / FR-CON-36A through FR05.57G / FR-CON-36G)
+
+These rules supplement the original partial release rules (which require some-but-not-all consolidation legs to be received). They govern the case where all required legs have been received but usable staged stock is less than planned package quantity due to recorded shortage, damage, or receipt variance.
+
+- an authorized fulfillment actor may request a variance-based partial release when all required legs have been received but usable staged stock is less than planned package quantity due to shortage, damage, or receipt variance (FR-CON-36A)
+- approval of the usable portion uses a new permission `operations.partial_release.approve_variance` granted to Logistics Officer and Logistics Manager roles (FR-CON-36B)
+- damaged goods do not move forward as usable package stock; approval of the usable portion ensures field operations are not blocked by damaged quantities
+- no-self-approval rule applies: the requester cannot approve their own request (FR-CON-36C); enforcement requires distinct user_id between request and approval rows
+- physical pickup or release is executed by an actor holding `operations.pickup_release.execute` (Inventory Officer, Warehouse Clerk, or other authorized staging release actor); the system records all three actors — requester, approver, release executor (FR-CON-36D)
+- unresolved residual quantity must be retained as an auditable residual package, variance record, or exception record linked to the original package, receipt line, item, batch, and consolidation leg (FR-CON-36E)
+- when damaged stock causes the variance, the excluded damaged quantity must be linked to the damaged-stock disposition workflow / damaged-stock evidence record (FR-CON-36F)
+- the immutable audit record must capture requester, approver, release executor, reason, approval timestamp, released quantities, excluded quantities, receipt variance references, and resulting package / residual status for every variance-based partial release (FR-CON-36G)
+
 ### Override and staged audit write contract
 
 - `operations_status_history` is authoritative for lifecycle status transitions
@@ -250,6 +304,8 @@ These must become first-class database concepts:
 - staging receipt artifact
 - pickup release artifact
 - partial release lineage and split-child relationships
+- variance-based partial release record (Phase 2; FR-CON-36A through FR-CON-36G)
+- damaged-stock case, damaged-stock evidence, and damaged inventory state (Phase 2; FR-CON-45 through FR-CON-56)
 - waybill artifact
 - receipt artifact
 - clean operations status model
@@ -415,6 +471,30 @@ Page must:
 - be available only for requester-owned / lower-level needs lists, or ODPEM bridge intake on behalf of an approved external requester
 - be unavailable for ODPEM HQ / NATIONAL needs lists that represent ODPEM stock-readiness or replenishment demand
 
+##### 3a. Bridge payload and authority pre-check (design clarification, 2026-04-25)
+
+Freeze rule:
+
+- the bridge page must call a dedicated server-side authority pre-check before navigating into the wizard
+- the pre-check endpoint is `GET /api/v1/operations/requests/authority-preview?source_needs_list_id={id}`
+- the pre-check applies the same server-side guardrails as the create path: `validate_relief_request_agency_selection` plus `_validate_source_needs_list_for_relief_request`
+- the pre-check response shape is:
+  - `can_create` (boolean)
+  - `allowed_origin_modes` (subset of `SELF`, `FOR_SUBORDINATE`, `ODPEM_BRIDGE`)
+  - `required_authority_tenant_id` (nullable; the higher-level tenant the user must escalate to when they cannot create)
+  - `beneficiary_tenant_id` (numeric; the represented requester / beneficiary tenant resolved from the needs list)
+  - `beneficiary_agency_id` (nullable)
+  - `suggested_event_id` (nullable)
+  - `blocked_reason_code` (nullable; stable string such as `odpem_replenishment_only_needs_list`, `agency_out_of_scope`, `escalation_required`, `self_request_disabled`)
+- the bridge page must:
+  - block navigation into the wizard when `can_create` is false and surface `blocked_reason_code` plus `required_authority_tenant_id` to the operator
+  - pass `source_needs_list_id`, `beneficiary_tenant_id`, `beneficiary_agency_id`, and any `suggested_event_id` to the wizard via Angular route state when `can_create` is true
+- the wizard must:
+  - persist `source_needs_list_id` on both `CreateRequestPayload` and `UpdateRequestPayload`
+  - re-submit the value on Save Draft and Save & Submit so the server can re-validate
+- the backend rate-limit tier for the pre-check endpoint is `Read` (120 req/min)
+- the pre-check is advisory only; backend create/submit must independently re-validate every guardrail; the bridge UI is UX, never security
+
 ### Operations
 
 #### 4. Operations Dashboard
@@ -465,6 +545,21 @@ Page must not:
 - allow unauthorized lower-level tenant request creation
 - allow ODPEM HQ / NATIONAL users to create ODPEM-owned Relief Requests from ODPEM needs-list demand
 
+##### 6a. Wizard guardrail behavior per origin-mode permission (design clarification, 2026-04-25)
+
+Freeze rule:
+
+- the wizard must hide origin modes the actor cannot use rather than disable them or allow attempt-then-reject
+- when the actor holds exactly one origin-mode permission, the wizard renders the resulting mode label automatically with no mode picker
+- when the actor holds two or more origin-mode permissions, the wizard shows a mode picker constrained to the modes the actor holds
+- when the actor holds zero origin-mode permissions, the wizard shows the existing creation-blocked panel and never renders the form
+- mode permissions referenced here:
+  - `operations.request.create.self`
+  - `operations.request.create.for_subordinate`
+  - `operations.request.create.on_behalf_bridge`
+- the wizard must continue to derive `origin_mode` server-authoritatively via `validate_relief_request_agency_selection`; the UI rule above is UX-only and never substitutes for backend validation
+- when the wizard is launched from the `/replenishment/needs-list/:id/apply-relief-request` bridge, the available modes are also constrained by the bridge `allowed_origin_modes` response field
+
 #### 7. Relief Request Detail
 
 Route:
@@ -475,6 +570,24 @@ Page must:
 
 - show request summary, tenant context, item lines, audit timeline, and related package state
 - support draft edit only if still allowed by status and authority
+
+##### 7a. Detail audit timeline read contract (design clarification, 2026-04-25)
+
+Freeze rule:
+
+- the detail response must include an `audit_timeline` array combining `operations_status_history` and `operations_action_audit` rows for `entity_type='RELIEF_REQUEST'` and `entity_id=relief_request_id`
+- entries must be ordered ascending by `changed_at` / `acted_at`
+- each entry must expose:
+  - `event_kind` (`STATUS_TRANSITION` or `ACTION_AUDIT`)
+  - `from_status_code` and `to_status_code` (status transitions only)
+  - `action_code` (action audit only; e.g., `REQUEST_BRIDGE_CREATED`, `REQUEST_CANCELLED`)
+  - `action_reason` text (action audit only)
+  - `occurred_at` timestamp
+  - `actor_role_code` — visible only when the caller's tenant matches the request tenant or the caller holds `national.read_all_tenants`; redacted to `null` for cross-tenant viewers without that permission
+  - `actor_user_label` — display-name string, never raw user_id; redacted to `null` for cross-tenant viewers without `national.read_all_tenants`
+- the frontend detail view must render the timeline chronologically with role + action + relative timestamp; redacted entries render as "External actor" + timestamp + status / action label
+- the timeline must include the bridge intake audit when present (action `REQUEST_BRIDGE_CREATED`) and the cancel audit when present (action `REQUEST_CANCELLED`)
+- audit timeline rendering is UX; backend tenant scoping is the security boundary
 
 #### 8. Eligibility Review Queue
 
@@ -727,7 +840,7 @@ Page must:
 | `UNDER_ELIGIBILITY_REVIEW` | Reject | Deputy DG / Director PEOD / DG | `REJECTED` | None | Separate only if business distinguishes from ineligible |
 | `APPROVED_FOR_FULFILLMENT` | First package committed | Fulfillment role | `PARTIALLY_FULFILLED` | Reserve stock | Use if request not fully covered yet |
 | `PARTIALLY_FULFILLED` | All required quantities dispatched | System | `FULFILLED` | None | Deduction already occurred on dispatch |
-| `DRAFT` / `SUBMITTED` / `UNDER_ELIGIBILITY_REVIEW` | Cancel | Authorized actor | `CANCELLED` | None | Pre-fulfillment cancellation |
+| `DRAFT` / `SUBMITTED` / `UNDER_ELIGIBILITY_REVIEW` | Cancel | Request owner; ODPEM bridge actor for `ODPEM_BRIDGE` requests pre-approval | `CANCELLED` | None | Pre-fulfillment cancellation. Requires `operations.request.cancel`; cancellation_reason text required (max_length 500); writes both `operations_status_history` and `operations_action_audit(action_code='REQUEST_CANCELLED')`; clears the eligibility queue assignment when applicable; notifies the request owner. Eligibility approvers do not cancel — their channel is `INELIGIBLE` / `REJECTED`. |
 
 ### Package lifecycle
 
@@ -791,6 +904,7 @@ Internal workflow notifications are in scope.
 | Relief Request submitted | Request owner | Eligibility approvers | Add to eligibility queue | Yes |
 | Relief Request approved | Deputy DG / Director PEOD / DG | Logistics Officers, Logistics Managers | Add to fulfillment queue | Yes |
 | Relief Request rejected / ineligible | Approver | Request owner | Close or remove active work item | Yes |
+| Relief Request cancelled | Request owner or ODPEM bridge actor | Request owner; eligibility approvers if assigned | Remove from eligibility queue if present | Yes |
 | Package lock acquired | Fulfillment actor | Fulfillment team as needed | Show locked state | Yes |
 | Override requested | Fulfillment actor | Override approver cohort | Add to override approval queue | Yes |
 | Override approved | Supervisor approver | Fulfillment actor | Remove from override queue; then follow normal package-commit routing for the resulting package state | Yes |
@@ -807,6 +921,11 @@ Internal workflow notifications are in scope.
 | Pickup release completed | Authorized staging release actor | Request owner, fulfillment roles, dispatch roles | Close pickup-release work item | Yes |
 | Dispatch completed | Dispatch actor | Receiver-facing actors, request owner, fulfillment roles | Add to receipt queue | Yes |
 | Receipt confirmed | Receiver / authorized actor | Request owner, fulfillment roles, dispatch roles | Close receipt queue item | Yes |
+| Damaged stock recorded at staging receipt | Authorized staging receiver / system | Warehouse supervisor, Quality officer, fulfillment roles | Add to damaged-stock disposition queue | Yes (Phase 2) |
+| Damaged stock case overdue | System scheduler | Logistics Manager, configured escalation cohort | Escalate within disposition queue | Yes (Phase 2) |
+| Damaged stock disposition approved / rejected | Authorized approver | Inspector, fulfillment roles, request owner if package impacted | Update disposition queue and package readiness | Yes (Phase 2) |
+| Variance-based partial release requested | Authorized fulfillment actor | `operations.partial_release.approve_variance` cohort | Add to variance partial-release approval queue | Yes (Phase 2) |
+| Variance-based partial release approved | Authorized approver | Release executor cohort, fulfillment roles, request owner | Route to pickup-release execution; record three-actor trail | Yes (Phase 2) |
 | External receiving-agency dispatch notification | Dispatch actor / system | External receiver | Separate from internal workflow queue | Separate decision |
 
 ## Operations-Native Permission Matrix
@@ -814,12 +933,14 @@ Internal workflow notifications are in scope.
 | Role / persona | Tenant context | Permissions |
 | --- | --- | --- |
 | Lower-level/community planner | Lower-level tenant under parent authority | Replenishment needs-list permissions only; no direct Operations request-create permission |
-| Parish requester | Parish request-authority tenant | `operations.request.create.self`, `operations.request.create.for_subordinate`, `operations.request.edit.draft`, `operations.request.submit`, `operations.notification.receive`, `operations.queue.view` |
-| Independent tenant requester | Direct tenant with self-request authority | `operations.request.create.self`, `operations.request.edit.draft`, `operations.request.submit`, `operations.notification.receive`, `operations.queue.view` |
-| ODPEM bridge requester | National / ODPEM transitional bridge | `operations.request.create.on_behalf_bridge`, `operations.request.edit.draft`, `operations.request.submit`, `operations.notification.receive`, `operations.queue.view` |
+| Parish requester | Parish request-authority tenant | `operations.request.create.self`, `operations.request.create.for_subordinate`, `operations.request.edit.draft`, `operations.request.submit`, `operations.request.cancel`, `operations.notification.receive`, `operations.queue.view` |
+| Independent tenant requester | Direct tenant with self-request authority | `operations.request.create.self`, `operations.request.edit.draft`, `operations.request.submit`, `operations.request.cancel`, `operations.notification.receive`, `operations.queue.view` |
+| ODPEM bridge requester | National / ODPEM transitional bridge | `operations.request.create.on_behalf_bridge`, `operations.request.edit.draft`, `operations.request.submit`, `operations.request.cancel`, `operations.notification.receive`, `operations.queue.view` |
 | Eligibility approver | Deputy DG / Director PEOD / DG | `operations.eligibility.review`, `operations.eligibility.approve`, `operations.eligibility.reject`, `operations.queue.view`, `operations.notification.receive` |
-| Logistics Officer | Operations / logistics | `operations.package.create`, `operations.package.lock`, `operations.package.allocate`, `operations.package.fulfillment_mode.set`, `operations.package.staging.select`, `operations.package.override.request`, `operations.consolidation.view`, `operations.consolidation.leg.dispatch`, `operations.partial_release.request`, `operations.dispatch.prepare`, `operations.dispatch.execute`, `operations.pickup_release.view`, `operations.waybill.view`, `operations.notification.receive`, `operations.queue.view` |
-| Logistics Manager | Operations / logistics | All Logistics Officer permissions plus `operations.package.override.approve`, `operations.package.staging.override`, `operations.partial_release.approve`, `operations.pickup_release.execute` |
+| Logistics Officer | Operations / logistics | `operations.package.create`, `operations.package.lock`, `operations.package.allocate`, `operations.package.fulfillment_mode.set`, `operations.package.staging.select`, `operations.package.override.request`, `operations.consolidation.view`, `operations.consolidation.leg.dispatch`, `operations.partial_release.request`, `operations.partial_release.request_variance`, `operations.partial_release.approve_variance`, `operations.damaged_stock.inspect`, `operations.damaged_stock.attach_evidence`, `operations.dispatch.prepare`, `operations.dispatch.execute`, `operations.pickup_release.view`, `operations.waybill.view`, `operations.notification.receive`, `operations.queue.view` |
+| Logistics Manager | Operations / logistics | All Logistics Officer permissions plus `operations.package.override.approve`, `operations.package.staging.override`, `operations.partial_release.approve`, `operations.partial_release.approve_variance`, `operations.pickup_release.execute`, `operations.damaged_stock.approve_disposition` |
+| Quality / Inspection officer | Operations / logistics / staging | `operations.damaged_stock.inspect`, `operations.damaged_stock.attach_evidence`, `operations.queue.view`, `operations.notification.receive` |
+| Inventory Officer / Warehouse Clerk (staging release) | Staging hub operational scope | `operations.pickup_release.execute`, `operations.damaged_stock.attach_evidence`, `operations.queue.view`, `operations.notification.receive` |
 | Inventory Clerk | Warehouse / logistics | `operations.consolidation.leg.dispatch`, `operations.dispatch.prepare`, `operations.dispatch.execute`, `operations.waybill.view`, `operations.notification.receive`, `operations.queue.view` |
 | Staging receiver / releasing actor | Staging hub operational scope | `operations.consolidation.leg.receive`, `operations.pickup_release.execute`, `operations.artifact.view`, `operations.notification.receive`, limited `operations.queue.view` |
 | Receiver / receiving agency actor | Receiving tenant | `operations.receipt.confirm`, `operations.waybill.view`, `operations.notification.receive`, limited `operations.queue.view` |
@@ -1072,12 +1193,70 @@ operations_partial_release_request
 - package_id FK operations_package
 - request_reason
 - approval_status_code
+- request_kind_code (LEG_PROGRESS / VARIANCE)  # discriminates the original FR-CON-31 path from the variance-based FR-CON-36A path
 - requested_by_user_id
 - requested_at
 - approved_by_user_id nullable
 - approved_at nullable
+- release_executor_user_id nullable  # variance path requires distinct executor per FR-CON-36D
 - released_child_package_id FK operations_package nullable  # duplicate child reference for immutable workflow/audit convenience only
 - residual_child_package_id FK operations_package nullable  # duplicate child reference for immutable workflow/audit convenience only
+- excluded_damaged_qty nullable  # FR-CON-36F linkage to damaged stock when variance driver is damage
+- damaged_stock_case_id FK operations_damaged_stock_case nullable
+```
+
+```text
+operations_damaged_stock_case
+- damaged_stock_case_id PK
+- consolidation_leg_id FK operations_consolidation_leg
+- consolidation_receipt_id FK operations_consolidation_receipt
+- package_id FK operations_package nullable
+- waybill_id FK operations_waybill nullable
+- item_id FK item
+- batch_id FK itembatch nullable
+- staging_warehouse_id FK warehouse
+- source_warehouse_id FK warehouse
+- damaged_qty
+- variance_reason_text
+- status_code  # OPEN / INSPECTED / PENDING_APPROVAL / APPROVED / REJECTED / COMPLETED / CANCELLED
+- severity_code nullable
+- recommended_disposition_code nullable
+- final_disposition_code nullable  # RELEASE_TO_USABLE / REPACKAGE_RECONDITION / KEEP_IN_QUARANTINE / RETURN_TO_SOURCE / DISPOSE_WRITE_OFF / INITIATE_CLAIM_RECOVERY
+- inspected_by_user_id nullable
+- inspected_at nullable
+- approved_by_user_id nullable
+- approved_at nullable
+- completed_at nullable
+- create_by_id
+- create_dtime
+- update_by_id
+- update_dtime
+- version_nbr
+```
+
+```text
+operations_damaged_stock_evidence
+- evidence_id PK
+- damaged_stock_case_id FK operations_damaged_stock_case
+- evidence_kind_code  # PHOTO / SCAN / WAYBILL_NOTE / SUPPLIER_REF / TRANSPORT_NOTE / INSPECTION_DOC
+- artifact_payload_json
+- attached_by_user_id
+- attached_at
+```
+
+```text
+operations_damaged_stock_inventory_state
+- inventory_state_id PK
+- damaged_stock_case_id FK operations_damaged_stock_case
+- staging_warehouse_id FK warehouse
+- item_id FK item
+- batch_id FK itembatch nullable
+- damaged_qty
+- usable_qty default 0  # increments when disposition releases stock back to usable
+- written_off_qty default 0
+- returned_qty default 0
+- quarantined_qty default 0
+- last_disposition_at nullable
 ```
 
 ### F. Dispatch and transport
@@ -1282,7 +1461,7 @@ Schema note:
 - `Deputy DG` is now part of eligibility approval and must be mapped to a formal role code if not already present
 - internal workflow notifications are now required, but external dispatch notification to receiving agency remains a distinct scope decision and must be separated clearly
 - earlier simplified non-ODPEM self-service logic is superseded by hierarchy-based request authority and must be removed from future implementation assumptions
-- earlier assumptions that ODPEM HQ / NATIONAL needs lists can become ODPEM-owned Relief Requests are superseded by FR02.99, FR05.78, FR05.79, FR13.19, BR01.32, BR01.33, and Request Authority Discipline
+- earlier assumptions that ODPEM HQ / NATIONAL needs lists can become ODPEM-owned Relief Requests are superseded by FR02.99, FR05.78, FR05.79, FR13.19, BR01.32, BR01.33, and Request Authority Discipline. Backlog v3.2 marks FR05.78, FR05.79, BR01.31, BR01.32, and BR01.33 as `NEW v6.2`; the v6.1 change notice does not contain EP-05 deltas (its scope is FR01.31–33, FR02.103–104, BR01.28–30 for EP-01/EP-02 GRN and photo-evidence work).
 - current hybrid use of legacy relief tables and bridge logic is acceptable only as transition; first-class Operations data ownership is now the target baseline
 - if a distinct staging-hub receiver role code does not already exist, it must be resolved through an Operations permission assignment pattern before implementation is treated as complete
 - final direct-dispatch and staged-dispatch queue behavior must stay separate from consolidation-only work queues

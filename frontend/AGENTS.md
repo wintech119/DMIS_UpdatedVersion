@@ -32,6 +32,13 @@
 - Treat `../docs/implementation/production_hardening_and_flask_retirement_strategy.md` as supporting execution guidance, not the main architecture baseline.
 - Keep the detailed review workflow in the skill; do not duplicate it here.
 
+## Frontend Skill Chain
+- Use the canonical frontend chain in this order: `frontend-angular-analysis` -> `frontend-angular-implementation` -> `frontend-angular-review-project` -> `system-architecture-review`.
+- Each frontend skill loads its own `references/` subfolder on demand through progressive disclosure; keep AGENTS.md focused on policy and let the skills pull detailed inventories only when relevant.
+- Use `../.agents/skills/frontend-angular-analysis/references/dmis-angular-reading-map.md` for the codebase tour and `../.agents/skills/frontend-angular-analysis/references/dmis-frontend-controls.md` for the per-change controls list instead of duplicating those lists here.
+- Prefer the Angular MCP server (`mcp__angular__*`) when it is loaded; otherwise rely on the codebase, Angular docs, `npm run lint`, and targeted tests.
+- Treat `../.agents/skills/` as the canonical source of truth. `../.claude/skills/` is a gitignored harness-discoverable mirror kept identical by the recommended sync hook.
+
 ### Mandatory frontend review triggers
 - auth bootstrap, route guards, role and permission handling, token or session handling, and dev-user behavior
 - localStorage or browser-held workflow state that could affect security, resilience, or multi-user correctness
@@ -49,7 +56,9 @@
 ### Frontend architecture expectations
 - Do not normalize dev-user or impersonation behavior into production paths.
 - Keep backend authorization authoritative; frontend checks remain UX-only.
+- `appAccessGuard` plus an `accessKey` in route `data` is mandatory on every protected route; backend authorization remains authoritative, and the guard is UX-only.
 - Prefer centralized auth, HTTP, and failure-handling patterns over screen-specific exceptions.
+- Treat `frontend/src/lib/prompts/generation.tsx` as the canonical DMIS component-generation prompt for the warm-neutral palette, status tones, typography, spacing, and radius tokens; new components must cite it instead of duplicating or drifting those values.
 - Call out any deviation from the target Angular + Django + OIDC + Redis + async-worker architecture.
 - If the architecture review returns `Misaligned`, do not treat the work as complete.
 

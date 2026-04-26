@@ -51,6 +51,8 @@ const OPERATIONAL_WORKSPACE_STATUSES: ReadonlySet<string> = new Set([
   styleUrl: './needs-list-fulfillment-tracker.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
+// The backend contract still names these records fulfillment sources; the UI
+// presents them as sourcing to match Replenishment Execution terminology.
 export class NeedsListFulfillmentTrackerComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -87,18 +89,18 @@ export class NeedsListFulfillmentTrackerComponent {
       case 'superseded':
         return 'Superseded Needs List';
       default:
-        return 'Fulfillment Tracker';
+        return 'Sourcing Tracker';
     }
   });
 
   readonly pageSubtitle = computed(() => {
     switch (this.mode()) {
       case 'history':
-        return 'Completed fulfillment record';
+        return 'Completed sourcing record';
       case 'superseded':
         return 'This needs list has been replaced by a newer version';
       default:
-        return 'Track fulfillment progress and sources';
+        return 'Track replenishment sourcing progress';
     }
   });
 
@@ -184,7 +186,7 @@ export class NeedsListFulfillmentTrackerComponent {
     if (this.hasAllocationCommit()) {
       return 'Review or update the reserved stock plan before moving to dispatch.';
     }
-    return 'Reserve stock-aware lines and create request and package tracking references.';
+    return 'Reserve stock-aware replenishment lines for transfer, donation, or procurement follow-through.';
   });
 
   readonly dispatchActionDescription = computed(() => {
@@ -193,10 +195,10 @@ export class NeedsListFulfillmentTrackerComponent {
       return 'Dispatch is blocked until the pending override is approved.';
     }
     if (!this.hasAllocationCommit()) {
-      return 'Commit a reservation first to unlock operational handoff and dispatch.';
+      return 'Commit a reservation first to unlock replenishment dispatch follow-through.';
     }
     if (String(this.needsList()?.waybill_no ?? '').trim()) {
-      return 'Reopen the dispatch workspace to review the waybill reference and current handoff status.';
+      return 'Review the dispatch follow-through record and current handoff status.';
     }
     return 'Start preparation, record dispatch, and expose the minimal waybill reference.';
   });
@@ -468,7 +470,7 @@ export class NeedsListFulfillmentTrackerComponent {
       error: () => {
         this.error.set(true);
         this.loading.set(false);
-        this.notifications.showError('Failed to load fulfillment details.');
+        this.notifications.showError('Failed to load sourcing details.');
       }
     });
   }

@@ -178,6 +178,44 @@ describe('PackageFulfillmentQueueComponent', () => {
     expect(console.warn).toHaveBeenCalledTimes(4);
   });
 
+  it('excludes non-approved request rows from the active-work queue', () => {
+    spyOn(console, 'warn');
+    operationsService.getPackagesQueue.and.returnValue(
+      of({
+        results: [
+          buildQueueItem({ reliefrqst_id: 10, status_code: 'APPROVED_FOR_FULFILLMENT' }),
+          buildQueueItem({ reliefrqst_id: 11, status_code: 'PARTIALLY_FULFILLED' }),
+          buildQueueItem({ reliefrqst_id: 12, status_code: 'DRAFT' }),
+          buildQueueItem({ reliefrqst_id: 13, status_code: 'SUBMITTED' }),
+          buildQueueItem({ reliefrqst_id: 14, status_code: 'UNDER_ELIGIBILITY_REVIEW' }),
+          buildQueueItem({ reliefrqst_id: 15, status_code: 'INELIGIBLE' }),
+          buildQueueItem({ reliefrqst_id: 16, status_code: 'CANCELLED' }),
+          buildQueueItem({ reliefrqst_id: 17, status_code: 'FULFILLED' }),
+        ],
+      }),
+    );
+
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(component.filteredItems().map((row) => row.reliefrqst_id)).toEqual([10, 11]);
+    expect(console.warn).toHaveBeenCalledTimes(6);
+  });
+
+  it('does not navigate directly to fulfillment for an out-of-contract request row', () => {
+    const fixture = TestBed.createComponent(PackageFulfillmentQueueComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+    spyOn(console, 'warn');
+    router.navigate.calls.reset();
+
+    component.fulfillRequest(buildQueueItem({ status_code: 'UNDER_ELIGIBILITY_REVIEW' }));
+
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalled();
+  });
+
   it('keeps override-rejected package attempts visible for a fresh fulfillment attempt', () => {
     operationsService.getPackagesQueue.and.returnValue(
       of({
@@ -275,6 +313,7 @@ describe('PackageFulfillmentQueueComponent', () => {
   });
 
   it('derives activeQueueCount from queueStats', () => {
+    spyOn(console, 'warn');
     operationsService.getPackagesQueue.and.returnValue(
       of({
         results: [

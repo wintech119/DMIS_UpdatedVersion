@@ -897,6 +897,34 @@ class ExportAuditSchemaCheckTests(SimpleTestCase):
         self.assertIn("request_id", messages[0].msg)
 
 
+class RuntimeRBACBoundaryCheckTests(SimpleTestCase):
+    @override_settings(TESTING=True, AUTH_USE_DB_RBAC=True)
+    @patch("api.checks._table_exists", return_value=False)
+    def test_rbac_table_check_skips_database_probe_during_tests(self, table_exists_mock) -> None:
+        messages = api_checks.check_dmis_rbac_boundary(None)
+
+        self.assertEqual(messages, [])
+        table_exists_mock.assert_not_called()
+
+    @override_settings(TESTING=False, AUTH_USE_DB_RBAC=True)
+    @patch("api.checks._table_exists", return_value=False)
+    def test_rbac_table_check_fails_non_test_runtime_when_tables_missing(self, _table_exists_mock) -> None:
+        messages = api_checks.check_dmis_rbac_boundary(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E001")
+        self.assertIn("Required DMIS RBAC table(s) missing", messages[0].msg)
+
+    @override_settings(TESTING=False, AUTH_USE_DB_RBAC=False)
+    @patch("api.checks._table_exists", return_value=False)
+    def test_rbac_table_check_warns_only_when_db_rbac_disabled(self, table_exists_mock) -> None:
+        messages = api_checks.check_dmis_rbac_boundary(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.W001")
+        table_exists_mock.assert_not_called()
+
+
 class AsyncJobApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
@@ -1499,13 +1527,23 @@ class AsyncJobTaskTests(TestCase):
             request_id="req-task-1",
         )
 
+    @staticmethod
+    def _export_audit_schema_ready(api_tasks):
+        return patch.object(
+            api_tasks,
+            "get_replenishment_export_audit_schema_status",
+            return_value=("ok", None),
+        )
+
     def test_run_async_job_marks_job_succeeded_and_persists_artifact(self) -> None:
         api_tasks = self._load_api_tasks()
 
         job = self._create_job(job_id="task-success-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-1")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+        with self._export_audit_schema_ready(api_tasks), patch(
+            "api.tasks._touch_worker_heartbeat"
+        ), patch.object(
             api_tasks,
             "_build_needs_list_export_artifact",
             return_value=(
@@ -1558,7 +1596,9 @@ class AsyncJobTaskTests(TestCase):
         job = self._create_job(job_id="task-failed-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-2")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+        with self._export_audit_schema_ready(api_tasks), patch(
+            "api.tasks._touch_worker_heartbeat"
+        ), patch.object(
             api_tasks,
             "_build_needs_list_export_artifact",
             side_effect=api_tasks.AsyncJobPermanentError("source needs list missing"),
@@ -1600,7 +1640,9 @@ class AsyncJobTaskTests(TestCase):
         job = self._create_job(job_id="task-retry-1")
         request_context = SimpleNamespace(retries=0, id="celery-task-3")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+        with self._export_audit_schema_ready(api_tasks), patch(
+            "api.tasks._touch_worker_heartbeat"
+        ), patch.object(
             api_tasks,
             "_build_needs_list_export_artifact",
             side_effect=RuntimeError("database temporarily unavailable"),
@@ -1631,7 +1673,9 @@ class AsyncJobTaskTests(TestCase):
         job.save(update_fields=["status", "celery_task_id", "started_at"])
         request_context = SimpleNamespace(retries=0, id="celery-task-new")
 
-        with patch("api.tasks._touch_worker_heartbeat"), patch.object(
+        with self._export_audit_schema_ready(api_tasks), patch(
+            "api.tasks._touch_worker_heartbeat"
+        ), patch.object(
             api_tasks,
             "_build_needs_list_export_artifact",
             return_value=(
@@ -2405,6 +2449,50 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("replenishment.needs_list.submit", permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_needs_list_submit_permission_compat_does_not_grant_request_cancel(self) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="replenishment-submit-only",
+            roles=[],
+            permissions=[rbac.PERM_NEEDS_LIST_SUBMIT],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn(rbac.PERM_OPERATIONS_REQUEST_SUBMIT, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_cross_tenant_permission_compat_does_not_grant_request_cancel(self) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="cross-tenant-submit-only",
+            roles=[],
+            permissions=[rbac.PERM_NEEDS_LIST_SUBMIT, rbac.PERM_NATIONAL_ACT_CROSS_TENANT],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn(rbac.PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
+
+    def test_request_cancel_remains_explicit_for_authorized_requester_roles(self) -> None:
+        for role_code in ("AGENCY_DISTRIBUTOR", "AGENCY_SHELTER", "CUSTODIAN", "SYSTEM_ADMINISTRATOR"):
+            with self.subTest(role_code=role_code):
+                request = type("Request", (), {})()
+                principal = Principal(
+                    user_id=None,
+                    username=role_code.lower(),
+                    roles=[role_code],
+                    permissions=[],
+                )
+
+                _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+                self.assertIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, permissions)
 
     @patch(
         "api.rbac._fetch_permissions_for_role_codes",

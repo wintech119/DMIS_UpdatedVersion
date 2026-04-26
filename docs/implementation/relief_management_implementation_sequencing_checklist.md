@@ -1,7 +1,7 @@
 # Relief Management Implementation Sequencing Checklist
 
-Last updated: 2026-03-26
-Status: Execution baseline after freeze
+Last updated: 2026-04-25
+Status: Execution baseline after freeze; updated for EP-05 module-by-module sequencing (Module 1 closure deliverables, Module 4 Phase 2 prerequisites)
 Scope: Relief Management implementation order across backend, frontend, and QA
 
 ## Purpose
@@ -69,6 +69,19 @@ Publish the real Operations backend contract before frontend work proceeds.
   - [ ] receipt artifact
   - [ ] Operations-native permissions
 - [ ] Keep current stock reservation and deduction timing unchanged
+- [ ] Module 1 closure deliverables (per freeze spec §3a, §6a, §7a, §"Status Transition Matrix" Cancel row, §"Operations-Native Permission Matrix"):
+  - [ ] Cancel relief request endpoint (`POST /api/v1/operations/requests/{id}/cancel`) with `operations.request.cancel` permission, idempotency-key required, `Workflow` rate-limit tier, status_history + action_audit writes, queue cleanup, notification fan-out, cancellation_reason validation
+  - [ ] Cross-tenant negative tests on `PATCH /requests/{id}` and `POST /requests/{id}/submit`
+  - [ ] Apply-from-needs-list authority pre-check endpoint (`GET /api/v1/operations/requests/authority-preview?source_needs_list_id={id}`) returning `{can_create, allowed_origin_modes, required_authority_tenant_id, beneficiary_tenant_id, beneficiary_agency_id, suggested_event_id, blocked_reason_code}`; `Read` rate-limit tier
+  - [ ] Audit timeline read contract on `GET /api/v1/operations/requests/{id}` exposing combined status_history + action_audit per freeze spec §7a, with cross-tenant role-name redaction
+- [ ] Module 4 prerequisites (Phase 2, per freeze spec "Damaged stock disposition rules" and "Variance-based partial release rules"):
+  - [ ] Damaged stock disposition schema: `operations_damaged_stock_case`, `operations_damaged_stock_evidence`, `operations_damaged_stock_inventory_state`
+  - [ ] Damaged stock disposition endpoints (case create on receipt, inspect, attach evidence, submit for approval, approve/reject, apply disposition, queue list, escalation scheduler)
+  - [ ] New permissions: `operations.damaged_stock.inspect`, `operations.damaged_stock.attach_evidence`, `operations.damaged_stock.approve_disposition`, `operations.partial_release.request_variance`, `operations.partial_release.approve_variance`
+  - [ ] Damaged inventory state must not be available for package reservation, dispatch, pickup release, allocation, or stock-availability calculations
+  - [ ] Variance-based partial release endpoint with `request_kind_code='VARIANCE'`, three-actor record (requester / approver / release executor), no-self-approval enforcement, damaged-stock case linkage where damage drives the variance
+  - [ ] Idempotency on damaged-stock disposition approval and on variance partial-release approval
+  - [ ] Notification fan-out for damaged stock recorded, overdue, disposition approved/rejected, variance partial release requested/approved
 
 ### Backend contract must be stable for frontend
 
@@ -118,6 +131,12 @@ Build the live Angular Operations path on top of the frozen backend contract and
   - [ ] self
   - [ ] for subordinate entity
   - [ ] ODPEM bridge on behalf
+- [ ] Module 1 frontend closure deliverables (per freeze spec §3a, §6a, §7a):
+  - [ ] Add `source_needs_list_id?: number | null` to `CreateRequestPayload` and `UpdateRequestPayload` and carry through wizard route state and submit
+  - [ ] New apply-from-needs-list bridge route + component calling the authority pre-check endpoint; block navigation when `can_create=false`
+  - [ ] Render `request_mode` (SELF / FOR_SUBORDINATE / ODPEM_BRIDGE) on the relief-request list as a column or badge
+  - [ ] Hide unavailable modes in the wizard per actor permissions; auto-render single-mode label when only one mode is allowed; show creation-blocked panel only when zero modes are allowed
+  - [ ] Render the audit timeline on the relief-request detail screen per freeze spec §7a, including bridge intake and cancel events
 - [ ] Keep request create/edit name-first:
   - [ ] agency by name
   - [ ] event by name
@@ -230,6 +249,7 @@ These rules apply in every lane:
 - [ ] Do not collapse dispatch into a stock-only transaction
 - [ ] Do not keep using old permission language as the long-term Operations model
 - [ ] Do not leave package lock, waybill, or receipt as vague compatibility-only concepts
+- [ ] Do not begin Module 4 (Consolidation / Staged Fulfillment) implementation work that touches damaged-stock disposition or variance-based partial release until the matching freeze-spec sections ("Damaged stock disposition rules" and "Variance-based partial release rules") are merged into the canonical worktree freeze spec; Codex worktrees must be rebased before implementation
 
 ## Recommended Immediate Next Execution
 
