@@ -184,6 +184,31 @@ class NeedsList(AuditedModel):
         return f"{self.needs_list_no} ({self.status_code})"
 
 
+class NeedsListWorkflowMetadata(models.Model):
+    """
+    JSON workflow metadata stored outside the legacy notes field.
+
+    The table is also bootstrapped defensively after migrations for existing
+    deployments, but modelling it here keeps test database flush ordering aware
+    of the needs_list foreign key.
+    """
+
+    needs_list = models.OneToOneField(
+        NeedsList,
+        on_delete=models.CASCADE,
+        related_name='workflow_metadata',
+        primary_key=True,
+    )
+    metadata_json = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'needs_list_workflow_metadata'
+
+    def __str__(self):
+        return f"{self.needs_list_id} workflow metadata"
+
+
 class NeedsListItem(AuditedModel):
     """
     Individual item lines within a needs list with calculation details.

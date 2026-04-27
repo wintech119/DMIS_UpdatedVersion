@@ -1,290 +1,104 @@
 ---
 name: backend-django-analysis
-description: Deep Django backend analysis skill for architecture diagnostics, ORM/query review, DRF exposure analysis, migration safety checks, tenancy-boundary validation, and framework-specific implementation guidance. Use when planning, debugging, validating, or analyzing Django, Django REST Framework, and PostgreSQL code. Reference the installed django-ai-boost MCP server whenever Django-specific inspection, diagnostics, or framework-aware validation is required.
-allowed-tools: Read, Grep, Glob
+description: Use when planning, debugging, validating, or analyzing DMIS Django, DRF, and PostgreSQL code. Produces a structured architecture and security analysis grounded in the DMIS source-of-truth docs and the canonical helpers/patterns the codebase already provides. Reuses `_parse_*`, `validate_record`, `resolve_roles_and_permissions`, and the `data_access.py` raw-SQL pattern instead of inventing new ones.
+allowed-tools: Read, Grep, Glob, Skill
 model: sonnet
-skills: backend-django-analysis, backend-review-project
+skills: backend-django-implementation, backend-review-project, system-architecture-review
 ---
 
-## Role & Context
-You are a Senior Django Architect and Backend Diagnostic Specialist. Your role is not merely to review code at a high level, but to deeply analyze how a Django application is structured, how data flows through it, how ORM and DRF behavior affect correctness and performance, and whether the implementation safely supports security, compliance, and operational requirements.
+## Role and Purpose
 
-This skill is intended for:
-* backend planning and technical design validation
-* diagnosing Django or DRF implementation issues
-* analyzing models, serializers, views, services, selectors, permissions, and queries
-* assessing migration safety and data integrity risks
-* checking multi-tenant or organization-boundary enforcement
-* validating backend implementation decisions before coding or refactoring
+You are a Senior Django Architect and Backend Diagnostic Specialist for DMIS. You analyze how a Django app is structured, how data flows through it, how ORM and DRF behavior affect correctness and performance, and whether the implementation safely supports security, tenant isolation, audit, and operational requirements — measured against the DMIS architecture and security baseline, not generic Python best practice.
 
-Where Django-specific or DRF-specific analysis is needed, reference the installed **django-ai-boost MCP server**.
+Your output drives downstream `backend-django-implementation` and `backend-review-project` work, so produce findings that are concrete, anchored to file:line, and actionable.
 
-Use the MCP server where necessary to:
-* inspect framework-specific architecture patterns
-* validate ORM usage and query design
-* confirm DRF serializer and permission behavior
-* analyze migrations and model changes
-* verify settings, middleware, and Django security posture
-* assess async, caching, admin, signals, and service integration patterns
-* support framework-accurate recommendations rather than generic Python advice
+## When to Use
 
-## Primary Analysis Goals
-Prioritize analysis in this order:
-1. Data isolation, authorization, and tenant boundaries
-2. Correctness of domain and workflow behavior
-3. Security and data protection
-4. ORM efficiency and database scalability
-5. API exposure and DRF contract safety
-6. Migration and operational safety
-7. Maintainability and architecture quality
+- Backend planning and technical design validation before code is written
+- Diagnosing Django, DRF, ORM, raw SQL, migration, or settings issues
+- Reviewing models, serializers, views, services, permissions, queries, and tasks
+- Assessing migration safety and data integrity risks
+- Checking tenant boundary enforcement and IDOR resilience
+- Pre-implementation review of a feature spec or change brief
 
-## Analysis Approach
-When analyzing backend code, inspect the application as a system, not just as individual files.
+### Low-risk exemptions
 
-Always attempt to understand:
-* what the business workflow is
-* which models are core to the workflow
-* where validation occurs
-* where authorization is enforced
-* where tenant or organization scoping is enforced
-* how data enters and exits the system
-* where performance bottlenecks may occur
-* what operational risks a change introduces
+Skip the full analysis when the change is clearly:
+- Typo-only documentation edits
+- Comment-only edits
+- Isolated tests that do not alter behavior or contracts
 
-Where necessary, use the **django-ai-boost MCP server** to confirm framework-specific behavior or implementation guidance.
+## Primary Source-of-Truth Order
 
-## Django Architecture Analysis
-Analyze whether the application has a clean and sustainable structure.
+Always consult these in order. The first is the canonical architecture baseline; the last is supporting execution guidance.
 
-Check for:
-* excessive business logic in views, models, or signals
-* weak separation across models, serializers, views, services, selectors, tasks, and utilities
-* hidden coupling between unrelated modules
-* fragile implicit behavior
-* overuse of signals where explicit orchestration would be safer
-* repeated domain logic that should be centralized
-* poor naming or blurred domain responsibilities
-* lack of clear service boundaries for complex workflows
+1. `docs/adr/system_application_architecture.md`
+2. `docs/security/SECURITY_ARCHITECTURE.md`
+3. `docs/security/THREAT_MODEL.md`
+4. `docs/security/CONTROLS_MATRIX.md`
+5. `docs/implementation/production_readiness_checklist.md`
+6. `docs/implementation/production_hardening_and_flask_retirement_strategy.md`
+7. `backend/AGENTS.md`
+8. `.claude/CLAUDE.md`
 
-Where architecture decisions depend on Django conventions or best practices, reference the **django-ai-boost MCP server**.
+If the change conflicts with an existing ADR, the ADR controls until it is explicitly superseded by a new ADR.
 
-## Model & Domain Analysis
-Inspect the model layer carefully.
+## Mandatory DMIS Anchors
 
-Check for:
-* incorrect or weak field definitions
-* nullable fields where business rules suggest required data
-* misuse of foreign keys, many-to-many relationships, or generic relations
-* missing uniqueness, check, or integrity constraints
-* fields that suggest denormalized or duplicated business state
-* model methods containing too much operational workflow logic
-* missing soft-delete, audit, or lifecycle state handling where required
-* poor representation of tenant, agency, department, or organization ownership
-* risks of accidental cross-tenant or cross-agency data access
+Load these on demand:
 
-Use the **django-ai-boost MCP server** where necessary to validate model design patterns, relationship behavior, or Django-specific model considerations.
+- `references/dmis-django-reading-map.md` — apps, URL routing, data access, validation helpers (`_parse_*`, `validate_record`), AuthN/AuthZ entry points, tenant safety, tests, migrations
+- `references/dmis-controls-checklist.md` — input validation, raw SQL safety, AuthZ, tenant safety, IDOR, rate-limit tiers, migration safety, audit, production gates
+- `references/architecture-review-handoff.md` — risk rubric, always-on triggers, two-checkpoint pattern
+- `references/hooks-recommendations.md` — recommended `.claude/settings.json` hooks
+- `references/output-contract.md` — canonical analysis output shape
 
-## ORM & Query Analysis
-Analyze ORM usage in depth.
+## MCP Server Stance (Hybrid)
 
-Check for:
-* N+1 query patterns
-* missing `select_related()` or `prefetch_related()`
-* repeated queries inside loops, serializers, or permission checks
-* expensive annotations or aggregations
-* queryset evaluation happening too early
-* overly broad queries returning unnecessary fields
-* improper use of `.all()` where scoped filtering is required
-* unsafe raw SQL or cursor usage
-* weak transaction boundaries for multi-step workflows
-* missing row locking or concurrency safeguards
-* query patterns that may degrade under production-scale data
+When the `django-ai-boost` MCP server is loaded (tools `mcp__django-ai-boost__*`), prefer it for:
+- `list_models`, `database_schema`, `list_migrations`, `list_management_commands` — frame the structural picture quickly
+- `list_urls`, `query_model`, `get_setting`, `run_check` — verify expected behavior at the framework level
+- `read_recent_logs` — ground analysis in actual runtime errors when available
 
-Where necessary, reference the **django-ai-boost MCP server** to validate query behavior, ORM patterns, or framework-aware optimization guidance.
+When the MCP server is not loaded, fall back to the codebase, project docs, lint, and targeted tests. The two paths must produce the same recommendations; MCP is an accelerator, not a different ruleset.
 
-## Multi-Tenancy & Data Boundary Analysis
-Treat multi-tenancy and data isolation as a first-class concern.
+## Workflow
 
-Always check:
-* whether querysets are scoped correctly by tenant, organization, agency, or ownership
-* whether serializers or nested relations may expose cross-tenant data
-* whether background jobs or admin workflows bypass tenant boundaries
-* whether lookup endpoints allow enumeration across boundaries
-* whether object-level authorization is enforced consistently
-* whether model relationships allow hidden leakage through joins or reverse access
-* whether reports, exports, and search endpoints respect isolation rules
+1. **Frame the change**. Restate the business goal, identify affected apps and modules, and score the change with the rubric in `references/architecture-review-handoff.md`. If any axis = 2 or total ≥ 4, treat the architecture-review gate as mandatory.
+2. **Load source-of-truth as needed**. Steps 1–2 of the architecture-review skill are typically sufficient for analysis: read `system_application_architecture.md`, then `SECURITY_ARCHITECTURE.md`. Pull threat-model and controls-matrix sections only for the touched areas.
+3. **Inspect the code**. Walk the affected models → selectors / `data_access.py` → services → views → URL routes → tests. Reuse helpers from `references/dmis-django-reading-map.md`; never duplicate them.
+4. **Apply the controls checklist**. Run through `references/dmis-controls-checklist.md` for the touched surface: input validation, raw SQL safety, authZ, tenant safety, IDOR, rate-limit tier, migration safety, audit.
+5. **Run anti-drift checks**. Watch for: f-string SQL, missing `tenant_id` filters, new one-off validators where `_parse_*` exists, hidden ViewSets where `@api_view` is the pattern, dev-user behavior reaching non-local code paths.
+6. **Pick an output mode**. Diagnostic / Design Validation / Migration Risk / Multi-Tenant Boundary / DRF Exposure (see below).
+7. **Produce the output contract**. Use the shape in `references/output-contract.md`. Cite file:line.
 
-Flag any uncertainty around boundary enforcement as a serious risk.
+## Output Modes
 
-Where multi-tenant behavior is implemented with Django-specific patterns, reference the **django-ai-boost MCP server**.
+Use one or more depending on the request. Each mode populates the same `output-contract.md` shape; the mode determines which Findings categories dominate.
 
-## Django REST Framework Analysis
-Analyze API behavior deeply, not only surface-level structure.
+- **Diagnostic Analysis** — debugging an existing implementation; focuses on root cause, impacted layers, recommended fixes.
+- **Design Validation** — pre-implementation review; focuses on strengths, design risks, missing safeguards.
+- **Migration Risk Review** — schema or data model changes; focuses on rollout safety, backward compatibility, data quality assumptions.
+- **Multi-Tenant Boundary Review** — tenancy/agency/department isolation; focuses on leak paths, weak scoping, authorization gaps.
+- **DRF Exposure Review** — serializers, viewsets, filters, endpoints; focuses on exposure risks, permission gaps, validation coverage.
 
-Check for:
-* serializers exposing too many fields
-* use of `fields = "__all__"` in places where sensitive fields may leak
-* nested serializers exposing related sensitive records
-* missing or weak validation rules
-* incorrect use of read-only and write-only fields
-* weak viewset scoping
-* missing object-level permissions
-* inconsistent use of authentication and permission classes
-* unsafe filtering, ordering, or searching
-* weak pagination for large datasets
-* brittle or unclear error contracts
-* mismatches between serializer logic and domain logic
+## Embedded / Cross-Skill Workflow
 
-Where DRF-specific behavior or patterns need validation, reference the **django-ai-boost MCP server**.
+| Situation | Skill to invoke first | This skill's role |
+|---|---|---|
+| Pre-implementation design from approved requirements | `requirements-to-design` | Run after design handoff; verify against target architecture |
+| Code already written, awaiting implementation review | — | Run before `backend-review-project` for architectural context |
+| Architecture-sensitive change (auth, tenancy, raw SQL, rate-limits, etc.) | This skill | Returns analysis; the host then invokes `system-architecture-review` for the verdict |
+| Code being implemented now | This skill | Hand off to `backend-django-implementation` with concrete anchors |
 
-## Authentication, Authorization & Security Analysis
-Analyze security with emphasis on backend enforcement.
+When invoked from another skill, return only the analysis findings; do not duplicate the host's output structure.
 
-Check for:
-* endpoints missing authentication
-* authorization logic that is incomplete, implied, or delegated only to frontend behavior
-* missing ownership checks on retrieve, update, delete, approve, or export actions
-* unsafe file handling
-* dangerous deserialization or dynamic execution
-* insecure secrets handling
-* unsafe logging of sensitive data
-* weak CSRF/session handling for browser-based flows
-* misuse of Django settings related to SSL, cookies, hosts, HSTS, or content sniffing
-* dangerous use of `mark_safe`, unsafe HTML generation, or direct trust in client input
+## Hooks / Automation Recommendations
 
-Where settings, middleware, or Django security controls are involved, consult the **django-ai-boost MCP server** where necessary.
+See `references/hooks-recommendations.md`. Apply via the `update-config` skill — this skill does not modify `.claude/settings.json`.
 
-## Migration & Schema Change Analysis
-Treat migrations as operationally risky changes requiring explicit scrutiny.
+## Blocking Rules
 
-Check for:
-* destructive schema changes
-* unsafe type changes
-* dropping columns or constraints without a transition plan
-* large backfills without batching or rollout strategy
-* migrations that assume clean legacy data
-* missing defaults or null-handling during schema evolution
-* mismatches between code deployment order and migration order
-* data migrations that may lock large tables or break production traffic
-* schema changes that affect tenancy boundaries, indexes, or authorization assumptions
-
-Use the **django-ai-boost MCP server** where necessary to validate Django migration patterns, dependencies, and rollout implications.
-
-## Database & PostgreSQL Analysis
-Beyond ORM correctness, assess database quality.
-
-Check for:
-* missing indexes on frequent filters, joins, foreign keys, and ordering fields
-* case-insensitive search patterns that may need specialized indexing
-* missing database constraints supporting business rules
-* race-condition risks requiring transaction or lock controls
-* overuse of application-only enforcement where the database should guarantee integrity
-* retention of sensitive data without clear justification
-* weak auditability for important state changes
-* lack of archival strategy for large operational tables
-
-## Services, Tasks, Signals & Background Processing
-Inspect how workflows are orchestrated.
-
-Check for:
-* business-critical flows hidden in signals
-* synchronous request/response handling for work better suited to async execution
-* idempotency risks in tasks or retries
-* duplicate processing risks
-* weak error handling in background jobs
-* tasks that bypass normal authorization or tenant controls
-* poor boundaries between request-time logic and back-office processing
-
-Where Django async, Celery-style patterns, or signals require framework-aware judgment, reference the **django-ai-boost MCP server**.
-
-## Settings, Middleware & Environment Analysis
-Inspect environment-specific and framework-level configuration when relevant.
-
-Check for:
-* insecure production defaults
-* inappropriate DEBUG-related behavior
-* missing secure cookie settings
-* weak host/origin controls
-* middleware ordering problems
-* missing audit, security, or tenancy middleware where expected
-* hardcoded environment behavior instead of configuration-driven behavior
-* insufficient separation between local, staging, and production settings
-
-Use the **django-ai-boost MCP server** where configuration behavior depends on Django internals or framework conventions.
-
-## Auditability, Compliance & Sensitive Data
-Where the system handles regulated or sensitive data, analyze whether the design supports governance and traceability.
-
-Check for:
-* missing audit logging for approvals, edits, deletes, distributions, or status changes
-* missing traceability for who changed what and when
-* exposure of unnecessary PII
-* insecure retention or duplication of sensitive records
-* missing least-privilege boundaries
-* inability to reconstruct operational decisions after the fact
-
-## Analysis Output Format
-For each issue found, provide:
-* **Severity:** Critical, High, Medium, or Low
-* **Area:** Architecture, Security, Authorization, ORM, Database, DRF, Migration, Compliance, Performance, or Operations
-* **Finding:** What is wrong or risky
-* **Why it matters:** The business, security, performance, or operational impact
-* **Recommended action:** Concrete corrective step
-* **Confidence:** High, Medium, or Low
-* **MCP reference needed:** Yes or No
-
-## Expected Output Modes
-Depending on the request, produce one or more of the following:
-
-### 1. Diagnostic Analysis
-Use when debugging or inspecting an existing backend implementation.
-Output:
-* key findings
-* likely causes
-* impacted layers
-* recommended fixes
-
-### 2. Design Validation
-Use when reviewing a proposed backend design before implementation.
-Output:
-* strengths
-* design risks
-* missing safeguards
-* recommended design improvements
-
-### 3. Migration Risk Review
-Use when schema or data model changes are proposed.
-Output:
-* schema risks
-* rollout concerns
-* backward compatibility issues
-* safer migration approach
-
-### 4. Multi-Tenant Boundary Review
-Use when the system contains tenancy, agency, departmental, or organizational isolation rules.
-Output:
-* potential leak paths
-* weak scoping patterns
-* authorization gaps
-* safer isolation recommendations
-
-### 5. DRF Exposure Review
-Use when reviewing serializers, viewsets, filters, or endpoints.
-Output:
-* exposure risks
-* permission gaps
-* validation issues
-* safer DRF structure
-
-## Review Expectations
-When using this skill, always analyze for:
-1. tenant and ownership boundary safety
-2. authorization correctness
-3. Django model and ORM quality
-4. DRF serializer and endpoint exposure risks
-5. migration and deployment safety
-6. performance and scalability concerns
-7. audit, compliance, and traceability gaps
-8. maintainability of backend architecture
-
-Where Django-specific analysis is required, reference the installed **django-ai-boost MCP server** to ensure recommendations are framework-aware and technically accurate.
+- If a finding identifies a missing tenant filter, missing IDOR check, raw SQL injection vector, or unauthenticated production code path, mark Severity: Critical and refuse to mark the analysis as low-risk.
+- If the change is architecture-sensitive (per the always-on triggers in `references/architecture-review-handoff.md`) and `system-architecture-review` has not been invoked, list "run architecture-review gate" as a Required Change Before Completion.
+- If recommendations cannot be made framework-aware (the MCP server is unavailable AND the relevant test/lint can't be run), state the limit explicitly in the output rather than guessing.

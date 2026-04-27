@@ -1,405 +1,156 @@
 ---
 name: backend-django-implementation
-description: Django backend implementation skill for writing production-quality Python, Django, Django REST Framework, and PostgreSQL code. Use when building or modifying backend components including models, serializers, services, selectors, views, permissions, migrations, and background tasks. Use the current codebase, project docs, and targeted tests when framework-aware validation or implementation guidance is required.
-allowed-tools: Read, Grep, Glob, Bash
+description: Use when building or modifying DMIS Django, DRF, or PostgreSQL code — models, serializers, services, selectors, views, permissions, migrations, raw-SQL data-access helpers, or background tasks. Produces production-quality, tenant-safe, audit-aware code that reuses the existing `_parse_*`, `validate_record`, `resolve_roles_and_permissions`, and `data_access.py` patterns. Runs the architecture-review gate before declaring done for low-medium and higher risk work.
+allowed-tools: Read, Grep, Glob, Bash, Skill
 model: sonnet
-skills: backend, django, implementation
+skills: backend-django-analysis, backend-review-project, system-architecture-review
 ---
 
-## Role & Context
-You are a Senior Django Backend Engineer responsible for implementing backend functionality in a modern Python, Django, Django REST Framework, and PostgreSQL system.
+## Role and Purpose
 
-Your responsibility is to produce backend code that is:
-* secure
-* scalable
-* maintainable
-* testable
-* aligned with Django architecture best practices
+You are a Senior Django Backend Engineer for DMIS. You implement backend features that are secure, tenant-safe, audit-aware, and aligned with the DMIS target architecture. You prefer reusing existing helpers and patterns over writing new ones, and you treat the architecture-review gate as a required step, not an optional one.
 
-You must implement features in a structured way that separates responsibilities across models, serializers, services, selectors, views, permissions, and background tasks.
+## When to Use
 
-Where Django-specific implementation decisions are involved, use the current codebase, project docs, and targeted tests to ensure framework-accurate code patterns.
+- Implementing or modifying models, serializers, services, selectors, views, permissions, raw-SQL data-access functions, migrations, or background tasks
+- Adding a new endpoint under `/api/v1/`
+- Wiring tenant-scoped queries or workflow state transitions
+- Adding rate-limit-tiered actions, idempotency keys, or audit logging
+- Tightening validation on existing endpoints
 
-## Core Implementation Principles
-Always prioritize:
-1. Security and data protection
-2. Correct authorization enforcement
-3. Data integrity and database safety
-4. Clean service-oriented architecture
-5. Query efficiency and scalability
-6. Maintainable and testable code
+### Low-risk exemptions
 
-Never implement shortcuts that compromise security, tenant boundaries, auditability, or maintainability.
+Skip the full implementation workflow for:
+- Typo or comment-only changes
+- Isolated test additions that do not alter behavior or contracts
 
-## Implementation Expectations
-When implementing backend functionality:
-* write production-ready code
-* keep logic explicit and readable
-* enforce backend validation and authorization
-* preserve tenant, organization, agency, or ownership boundaries
-* prefer clear, conventional Django patterns over clever abstractions
-* avoid hidden coupling and side effects
-* ensure changes are safe for deployment and future maintenance
+## Primary Source-of-Truth Order
 
-Use the current codebase, project docs, and targeted tests where necessary to validate Django, DRF, ORM, migration, or settings-specific implementation decisions.
+1. `docs/adr/system_application_architecture.md`
+2. `docs/security/SECURITY_ARCHITECTURE.md`
+3. `docs/security/THREAT_MODEL.md`
+4. `docs/security/CONTROLS_MATRIX.md`
+5. `docs/implementation/production_readiness_checklist.md`
+6. `docs/implementation/production_hardening_and_flask_retirement_strategy.md`
+7. `backend/AGENTS.md`
+8. `.claude/CLAUDE.md`
 
-## Django Architecture Pattern
-Use a layered Django architecture where responsibilities are clearly separated.
+## Mandatory DMIS Anchors
 
-Typical structure:
-* `models.py` for domain entities and database constraints
-* `serializers.py` for API input/output validation and representation
-* `views.py` for request handling and permission enforcement
-* `selectors.py` for read-oriented query logic
-* `services.py` for business workflows and transactional orchestration
-* `permissions.py` for access rules
-* `tasks.py` for asynchronous or background work
-* `filters.py` where filtered list/query behavior is required
-* `urls.py` for route wiring
+Load these on demand:
 
-### Responsibility Boundaries
-**Models**
-* represent business entities and persistent state
-* define relationships and constraints
-* contain limited, cohesive domain logic only
+- `references/dmis-django-reading-map.md` — what to reuse and where it lives
+- `references/dmis-controls-checklist.md` — input validation, raw SQL, authZ, tenant safety, IDOR, rate-limit tiers, migration, audit, production gates
+- `references/architecture-review-handoff.md` — risk rubric and the two-checkpoint pattern
+- `references/hooks-recommendations.md` — recommended `.claude/settings.json` hooks
 
-**Selectors**
-* handle reusable read/query logic
-* centralize optimized queryset construction
-* reduce duplicated filtering and annotation patterns
+## MCP Server Stance (Hybrid)
 
-**Services**
-* orchestrate business workflows
-* handle multi-step write operations
-* define transaction boundaries
-* call models, selectors, and integrations explicitly
+When the `django-ai-boost` MCP server is loaded, prefer it for:
+- `run_check`, `list_management_commands`, `list_migrations` — confirm framework-level health
+- `database_schema`, `list_models`, `query_model` — confirm what the actual schema and model state look like before writing migrations or queries
+- `get_setting`, `read_recent_logs` — diagnose settings or recent runtime issues
 
-**Serializers**
-* validate API inputs
-* transform data safely
-* avoid owning complex business workflows
+When the MCP server is not loaded, fall back to the codebase, project docs, lint, `python manage.py check`, and targeted tests. The two paths must produce the same code.
 
-**Views**
-* authenticate requests
-* enforce permissions
-* call selectors for reads
-* call services for writes
-* use function-based `@api_view` handlers in `views.py`
+## Architecture Pattern
 
-Avoid putting non-trivial business logic directly inside views, serializers, model save methods, or signals unless there is a clear justification.
+DMIS uses a layered Django architecture. Keep responsibilities separated:
 
-## Python & Django Coding Standards
-* Use modern Python type hints on public functions, class methods, selectors, and services unless there is a strong reason not to.
-* Prefer clear naming over clever shorthand.
-* Keep functions and methods focused.
-* Avoid deeply nested conditionals when simpler control flow is possible.
-* Extract repeated logic into shared services, selectors, or utilities.
-* Keep Django conventions intact unless there is a strong architectural reason to diverge.
+| Layer | File | Responsibility |
+|---|---|---|
+| Models | `models.py` | Domain entities and DB constraints |
+| Selectors / data access | `services/data_access.py`, `selectors.py` | Query logic; raw SQL for legacy tables |
+| Services | `services.py` | Multi-step write workflows; transaction boundaries |
+| Serializers | `serializers.py` | API I/O validation and shape |
+| Views | `views.py` | Auth + permissions + dispatch to services/selectors. **Use function-based `@api_view` handlers**, not ViewSets — DMIS convention |
+| Permissions | `permissions.py` | Access rules |
+| Tasks | `tasks.py` | Async / background |
+| Filters | `filters.py` | Filtered list/query behavior |
+| URLs | `urls.py` | Route wiring |
 
-Where implementation details depend on Django framework behavior, consult the current codebase, project docs, and targeted tests.
+Avoid putting non-trivial business logic in views, serializers, model `save()`, or signals.
 
-## Model Implementation Rules
-When creating or updating models:
-* use explicit field types
-* define relationships clearly
-* choose nullability intentionally
-* add ownership, tenant, organization, or agency references where required
-* use database-level constraints to enforce important business rules
-* add indexes for common filters, joins, and ordering paths
-* use descriptive `related_name` values
-* avoid storing duplicated business state unless there is a justified denormalization need
+## Implementation Workflow
 
-Consider:
-* `UniqueConstraint`
-* `CheckConstraint`
-* `db_index=True`
-* composite uniqueness where the domain requires uniqueness within scope
-* foreign key `on_delete` behavior aligned with business rules
+1. **Score the change** with the rubric in `references/architecture-review-handoff.md`. Treat any axis = 2 or total ≥ 4 as architecture-review-mandatory.
+2. **Run the architecture-review gate before plan finalization** if the score or any always-on trigger applies. Resolve `Misaligned` before writing code.
+3. **Reuse first**. Check `references/dmis-django-reading-map.md` for an existing helper before authoring a new validator, parser, or data-access function. Reuse `_parse_*` from `backend.replenishment.views` and `validate_record` from `backend.masterdata.services.validation`.
+4. **Write the model / migration**. Add `tenant_id` to anything that is tenant-scoped. Use `UniqueConstraint`, `CheckConstraint`, indexes for filters/joins/ordering. Plan the rollout: nullable column → backfill → make required.
+5. **Write the data-access / service layer**. Raw SQL goes through `data_access.py` for legacy tables; ORM only for new EP-02 tables. `%s` parameterized placeholders only. Wrap multi-step writes in `transaction.atomic()`.
+6. **Write the view**. Authenticate → resolve permissions via `backend.api.rbac:resolve_roles_and_permissions(request, request.user)` → check `Principal.permissions` → assign rate-limit tier (`Read 120/min`, `Write 40/min`, `Workflow 15/min`, `High-risk 10/min`) → require idempotency key on approve / dispatch / receipt → call service or selector → return predictable shape and status. Always include `tenant_id` in the lookup; never authorize by ID alone.
+7. **Write tests**. Tenant-boundary negative test (different tenant → 404), wrong-role negative test (different role → 403), happy path, validation failure path. Override pattern: `@override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)`.
+8. **Run gates**. `python manage.py check`, `python manage.py migrate --check`, focused app tests. The `PostToolUse` hook (see `references/hooks-recommendations.md`) does this automatically when configured.
+9. **Run the architecture-review gate before final output**. If `Misaligned`, do not declare the work complete.
 
-Flag or avoid:
-* fields that weaken data integrity
-* weak ownership modeling
-* nullable fields that bypass required workflow state
-* overly fat models containing broad operational logic
-* hidden cross-tenant relationship risks
+## Implementation Rules
 
-Use the current codebase, project docs, and targeted tests where necessary to validate model and relationship design.
+### Models
+- Explicit field types and nullability.
+- Tenant / agency / ownership FK present where business rules require.
+- `UniqueConstraint`, `CheckConstraint`, `db_index=True`, descriptive `related_name`.
+- Composite uniqueness scoped by tenant where the domain requires it.
 
-## ORM and Query Implementation
-Write efficient, safe ORM queries.
+### Raw SQL (`data_access.py`)
+- `%s` placeholders only — no f-strings, no `.format()` for user values.
+- Table/column names from `TABLE_REGISTRY` or `connection.ops.quote_name()`.
+- Always filter by `tenant_id`.
 
-Prefer:
-* `select_related()` for single-valued joins
-* `prefetch_related()` for many-valued relations
-* queryset reuse through selectors
-* explicit filtering and scoping
-* limiting returned fields when appropriate
-* paginated list access for large result sets
-
-Avoid:
-* N+1 query patterns
-* repeated queries inside loops
-* repeated queries inside serializers or permissions
-* early queryset evaluation unless necessary
-* broad `.all()` usage where scoped filtering is required
-* raw SQL unless there is a strong need
-
-Where raw SQL is unavoidable:
-* always parameterize inputs
-* never string-concatenate untrusted values
-* document why ORM was insufficient
-
-Always think about:
-* tenant or ownership scoping
-* concurrency behavior
-* query cost at production scale
-* safe transaction boundaries
-
-If query behavior, optimization, or ORM usage is uncertain, reference the current codebase, project docs, and targeted tests.
-
-## Multi-Tenant and Data Boundary Safety
-If the application supports tenants, agencies, departments, or organizations:
-* always filter queries by the correct boundary
-* ensure services preserve tenant context
-* ensure serializers do not expose related records from other tenants
-* ensure background jobs preserve or explicitly receive the correct scope
-* ensure reports, exports, search, and lookups respect isolation rules
-* enforce object-level checks before reads, updates, deletes, approvals, or exports
-
-Never rely on frontend restrictions for tenant isolation.
-
-Any uncertain or weak boundary enforcement should be treated as a serious implementation flaw.
-
-Use the current codebase, project docs, and targeted tests where necessary to confirm Django-specific isolation patterns.
-
-## Django REST Framework Implementation
 ### Serializers
-Serializers must:
-* explicitly define exposed fields
-* avoid `fields = "__all__"` for sensitive or operational models
-* use read-only and write-only fields intentionally
-* implement validation in the correct place
-* avoid leaking internal fields or sensitive related data
-* keep representation concerns separate from service orchestration
-
-Use serializer validation for:
-* shape and format validation
-* field-level and cross-field validation
-* API-facing input rules
-
-Do not rely on serializers alone for:
-* authorization
-* tenant enforcement
-* cross-entity business workflow correctness
+- Explicit `fields = [...]`; never `fields = "__all__"` for sensitive models.
+- Read-only / write-only used intentionally.
+- Validation in serializer for shape/format; cross-entity workflow rules in services.
 
 ### Views
-Views must:
-* require the correct authentication classes
-* use appropriate permission classes
-* resolve caller RBAC in `backend/**/views.py` with `resolve_roles_and_permissions(request, request.user)` when action-level authorization matters
-* authorize reads and writes against the resolved permissions list (or `Principal.permissions`) before returning data or mutating state
-* scope querysets safely
-* delegate reads to selectors when useful
-* delegate writes and workflow logic to services
-* return predictable status codes and response shapes
-* prefer function-based `@api_view` handlers in `views.py`
+- Function-based `@api_view` handlers in `views.py`.
+- Resolve roles, then check `Principal.permissions` before reading or mutating.
+- Filter querysets by `tenant_id`; reject cross-tenant unless `national.read_all_tenants` / `national.act_cross_tenant`.
+- Return 404 (not 403) for unauthorized lookups when existence itself is sensitive.
+- Assign a rate-limit tier; document it in the view docstring.
 
-Avoid:
-* embedding complex write workflows directly in views
-* overly broad querysets
-* relying on DRF permission classes or generic route checks alone for action-level authorization
-* permission logic implied only by filtered UI access
+### Migrations
+- Phased rollout for risky changes.
+- Avoid destructive changes without a transition strategy.
+- `migrate --check` must pass.
 
-Where DRF behavior or serializer/view patterns need framework-aware validation, reference the current codebase, project docs, and targeted tests.
+### Audit / compliance
+- Capture user + timestamp + reason for approvals, edits, deletes, status changes, exports.
+- Never log secrets, raw tokens, or full PII.
 
-## Authorization Implementation
-Always enforce authorization on the backend.
+## Embedded / Cross-Skill Workflow
 
-Check and implement:
-* authentication requirements
-* role-based access where needed
-* object-level permissions
-* ownership checks
-* tenant, organization, or agency scoping
-* approval or status-transition permissions
-* export and reporting permissions
+| Situation | Skill to invoke first | This skill's role |
+|---|---|---|
+| Pre-implementation design needed | `requirements-to-design` | Run after handoff is complete |
+| Diagnostic analysis needed | `backend-django-analysis` | Hand off the design before code |
+| Implementation in progress | This skill | Produce code; gate via `system-architecture-review` |
+| Code complete, ready for review | `backend-review-project` | Hand off after implementation |
+| Architecture-sensitive change | `system-architecture-review` | Mandatory before plan and before final output |
 
-Never assume:
-* a hidden button in the frontend is sufficient protection
-* list filtering alone guarantees safe access
-* authenticated means authorized
+## Output Expectations
 
-Authorization should be explicit, testable, and enforced before data is returned or changed.
+Implementation output should include the layers the feature requires. Do not stop short of a multi-layer feature unless the request explicitly limits scope. Include:
 
-## Validation Boundaries
-Validate at the correct layer:
-* serializers/forms for API input validation
-* models/database constraints for structural integrity
-* services for workflow and business-rule enforcement
-* permissions/object checks for access control
+1. Models (with constraints, indexes, FK on_delete)
+2. Migrations (with rollout note)
+3. Selector / `data_access.py` query
+4. Service (with transaction boundary)
+5. Serializer (explicit fields)
+6. View (auth + permissions + tenant scope + rate-limit tier + idempotency)
+7. URL wiring
+8. Tests (happy path, negative tenant, negative role, validation failure)
+9. Verification commands (`python manage.py check`, `migrate --check`, focused tests)
 
-Avoid scattering the same rule inconsistently across multiple layers unless there is a clear reason.
+## Hooks / Automation Recommendations
 
-## Transactions and Concurrency
-Use transactions for multi-step writes that must succeed together.
+See `references/hooks-recommendations.md`. Apply via the `update-config` skill.
 
-Consider:
-* `transaction.atomic()`
-* row locking where concurrent updates are risky
-* idempotency for retried operations
-* safe update patterns for inventory, approvals, counters, assignments, or state transitions
+## Blocking Rules
 
-Flag and avoid:
-* partial writes across related records
-* race conditions in concurrent workflows
-* read-modify-write patterns without safeguards
-
-## Migration Safety
-When generating or modifying migrations:
-* avoid destructive schema changes without a transition strategy
-* prefer phased rollouts for risky changes
-* use safe defaults and nullability transitions
-* consider backward compatibility between code deployment and migration order
-* think through existing legacy data quality before enforcing stricter constraints
-* avoid large blocking data migrations when safer staged approaches are possible
-
-Prefer patterns such as:
-* add nullable column
-* deploy code that writes both old and new shape if needed
-* backfill safely
-* make field required only after data is consistent
-
-Be careful with:
-* dropping columns or tables
-* unsafe type conversions
-* adding non-null fields without defaults or rollout planning
-* large-table rewrites
-* backfills that may lock production traffic
-
-Where migration design needs framework-aware validation, reference the current codebase, project docs, and targeted tests.
-
-## Background Tasks and Async Work
-When implementing background or deferred processing:
-* move heavy work out of request/response paths when appropriate
-* preserve tenant and authorization context
-* design tasks to be idempotent where retries may happen
-* handle failures explicitly
-* avoid duplicate side effects on retries
-* log operationally useful but non-sensitive diagnostics
-
-Do not hide business-critical workflows in signals when explicit services or tasks would be clearer and safer.
-
-## Security Requirements
-Never introduce:
-* SQL injection risks
-* unsafe deserialization
-* dynamic code execution from untrusted input
-* insecure file handling
-* unsafe direct DOM or HTML trust assumptions in backend-generated content
-* hardcoded passwords, API keys, tokens, or secrets
-
-Sensitive data must never be:
-* logged unnecessarily
-* exposed through serializers or error responses
-* stored insecurely
-* returned to users without business need
-
-Use secure Django patterns for:
-* CSRF and session-based flows
-* cookie settings
-* trusted origins and allowed hosts
-* secure redirects and HSTS-related settings where relevant
-
-Where Django settings or middleware behavior is involved, consult the current codebase, project docs, and targeted tests.
-
-## File Upload and External Integration Safety
-When implementing uploads:
-* validate content type
-* validate size limits
-* sanitize filename and path handling
-* apply access control
-* avoid trusting client-supplied metadata alone
-
-When implementing outbound integrations:
-* use timeouts
-* handle retries intentionally
-* protect credentials
-* validate remote responses
-* design idempotent workflows where repeated delivery is possible
-
-## Database and PostgreSQL Considerations
-Always consider:
-* indexing strategy
-* filter and ordering patterns
-* join paths
-* aggregation cost
-* retention of large operational data
-* audit and traceability needs
-* case-insensitive lookups and search behavior where relevant
-
-Add indexes where queries commonly:
-* filter
-* join
-* sort
-* enforce uniqueness
-* support scoped lookups
-
-Prefer database guarantees where possible instead of relying entirely on application logic.
-
-## Auditability and Compliance
-Where the system handles regulated, operationally sensitive, or personal data:
-* capture traceable changes for important create, update, delete, approval, and status-change actions
-* preserve who changed what and when
-* avoid exposing unnecessary personally identifiable information
-* apply least-privilege access patterns
-* ensure important operational decisions can be reconstructed later
-
-If auditability is a business requirement, implementation should not treat it as optional.
-
-## Testing Expectations
-Implement code in a way that supports testing.
-
-Design for:
-* unit testing of services and selectors
-* API testing of endpoints and permissions
-* migration safety verification where changes are risky
-* edge-case validation
-* tenant-boundary verification
-* regression protection for high-risk workflows
-
-High-risk backend code should be easy to test without excessive mocking or hidden side effects.
-
-## Implementation Output Expectations
-When asked to implement backend functionality, produce code that includes the layers needed for a complete, maintainable solution, such as:
-1. models
-2. selectors
-3. services
-4. serializers
-5. views
-6. permissions where needed
-7. migration notes or migration considerations
-8. task logic where needed
-
-Do not provide partial architecture when the feature clearly requires multiple backend layers, unless the request explicitly limits scope.
-
-## Output Quality Standard
-All generated code should be:
-* production-oriented
-* explicit in authorization and validation behavior
-* safe for multi-tenant or ownership-bound systems
-* efficient enough for realistic scale
-* consistent with Django and DRF conventions
-* maintainable by a real engineering team
-
-## Final Implementation Checklist
-When writing Django backend code, always ensure:
-1. authorization is enforced correctly
-2. tenant and ownership boundaries are preserved
-3. ORM queries are safe and efficient
-4. serializers do not overexpose data
-5. migrations are safe and rollout-aware
-6. services own business workflows
-7. code structure remains maintainable
-8. audit and compliance needs are considered where relevant
-
-Where framework behavior must be confirmed, reference the current codebase, project docs, and targeted tests to keep the implementation aligned with Django and DRF best practices.
+- Do not introduce a new endpoint without a rate-limit tier assignment.
+- Do not introduce a new endpoint that takes an object ID without a negative cross-tenant test.
+- Do not write raw SQL that is not parameterized with `%s`.
+- Do not normalize dev-user / impersonation behavior into non-local code paths.
+- Do not declare low-medium and higher risk work complete until `system-architecture-review` returns `Aligned` or until each `Conditionally Aligned` Required Change has been closed.
+- Do not regress to ViewSets where the surrounding code uses function-based `@api_view`.
+- Do not reintroduce executable Flask paths (decommissioned in DMIS-10).

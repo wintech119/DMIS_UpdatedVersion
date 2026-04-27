@@ -400,6 +400,7 @@ export class OperationsWorkspaceStateService {
         const pkgId = packageDetail?.package?.reliefpkg_id;
         if (mode && mode !== 'DIRECT' && pkgId) {
           this.loadConsolidationLegs(pkgId);
+          this.loadStagingRecommendation(reliefrqstId);
         }
 
         if (!loadOptions) {
@@ -557,7 +558,6 @@ export class OperationsWorkspaceStateService {
     }
     const workspaceGeneration = this.latestWorkspaceGeneration;
     const requestId = ++this.latestRecommendationRequestId;
-    this.stagingRecommendation.set(null);
     this.recommendationLoading.set(true);
     this.recommendationError.set(null);
 
@@ -759,8 +759,16 @@ export class OperationsWorkspaceStateService {
             && detail.package.fulfillment_mode !== 'DIRECT'
           ) {
             this.loadConsolidationLegs(detail.package.reliefpkg_id);
+            this.loadStagingRecommendation(requestReliefrqstId);
           } else {
             this.consolidationLegs.set([]);
+            this.latestLegsRequestId += 1;
+            this.legsLoading.set(false);
+            this.legsError.set(null);
+            this.latestRecommendationRequestId += 1;
+            this.stagingRecommendation.set(null);
+            this.recommendationLoading.set(false);
+            this.recommendationError.set(null);
           }
         }
         return of(detail);

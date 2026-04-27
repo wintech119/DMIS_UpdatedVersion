@@ -79,6 +79,7 @@ describe('RequestItemsStepComponent', () => {
     component.itemOptions = [{ value: 23, label: 'Blankets' }];
     component.submissionModeLabel = 'Request on behalf of a managed entity';
     component.submissionModeHint = 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
+    component.requestingEntityLabel = 'Requesting entity';
     component.creationBlocked = false;
 
     fixture.detectChanges();
@@ -90,7 +91,7 @@ describe('RequestItemsStepComponent', () => {
     expect(text).toContain('Select the requesting agency and any linked event');
     expect(text).not.toContain('Stitch');
 
-    const agencyHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Requesting entity"]'));
+    const agencyHelpButton = fixture.debugElement.query(By.css(`[aria-label="${component.requestingAgencyHelpLabel}"]`));
     const agencyTooltip = agencyHelpButton.injector.get(MatTooltip);
     expect(agencyTooltip.message).toContain('agency under your authority');
 
@@ -134,6 +135,30 @@ describe('RequestItemsStepComponent', () => {
     expect(component.requestingAgencyTooltip).toBe(
       'Choose whether this request is for your organisation or an agency you manage.',
     );
+  });
+
+  it('uses the dynamic requesting entity label in the required agency error', () => {
+    const agency = component.form.get('agency_id')!;
+    component.requestingEntityLabel = 'Represented requester';
+
+    agency.markAsTouched();
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Represented requester is required.');
+    expect(text).not.toContain('Requesting entity is required.');
+  });
+
+  it('normalizes blank requesting entity labels for help text and errors', () => {
+    const agency = component.form.get('agency_id')!;
+    component.requestingEntityLabel = '   ';
+
+    agency.markAsTouched();
+    fixture.detectChanges();
+
+    expect(component.requestingAgencyHelpLabel).toBe('More information about Requesting entity');
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Requesting entity is required.');
   });
 
   it('flags item reason entries longer than 255 characters and renders the bound error', () => {

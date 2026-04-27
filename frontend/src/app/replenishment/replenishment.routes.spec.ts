@@ -25,6 +25,10 @@ describe('REPLENISHMENT_ROUTES', () => {
     expect(findRoute('needs-list/:id/review')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('needs-list/:id/review')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.review' }));
 
+    expect(findRoute('needs-list/:id/apply-relief-request')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('needs-list/:id/apply-relief-request')?.data).toEqual(jasmine.objectContaining({ accessKey: 'operations.relief-requests.create' }));
+    expect(findRoute('needs-list/:id/apply-relief-request')?.loadChildren).toEqual(jasmine.any(Function));
+
     expect(findRoute('needs-list/:id/transfers')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('needs-list/:id/transfers')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.execution' }));
 
@@ -42,5 +46,20 @@ describe('REPLENISHMENT_ROUTES', () => {
 
     expect(findRoute('procurement/:procId/receive')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('procurement/:procId/receive')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.receive' }));
+  });
+
+  it('keeps legacy needs-list operational workspace URLs redirected to replenishment review', () => {
+    for (const path of [
+      'needs-list/:id/track',
+      'needs-list/:id/allocation',
+      'needs-list/:id/dispatch',
+      'needs-list/:id/history',
+      'needs-list/:id/superseded',
+    ]) {
+      expect(findRoute(path)).toEqual(jasmine.objectContaining({
+        redirectTo: 'needs-list/:id/review',
+        pathMatch: 'full',
+      }));
+    }
   });
 });

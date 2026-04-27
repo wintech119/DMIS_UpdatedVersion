@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 
 from api.authentication import Principal
 from api.rbac import (
@@ -127,12 +127,13 @@ def _resolve_user_id(principal: Principal) -> int | None:
         return None
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                'SELECT user_id FROM "user" WHERE username = %s OR email = %s LIMIT 1',
-                [principal.username, principal.username],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    'SELECT user_id FROM "user" WHERE username = %s OR email = %s LIMIT 1',
+                    [principal.username, principal.username],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return None
     return _parse_int(row[0] if row else None)
@@ -140,17 +141,18 @@ def _resolve_user_id(principal: Principal) -> int | None:
 
 def _tenant_by_id(tenant_id: int) -> TenantMembership | None:
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT tenant_id, tenant_code, tenant_name, tenant_type
-                FROM tenant
-                WHERE tenant_id = %s AND COALESCE(status_code, 'A') = 'A'
-                LIMIT 1
-                """,
-                [tenant_id],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT tenant_id, tenant_code, tenant_name, tenant_type
+                    FROM tenant
+                    WHERE tenant_id = %s AND COALESCE(status_code, 'A') = 'A'
+                    LIMIT 1
+                    """,
+                    [tenant_id],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return None
     if not row:
@@ -171,29 +173,30 @@ def list_user_tenant_memberships(principal: Principal) -> tuple[TenantMembership
         return tuple()
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    t.tenant_id,
-                    t.tenant_code,
-                    t.tenant_name,
-                    t.tenant_type,
-                    COALESCE(tu.is_primary_tenant, FALSE) AS is_primary_tenant,
-                    tu.access_level
-                FROM tenant_user tu
-                JOIN tenant t ON t.tenant_id = tu.tenant_id
-                WHERE
-                    tu.user_id = %s
-                    AND COALESCE(tu.status_code, 'A') = 'A'
-                    AND COALESCE(t.status_code, 'A') = 'A'
-                ORDER BY
-                    COALESCE(tu.is_primary_tenant, FALSE) DESC,
-                    t.tenant_id ASC
-                """,
-                [user_id],
-            )
-            rows = cursor.fetchall()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        t.tenant_id,
+                        t.tenant_code,
+                        t.tenant_name,
+                        t.tenant_type,
+                        COALESCE(tu.is_primary_tenant, FALSE) AS is_primary_tenant,
+                        tu.access_level
+                    FROM tenant_user tu
+                    JOIN tenant t ON t.tenant_id = tu.tenant_id
+                    WHERE
+                        tu.user_id = %s
+                        AND COALESCE(tu.status_code, 'A') = 'A'
+                        AND COALESCE(t.status_code, 'A') = 'A'
+                    ORDER BY
+                        COALESCE(tu.is_primary_tenant, FALSE) DESC,
+                        t.tenant_id ASC
+                    """,
+                    [user_id],
+                )
+                rows = cursor.fetchall()
     except DatabaseError:
         return tuple()
 
@@ -296,21 +299,22 @@ def resolve_warehouse_tenant_id(warehouse_id: int | None) -> int | None:
         return None
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT tenant_id
-                FROM tenant_warehouse
-                WHERE
-                    warehouse_id = %s
-                    AND effective_date <= CURRENT_DATE
-                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-                ORDER BY effective_date DESC
-                LIMIT 1
-                """,
-                [warehouse_id],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT tenant_id
+                    FROM tenant_warehouse
+                    WHERE
+                        warehouse_id = %s
+                        AND effective_date <= CURRENT_DATE
+                        AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                    ORDER BY effective_date DESC
+                    LIMIT 1
+                    """,
+                    [warehouse_id],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         row = None
     parsed = _parse_int(row[0] if row else None)
@@ -318,12 +322,13 @@ def resolve_warehouse_tenant_id(warehouse_id: int | None) -> int | None:
         return parsed
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT tenant_id FROM warehouse WHERE warehouse_id = %s LIMIT 1",
-                [warehouse_id],
-            )
-            fallback_row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT tenant_id FROM warehouse WHERE warehouse_id = %s LIMIT 1",
+                    [warehouse_id],
+                )
+                fallback_row = cursor.fetchone()
     except DatabaseError:
         fallback_row = None
     return _parse_int(fallback_row[0] if fallback_row else None)
@@ -333,22 +338,23 @@ def _target_tenant_allows_neoc_actions(target_tenant_id: int | None) -> bool:
     if target_tenant_id is None:
         return False
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT config_value
-                FROM tenant_config
-                WHERE
-                    tenant_id = %s
-                    AND config_key = %s
-                    AND effective_date <= CURRENT_DATE
-                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-                ORDER BY effective_date DESC, update_dtime DESC, config_id DESC
-                LIMIT 1
-                """,
-                [target_tenant_id, _CROSS_TENANT_POLICY_KEY],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT config_value
+                    FROM tenant_config
+                    WHERE
+                        tenant_id = %s
+                        AND config_key = %s
+                        AND effective_date <= CURRENT_DATE
+                        AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                    ORDER BY effective_date DESC, update_dtime DESC, config_id DESC
+                    LIMIT 1
+                    """,
+                    [target_tenant_id, _CROSS_TENANT_POLICY_KEY],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return False
     if not row:

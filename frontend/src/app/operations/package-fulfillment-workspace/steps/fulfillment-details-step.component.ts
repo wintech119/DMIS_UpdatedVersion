@@ -9,6 +9,7 @@ import { MatSelectModule } from '@angular/material/select';
 
 import { HttpErrorResponse } from '@angular/common/http';
 
+import { LookupItem } from '../../../master-data/models/master-data.models';
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
@@ -18,6 +19,7 @@ import {
   OVERRIDE_REASON_OPTIONS,
   TRANSPORT_MODE_OPTIONS,
 } from '../../models/operations.model';
+import { formatStagingSelectionBasis } from '../../models/operations-status.util';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 
 @Component({
@@ -86,7 +88,7 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
             <mat-select
               [ngModel]="draft().staging_warehouse_id"
               (ngModelChange)="onStagingHubChange($event)"
-              [disabled]="lockOperationalFields"
+              [disabled]="lockOperationalFields || (!stagingWarehouseOptions().length && !savedStagingWarehouseId())"
               aria-label="Select staging hub">
               <mat-select-trigger>
                 {{ draft().staging_warehouse_id ? warehouseLabel(draft().staging_warehouse_id) : 'Not selected' }}
@@ -97,9 +99,31 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
               }
             </mat-select>
             <mat-hint align="start">
-              Only ODPEM staging hubs are listed here. Pick the hub the operator wants to use.
+              Backend-vetted active ODPEM SUB-HUB warehouses are listed here.
             </mat-hint>
           </mat-form-field>
+
+          @if (store.recommendationLoading()) {
+            <p class="ops-details__staging-note" role="status">
+              <mat-icon aria-hidden="true">sync</mat-icon>
+              Loading staging hubs...
+            </p>
+          } @else if (store.recommendationError()) {
+            <p class="ops-details__staging-note ops-details__staging-note--error" role="alert">
+              <mat-icon aria-hidden="true">error</mat-icon>
+              {{ store.recommendationError() }}
+            </p>
+          } @else if (stagingRecommendationSummary()) {
+            <p class="ops-details__staging-note" role="note">
+              <mat-icon aria-hidden="true">recommend</mat-icon>
+              Recommended: {{ stagingRecommendationSummary() }}
+            </p>
+          } @else if (!stagingWarehouseOptions().length) {
+            <p class="ops-details__staging-note ops-details__staging-note--error" role="alert">
+              <mat-icon aria-hidden="true">error</mat-icon>
+              No active ODPEM staging hubs are available.
+            </p>
+          }
         </section>
       }
 
@@ -277,6 +301,25 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
       color: var(--ops-ink-muted, #787774);
     }
 
+    .ops-details__staging-note {
+      margin: -2px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__staging-note mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
+    }
+
+    .ops-details__staging-note--error {
+      color: var(--color-danger, #b3261e);
+    }
+
     .ops-details__mode-group {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -433,7 +476,38 @@ export class FulfillmentDetailsStepComponent {
   readonly draft = this.store.draft;
 
   readonly warehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
-  readonly stagingWarehouseOptions = this.warehouseOptions;
+  readonly savedStagingWarehouseId = computed(() => String(this.draft().staging_warehouse_id ?? '').trim());
+  readonly stagingWarehouseOptions = computed<LookupItem[]>(() => {
+    const selectedId = this.savedStagingWarehouseId();
+    const recommendation = this.store.stagingRecommendation();
+    const options = (recommendation?.staging_hubs ?? [])
+      .map((hub) => ({
+        value: String(hub.warehouse_id),
+        label: hub.warehouse_name || `Warehouse ${hub.warehouse_id}`,
+      }));
+    if (selectedId && !options.some((option) => option.value === selectedId)) {
+      const selectedLookup = this.warehouseOptions().find((entry) => String(entry.value) === selectedId);
+      const selectedLabel = selectedLookup?.label ?? `Selected warehouse ${selectedId}`;
+      const staleSuffix = recommendation ? ' (previously saved - not in current recommendations)' : '';
+      options.push({
+        value: selectedId,
+        label: `${selectedLabel}${staleSuffix}`,
+      });
+    }
+    return options;
+  });
+  readonly stagingRecommendationSummary = computed(() => {
+    const recommendation = this.store.stagingRecommendation();
+    const warehouseId = recommendation?.recommended_staging_warehouse_id;
+    if (!warehouseId) {
+      return '';
+    }
+    const label =
+      recommendation.recommended_staging_warehouse_name
+      || this.warehouseLabel(String(warehouseId));
+    const basis = formatStagingSelectionBasis(recommendation.staging_selection_basis);
+    return basis && basis !== 'Not set' ? `${label} (${basis})` : label;
+  });
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
   readonly overrideOptions = OVERRIDE_REASON_OPTIONS;
   readonly fulfillmentModeOptions = FULFILLMENT_MODE_OPTIONS;
@@ -477,6 +551,10 @@ export class FulfillmentDetailsStepComponent {
     const normalized = String(warehouseId ?? '').trim();
     if (!normalized) {
       return 'Not selected';
+    }
+    const stagingOption = this.stagingWarehouseOptions().find((entry) => String(entry.value) === normalized);
+    if (stagingOption) {
+      return stagingOption.label;
     }
     const option = this.warehouseOptions().find((entry) => String(entry.value) === normalized);
     return option?.label ?? normalized;

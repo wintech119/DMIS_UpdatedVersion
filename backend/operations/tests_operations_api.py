@@ -1,24 +1,47 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import DatabaseError, connection
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from api.authentication import Principal
 from api.rbac import (
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
+    PERM_OPERATIONS_QUEUE_VIEW,
+    PERM_OPERATIONS_REQUEST_CANCEL,
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
+    PERM_OPERATIONS_REQUEST_SUBMIT,
 )
 from api.tenancy import TenantContext, TenantMembership
+from operations.constants import (
+    ACTION_REQUEST_BRIDGE_CREATED,
+    ACTION_REQUEST_CANCELLED,
+    EVENT_REQUEST_CANCELLED,
+    ORIGIN_MODE_SELF,
+    QUEUE_CODE_ELIGIBILITY,
+    REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    REQUEST_STATUS_CANCELLED,
+    REQUEST_STATUS_DRAFT,
+    REQUEST_STATUS_SUBMITTED,
+    REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+)
 from operations.exceptions import OperationValidationError
-from operations.models import OperationsReliefRequest
-from operations import views as operations_views
+from operations.models import (
+    OperationsActionAudit,
+    OperationsNotification,
+    OperationsQueueAssignment,
+    OperationsReliefRequest,
+    OperationsStatusHistory,
+)
+from operations import contract_services as operations_service, views as operations_views
 from replenishment.services.allocation_dispatch import InventoryDriftError
 
 
@@ -121,6 +144,110 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_update.call_args.kwargs["permissions"], [PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT])
         self.assertEqual(mock_submit.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_submit.call_args.kwargs["idempotency_key"], "submit-70")
+
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["AGENCY_DISTRIBUTOR"], [PERM_OPERATIONS_REQUEST_CANCEL]))
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.operations_service.cancel_request", return_value={"reliefrqst_id": 70, "status_code": "CANCELLED"})
+    def test_request_cancel_forwards_payload_actor_roles_permissions_tenant_and_idempotency_key(
+        self,
+        mock_cancel,
+        _mock_permission,
+        mock_tenant_context,
+        _mock_roles,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/requests/70/cancel",
+            {"cancellation_reason": "Duplicate intake"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="cancel-70",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_cancel.call_args.args[0], 70)
+        self.assertEqual(mock_cancel.call_args.kwargs["payload"]["cancellation_reason"], "Duplicate intake")
+        self.assertEqual(mock_cancel.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_cancel.call_args.kwargs["actor_roles"], ["AGENCY_DISTRIBUTOR"])
+        self.assertIs(mock_cancel.call_args.kwargs["tenant_context"], mock_tenant_context.return_value)
+        self.assertEqual(mock_cancel.call_args.kwargs["permissions"], [PERM_OPERATIONS_REQUEST_CANCEL])
+        self.assertEqual(mock_cancel.call_args.kwargs["idempotency_key"], "cancel-70")
+
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["AGENCY_DISTRIBUTOR"], [PERM_OPERATIONS_REQUEST_CANCEL]))
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.operations_service.cancel_request")
+    def test_request_cancel_requires_idempotency_key(
+        self,
+        mock_cancel,
+        _mock_permission,
+        _mock_tenant_context,
+        _mock_roles,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/requests/70/cancel",
+            {"cancellation_reason": "Duplicate intake"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_cancel.assert_not_called()
+
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["AGENCY_DISTRIBUTOR"], [PERM_OPERATIONS_QUEUE_VIEW]))
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch(
+        "operations.views.operations_service.get_request_authority_preview",
+        return_value={
+            "can_create": True,
+            "allowed_origin_modes": ["SELF"],
+            "required_authority_tenant_id": None,
+            "beneficiary_tenant_id": 20,
+            "beneficiary_agency_id": 501,
+            "suggested_event_id": 12,
+            "blocked_reason_code": None,
+        },
+    )
+    def test_request_authority_preview_forwards_source_needs_list_tenant_and_permissions(
+        self,
+        mock_preview,
+        _mock_permission,
+        mock_tenant_context,
+        _mock_roles,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/requests/authority-preview?source_needs_list_id=40")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_preview.call_args.kwargs["source_needs_list_id"], 40)
+        self.assertIs(mock_preview.call_args.kwargs["tenant_context"], mock_tenant_context.return_value)
+        self.assertEqual(mock_preview.call_args.kwargs["permissions"], [PERM_OPERATIONS_QUEUE_VIEW])
+        self.assertTrue(response.json()["can_create"])
+
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["AGENCY_DISTRIBUTOR"], [PERM_OPERATIONS_QUEUE_VIEW]))
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch(
+        "operations.views.operations_service.get_request_authority_preview",
+        side_effect=OperationValidationError(
+            {
+                "source_needs_list_id": {
+                    "code": "source_needs_list_not_found",
+                    "message": "The source needs list does not exist.",
+                }
+            }
+        ),
+    )
+    def test_request_authority_preview_missing_needs_list_returns_not_found(
+        self,
+        _mock_preview,
+        _mock_permission,
+        _mock_tenant_context,
+        _mock_roles,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/requests/authority-preview?source_needs_list_id=404")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Not found."})
 
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["ODPEM_DG"], []))
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=1))
@@ -1992,13 +2119,22 @@ class OperationsPermissionRuntimeTests(SimpleTestCase):
 class OperationsApiTenantIsolationTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
+        self.active_event_patcher = patch("operations.views.data_access.get_active_event", return_value=None)
+        self.active_event_patcher.start()
+        self.addCleanup(self.active_event_patcher.stop)
         cache.clear()
 
     def tearDown(self) -> None:
         cache.clear()
 
     @staticmethod
-    def _tenant_context(tenant_id: int, tenant_code: str) -> TenantContext:
+    def _tenant_context(
+        tenant_id: int,
+        tenant_code: str,
+        *,
+        can_read_all_tenants: bool = False,
+        can_act_cross_tenant: bool = False,
+    ) -> TenantContext:
         membership = TenantMembership(
             tenant_id=tenant_id,
             tenant_code=tenant_code,
@@ -2013,9 +2149,262 @@ class OperationsApiTenantIsolationTests(TestCase):
             active_tenant_code=tenant_code,
             active_tenant_type="TENANT",
             memberships=(membership,),
-            can_read_all_tenants=False,
-            can_act_cross_tenant=False,
+            can_read_all_tenants=can_read_all_tenants,
+            can_act_cross_tenant=can_act_cross_tenant,
         )
+
+    @staticmethod
+    def _principal(user_id: str, permissions: list[str], roles: list[str] | None = None) -> Principal:
+        return Principal(
+            user_id=user_id,
+            username=user_id,
+            roles=roles or ["AGENCY_DISTRIBUTOR"],
+            permissions=permissions,
+        )
+
+    @staticmethod
+    def _legacy_request(reliefrqst_id: int, *, request_date: date, agency_id: int = 501) -> SimpleNamespace:
+        return SimpleNamespace(
+            reliefrqst_id=reliefrqst_id,
+            agency_id=agency_id,
+            request_date=request_date,
+            tracking_no=f"RQ{reliefrqst_id:05d}",
+            eligible_event_id=12,
+            urgency_ind="H",
+            rqst_notes_text=None,
+            review_by_id=None,
+            review_dtime=None,
+            create_by_id="user-a",
+            create_dtime=timezone.now(),
+            status_code=0,
+        )
+
+    @staticmethod
+    def _create_native_request(
+        reliefrqst_id: int,
+        *,
+        status_code: str = REQUEST_STATUS_DRAFT,
+        tenant_id: int = 10,
+        owner_id: str = "user-a",
+        origin_mode: str = ORIGIN_MODE_SELF,
+    ) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=reliefrqst_id,
+            request_no=f"RQ{reliefrqst_id:05d}",
+            requesting_tenant_id=tenant_id,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=tenant_id,
+            beneficiary_agency_id=501,
+            origin_mode=origin_mode,
+            event_id=12,
+            request_date=date(2026, 4, 7),
+            urgency_code="H",
+            status_code=status_code,
+            create_by_id=owner_id,
+            update_by_id=owner_id,
+        )
+
+    @staticmethod
+    def _ensure_rbac_tables_for_tests() -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS permission (
+                    perm_id integer PRIMARY KEY,
+                    resource varchar(100) NOT NULL,
+                    action varchar(100) NOT NULL,
+                    create_by_id varchar(20),
+                    create_dtime timestamp with time zone,
+                    update_by_id varchar(20),
+                    update_dtime timestamp with time zone,
+                    version_nbr integer,
+                    UNIQUE (resource, action)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS role (
+                    id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    code varchar(80) NOT NULL UNIQUE,
+                    name varchar(150),
+                    description text,
+                    created_at timestamp with time zone
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS "user" (
+                    user_id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    email varchar(255),
+                    password_hash varchar(255),
+                    first_name varchar(150),
+                    last_name varchar(150),
+                    full_name varchar(255),
+                    username varchar(150),
+                    user_name varchar(150),
+                    is_active boolean DEFAULT TRUE
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_role (
+                    user_id integer NOT NULL,
+                    role_id integer NOT NULL,
+                    assigned_at timestamp with time zone,
+                    assigned_by varchar(20),
+                    create_by_id varchar(20),
+                    create_dtime timestamp with time zone,
+                    update_by_id varchar(20),
+                    update_dtime timestamp with time zone,
+                    version_nbr integer,
+                    PRIMARY KEY (user_id, role_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS role_permission (
+                    role_id integer NOT NULL,
+                    perm_id integer NOT NULL,
+                    scope_json jsonb,
+                    create_by_id varchar(20),
+                    create_dtime timestamp with time zone,
+                    update_by_id varchar(20),
+                    update_dtime timestamp with time zone,
+                    version_nbr integer,
+                    PRIMARY KEY (role_id, perm_id)
+                )
+                """
+            )
+
+    @staticmethod
+    def _ensure_permission(permission_key: str) -> int:
+        OperationsApiTenantIsolationTests._ensure_rbac_tables_for_tests()
+        resource, action = permission_key.rsplit(".", 1)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT perm_id FROM permission WHERE resource = %s AND action = %s LIMIT 1",
+                [resource, action],
+            )
+            row = cursor.fetchone()
+            if row:
+                return int(row[0])
+            cursor.execute("LOCK TABLE permission IN EXCLUSIVE MODE")
+            cursor.execute("SELECT COALESCE(MAX(perm_id), 0) + 1 FROM permission")
+            perm_id = int(cursor.fetchone()[0])
+            cursor.execute(
+                """
+                INSERT INTO permission (
+                    perm_id,
+                    resource,
+                    action,
+                    create_by_id,
+                    create_dtime,
+                    update_by_id,
+                    update_dtime,
+                    version_nbr
+                )
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s, CURRENT_TIMESTAMP, 1)
+                """,
+                [perm_id, resource, action, "test-db-rbac", "test-db-rbac"],
+            )
+            return perm_id
+
+    @staticmethod
+    def _ensure_role(role_code: str) -> int:
+        OperationsApiTenantIsolationTests._ensure_rbac_tables_for_tests()
+        normalized_role = role_code.strip().upper()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM role WHERE UPPER(code) = %s LIMIT 1", [normalized_role])
+            row = cursor.fetchone()
+            if row:
+                return int(row[0])
+            cursor.execute(
+                """
+                INSERT INTO role (code, name, description, created_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                [normalized_role, normalized_role.replace("_", " ").title(), "Test role"],
+            )
+            return int(cursor.fetchone()[0])
+
+    def _create_db_rbac_actor(
+        self,
+        *,
+        username: str,
+        role_code: str,
+        permissions: list[str] | None = None,
+    ) -> Principal:
+        self._ensure_rbac_tables_for_tests()
+        role_id = self._ensure_role(role_code)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO "user" (
+                    email,
+                    password_hash,
+                    first_name,
+                    last_name,
+                    full_name,
+                    username,
+                    user_name,
+                    is_active
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+                RETURNING user_id
+                """,
+                [
+                    f"{username}@example.test",
+                    "not-used",
+                    username,
+                    "Actor",
+                    f"{username} Actor",
+                    username,
+                    username,
+                ],
+            )
+            user_id = int(cursor.fetchone()[0])
+            cursor.execute(
+                """
+                INSERT INTO user_role (
+                    user_id,
+                    role_id,
+                    assigned_at,
+                    assigned_by,
+                    create_by_id,
+                    create_dtime,
+                    update_by_id,
+                    update_dtime,
+                    version_nbr
+                )
+                VALUES (%s, %s, CURRENT_TIMESTAMP, %s, %s, CURRENT_TIMESTAMP, %s, CURRENT_TIMESTAMP, 1)
+                """,
+                [user_id, role_id, "test-db-rbac", "test-db-rbac", "test-db-rbac"],
+            )
+            for permission in permissions or []:
+                perm_id = self._ensure_permission(permission)
+                cursor.execute(
+                    """
+                    INSERT INTO role_permission (
+                        role_id,
+                        perm_id,
+                        scope_json,
+                        create_by_id,
+                        create_dtime,
+                        update_by_id,
+                        update_dtime,
+                        version_nbr
+                    )
+                    VALUES (%s, %s, %s::jsonb, %s, CURRENT_TIMESTAMP, %s, CURRENT_TIMESTAMP, 1)
+                    ON CONFLICT (role_id, perm_id) DO NOTHING
+                    """,
+                    [role_id, perm_id, "{}", "test-db-rbac", "test-db-rbac"],
+                )
+        return Principal(user_id=str(user_id), username=username, roles=[], permissions=[])
 
     @patch("operations.contract_services.legacy_service._request_summary", return_value={"status_code": "DRAFT"})
     @patch("operations.contract_services.legacy_service.get_request", return_value={"reliefrqst_id": 70, "tracking_no": "RQ00070"})
@@ -2097,6 +2486,531 @@ class OperationsApiTenantIsolationTests(TestCase):
         self.assertEqual(denied_response.status_code, 404)
         self.assertEqual(denied_response.json(), {"detail": "Not found."})
         self.assertEqual(mock_legacy_get_request.call_count, 1)
+
+    def _cancel_request(
+        self,
+        request_record: OperationsReliefRequest,
+        *,
+        actor: Principal,
+        tenant_context: TenantContext,
+        reason: str = "Duplicate intake",
+        idempotency_key: str = "cancel-70",
+    ):
+        self.client.force_authenticate(user=actor)
+        with (
+            patch("operations.views.resolve_tenant_context", return_value=tenant_context),
+            patch("operations.contract_services._load_request_record_for_workflow", return_value=(request_record, None)),
+            patch(
+                "operations.contract_services._compat_request_response",
+                return_value={
+                    "reliefrqst_id": request_record.relief_request_id,
+                    "status_code": REQUEST_STATUS_CANCELLED,
+                },
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                return self.client.post(
+                    f"/api/v1/operations/requests/{request_record.relief_request_id}/cancel",
+                    {"cancellation_reason": reason},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=idempotency_key,
+                )
+
+    def test_request_cancel_happy_path_from_each_allowed_state(self) -> None:
+        for index, starting_status in enumerate(
+            [REQUEST_STATUS_DRAFT, REQUEST_STATUS_SUBMITTED, REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW],
+            start=1,
+        ):
+            with self.subTest(starting_status=starting_status):
+                reliefrqst_id = 700 + index
+                request_record = self._create_native_request(reliefrqst_id, status_code=starting_status)
+                OperationsQueueAssignment.objects.create(
+                    queue_code=QUEUE_CODE_ELIGIBILITY,
+                    entity_type="RELIEF_REQUEST",
+                    entity_id=reliefrqst_id,
+                    assigned_role_code="DG",
+                    assigned_tenant_id=10,
+                )
+                response = self._cancel_request(
+                    request_record,
+                    actor=self._principal("user-a", [PERM_OPERATIONS_REQUEST_CANCEL]),
+                    tenant_context=self._tenant_context(10, "TENANT_A"),
+                    reason="Duplicate request",
+                    idempotency_key=f"cancel-{reliefrqst_id}",
+                )
+
+                self.assertEqual(response.status_code, 200)
+                request_record.refresh_from_db()
+                self.assertEqual(request_record.status_code, REQUEST_STATUS_CANCELLED)
+                self.assertIsNotNone(request_record.cancelled_at)
+                status_history = OperationsStatusHistory.objects.get(
+                    entity_type="RELIEF_REQUEST",
+                    entity_id=reliefrqst_id,
+                    to_status_code=REQUEST_STATUS_CANCELLED,
+                )
+                self.assertEqual(status_history.from_status_code, starting_status)
+                self.assertEqual(status_history.reason_text, "Duplicate request")
+                action_audit = OperationsActionAudit.objects.get(
+                    entity_type="RELIEF_REQUEST",
+                    entity_id=reliefrqst_id,
+                    action_code=ACTION_REQUEST_CANCELLED,
+                )
+                self.assertEqual(action_audit.acted_by_user_id, "user-a")
+                self.assertEqual(action_audit.acted_by_role_code, "AGENCY_DISTRIBUTOR")
+                self.assertEqual(action_audit.action_reason, "Duplicate request")
+                queue_assignment = OperationsQueueAssignment.objects.get(
+                    queue_code=QUEUE_CODE_ELIGIBILITY,
+                    entity_type="RELIEF_REQUEST",
+                    entity_id=reliefrqst_id,
+                )
+                self.assertEqual(queue_assignment.assignment_status, "CANCELLED")
+                self.assertIsNotNone(queue_assignment.completed_at)
+                self.assertTrue(
+                    OperationsNotification.objects.filter(
+                        event_code=EVENT_REQUEST_CANCELLED,
+                        entity_type="RELIEF_REQUEST",
+                        entity_id=reliefrqst_id,
+                        message_text="Relief Request cancelled",
+                    ).exists()
+                )
+
+    def test_request_cancel_blocks_non_cancellable_state(self) -> None:
+        request_record = self._create_native_request(
+            720,
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+        )
+
+        response = self._cancel_request(
+            request_record,
+            actor=self._principal("user-a", [PERM_OPERATIONS_REQUEST_CANCEL]),
+            tenant_context=self._tenant_context(10, "TENANT_A"),
+            idempotency_key="cancel-state-720",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["errors"]["status"]["code"], "request_not_cancellable")
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertFalse(
+            OperationsActionAudit.objects.filter(
+                entity_type="RELIEF_REQUEST",
+                entity_id=720,
+                action_code=ACTION_REQUEST_CANCELLED,
+            ).exists()
+        )
+
+    def test_request_cancel_denies_cross_tenant_probe_as_not_found(self) -> None:
+        request_record = self._create_native_request(721, status_code=REQUEST_STATUS_DRAFT)
+
+        response = self._cancel_request(
+            request_record,
+            actor=self._principal("user-b", [PERM_OPERATIONS_REQUEST_CANCEL]),
+            tenant_context=self._tenant_context(20, "TENANT_B"),
+            idempotency_key="cancel-cross-721",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Not found."})
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_DRAFT)
+
+    def test_request_cancel_requires_cancel_permission(self) -> None:
+        request_record = self._create_native_request(722, status_code=REQUEST_STATUS_DRAFT)
+        self.client.force_authenticate(user=self._principal("user-a", [], roles=["DG"]))
+
+        with (
+            patch("operations.views.resolve_tenant_context", return_value=self._tenant_context(10, "TENANT_A")),
+            patch("operations.views.operations_service.cancel_request") as mock_cancel_request,
+        ):
+            response = self.client.post(
+                "/api/v1/operations/requests/722/cancel",
+                {"cancellation_reason": "Duplicate intake"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="cancel-perm-722",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mock_cancel_request.assert_not_called()
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_DRAFT)
+
+    @override_settings(AUTH_USE_DB_RBAC=True, TESTING=False, DEV_AUTH_ENABLED=False, AUTH_ENABLED=False)
+    def test_request_cancel_allows_db_rbac_seeded_parish_requester(self) -> None:
+        request_record = self._create_native_request(728, status_code=REQUEST_STATUS_DRAFT)
+        actor = self._create_db_rbac_actor(
+            username="db-rbac-cancel-requester",
+            role_code="AGENCY_DISTRIBUTOR",
+            permissions=[PERM_OPERATIONS_REQUEST_CANCEL],
+        )
+        self.client.force_authenticate(user=actor)
+
+        with (
+            patch("operations.views.resolve_tenant_context", return_value=self._tenant_context(10, "TENANT_A")),
+            patch("operations.contract_services._load_request_record_for_workflow", return_value=(request_record, None)),
+            patch(
+                "operations.contract_services._compat_request_response",
+                return_value={"reliefrqst_id": 728, "status_code": REQUEST_STATUS_CANCELLED},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/requests/728/cancel",
+                {"cancellation_reason": "Duplicate intake"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="cancel-db-rbac-728",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_CANCELLED)
+
+    @override_settings(AUTH_USE_DB_RBAC=True, TESTING=False, DEV_AUTH_ENABLED=False, AUTH_ENABLED=False)
+    def test_request_cancel_denies_db_rbac_logistics_officer(self) -> None:
+        request_record = self._create_native_request(729, status_code=REQUEST_STATUS_DRAFT)
+        actor = self._create_db_rbac_actor(
+            username="db-rbac-logistics-officer",
+            role_code="LOGISTICS_OFFICER",
+            permissions=["replenishment.needs_list.submit"],
+        )
+        self.client.force_authenticate(user=actor)
+
+        with (
+            patch("operations.views.resolve_tenant_context", return_value=self._tenant_context(10, "TENANT_A")),
+            patch("operations.contract_services.cancel_request") as mock_cancel_request,
+        ):
+            response = self.client.post(
+                "/api/v1/operations/requests/729/cancel",
+                {"cancellation_reason": "Duplicate intake"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="cancel-db-rbac-denied-729",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mock_cancel_request.assert_not_called()
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_DRAFT)
+
+    def test_request_cancel_validates_reason(self) -> None:
+        request_record = self._create_native_request(723, status_code=REQUEST_STATUS_DRAFT)
+        actor = self._principal("user-a", [PERM_OPERATIONS_REQUEST_CANCEL])
+        tenant_context = self._tenant_context(10, "TENANT_A")
+
+        empty_response = self._cancel_request(
+            request_record,
+            actor=actor,
+            tenant_context=tenant_context,
+            reason="   ",
+            idempotency_key="cancel-empty-723",
+        )
+        long_response = self._cancel_request(
+            request_record,
+            actor=actor,
+            tenant_context=tenant_context,
+            reason="x" * 501,
+            idempotency_key="cancel-long-723",
+        )
+
+        self.assertEqual(empty_response.status_code, 400)
+        self.assertEqual(empty_response.json()["errors"]["cancellation_reason"], "Cancellation reason is required.")
+        self.assertEqual(long_response.status_code, 400)
+        self.assertEqual(
+            long_response.json()["errors"]["cancellation_reason"],
+            "Cancellation reason must be 500 characters or fewer.",
+        )
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_DRAFT)
+
+    def test_request_cancel_idempotency_replay_does_not_duplicate_side_effects(self) -> None:
+        request_record = self._create_native_request(724, status_code=REQUEST_STATUS_DRAFT)
+        actor = self._principal("user-a", [PERM_OPERATIONS_REQUEST_CANCEL])
+        tenant_context = self._tenant_context(10, "TENANT_A")
+
+        first_response = self._cancel_request(
+            request_record,
+            actor=actor,
+            tenant_context=tenant_context,
+            reason="Duplicate intake",
+            idempotency_key="cancel-replay-724",
+        )
+        second_response = self._cancel_request(
+            request_record,
+            actor=actor,
+            tenant_context=tenant_context,
+            reason="Duplicate intake",
+            idempotency_key="cancel-replay-724",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.json(), first_response.json())
+        self.assertEqual(
+            OperationsStatusHistory.objects.filter(
+                entity_type="RELIEF_REQUEST",
+                entity_id=724,
+                to_status_code=REQUEST_STATUS_CANCELLED,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            OperationsActionAudit.objects.filter(
+                entity_type="RELIEF_REQUEST",
+                entity_id=724,
+                action_code=ACTION_REQUEST_CANCELLED,
+            ).count(),
+            1,
+        )
+
+    def test_request_cancel_legacy_database_error_rolls_back_native_and_audit(self) -> None:
+        request_record = self._create_native_request(730, status_code=REQUEST_STATUS_DRAFT)
+
+        class LegacyRequest:
+            status_code = 0
+            version_nbr = 0
+
+            def save(self, **_kwargs):
+                raise DatabaseError("legacy cancel write failed")
+
+        with patch(
+            "operations.contract_services._load_request_record_for_workflow",
+            return_value=(request_record, LegacyRequest()),
+        ):
+            with self.assertRaises(DatabaseError):
+                operations_service.cancel_request(
+                    730,
+                    payload={"cancellation_reason": "Duplicate intake"},
+                    actor_id="user-a",
+                    actor_roles=["AGENCY_DISTRIBUTOR"],
+                    tenant_context=self._tenant_context(10, "TENANT_A"),
+                    permissions=[PERM_OPERATIONS_REQUEST_CANCEL],
+                    idempotency_key="cancel-db-error-730",
+                )
+
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_DRAFT)
+        self.assertFalse(
+            OperationsStatusHistory.objects.filter(
+                entity_type="RELIEF_REQUEST",
+                entity_id=730,
+                to_status_code=REQUEST_STATUS_CANCELLED,
+            ).exists()
+        )
+        self.assertFalse(
+            OperationsActionAudit.objects.filter(
+                entity_type="RELIEF_REQUEST",
+                entity_id=730,
+                action_code=ACTION_REQUEST_CANCELLED,
+            ).exists()
+        )
+
+    @patch("operations.contract_services.legacy_service.update_request", return_value={"reliefrqst_id": 725})
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    @patch("operations.contract_services._legacy_helper")
+    @patch("operations.views.resolve_tenant_context")
+    def test_request_patch_denies_cross_tenant_probe_as_not_found(
+        self,
+        mock_resolve_tenant_context,
+        mock_legacy_helper,
+        _mock_validate_agency_selection,
+        mock_update_request,
+    ) -> None:
+        request_date = date(2026, 4, 7)
+        self._create_native_request(725, status_code=REQUEST_STATUS_DRAFT)
+        mock_legacy_helper.return_value = lambda *_args, **_kwargs: self._legacy_request(725, request_date=request_date)
+        tenant_contexts = {
+            "user-b": self._tenant_context(20, "TENANT_B"),
+        }
+        mock_resolve_tenant_context.side_effect = (
+            lambda request, user, permissions: tenant_contexts[str(user.user_id)]
+        )
+
+        self.client.force_authenticate(
+            user=self._principal("user-b", [PERM_OPERATIONS_REQUEST_EDIT_DRAFT])
+        )
+        response = self.client.patch(
+            "/api/v1/operations/requests/725",
+            {"rqst_notes_text": "Cross-tenant edit attempt"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Not found."})
+        mock_update_request.assert_not_called()
+
+    @patch("operations.contract_services.legacy_service.submit_request")
+    @patch("operations.contract_services._legacy_helper")
+    @patch("operations.views.resolve_tenant_context")
+    def test_request_submit_denies_cross_tenant_probe_as_not_found(
+        self,
+        mock_resolve_tenant_context,
+        mock_legacy_helper,
+        mock_submit_request,
+    ) -> None:
+        request_date = date(2026, 4, 7)
+        self._create_native_request(726, status_code=REQUEST_STATUS_DRAFT)
+        mock_legacy_helper.return_value = lambda *_args, **_kwargs: self._legacy_request(726, request_date=request_date)
+        tenant_contexts = {
+            "user-b": self._tenant_context(20, "TENANT_B"),
+        }
+        mock_resolve_tenant_context.side_effect = (
+            lambda request, user, permissions: tenant_contexts[str(user.user_id)]
+        )
+
+        self.client.force_authenticate(
+            user=self._principal("user-b", [PERM_OPERATIONS_REQUEST_SUBMIT])
+        )
+        response = self.client.post(
+            "/api/v1/operations/requests/726/submit",
+            {},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="submit-cross-726",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Not found."})
+        mock_submit_request.assert_not_called()
+
+    def _seed_audit_timeline_request(self) -> OperationsReliefRequest:
+        request_record = self._create_native_request(727, status_code=REQUEST_STATUS_DRAFT, origin_mode="ODPEM_BRIDGE")
+        OperationsStatusHistory.objects.create(
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            from_status_code=None,
+            to_status_code=REQUEST_STATUS_DRAFT,
+            changed_by_id="user-a",
+            changed_at=timezone.make_aware(datetime(2026, 4, 7, 9, 0, 0)),
+        )
+        OperationsActionAudit.objects.create(
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            tenant_id=10,
+            action_code=ACTION_REQUEST_BRIDGE_CREATED,
+            action_reason="ODPEM created bridge request",
+            acted_by_user_id="odpem-bridge",
+            acted_by_role_code="ODPEM_BRIDGE_REQUESTER",
+            acted_at=timezone.make_aware(datetime(2026, 4, 7, 9, 5, 0)),
+        )
+        OperationsActionAudit.objects.create(
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            tenant_id=10,
+            action_code=ACTION_REQUEST_CANCELLED,
+            action_reason="Duplicate bridge request",
+            acted_by_user_id="user-a",
+            acted_by_role_code="AGENCY_DISTRIBUTOR",
+            acted_at=timezone.make_aware(datetime(2026, 4, 7, 9, 10, 0)),
+        )
+        OperationsStatusHistory.objects.create(
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            from_status_code=REQUEST_STATUS_DRAFT,
+            to_status_code=REQUEST_STATUS_CANCELLED,
+            changed_by_id="user-a",
+            changed_at=timezone.make_aware(datetime(2026, 4, 7, 9, 15, 0)),
+            reason_text="Duplicate bridge request",
+        )
+        return request_record
+
+    def _get_detail_with_audit_timeline(
+        self,
+        *,
+        actor: Principal,
+        tenant_context: TenantContext,
+    ):
+        request_date = date(2026, 4, 7)
+        legacy_request = self._legacy_request(727, request_date=request_date)
+        self.client.force_authenticate(user=actor)
+        with (
+            patch("operations.contract_services.legacy_service._request_summary", return_value={"status_code": "DRAFT"}),
+            patch(
+                "operations.contract_services.legacy_service.get_request",
+                return_value={"reliefrqst_id": 727, "tracking_no": "RQ00727"},
+            ),
+            patch("operations.contract_services.ReliefPkg.objects.filter") as mock_reliefpkg_filter,
+            patch("operations.contract_services._legacy_helper", return_value=lambda *_args, **_kwargs: legacy_request),
+            patch("operations.views.resolve_tenant_context", return_value=tenant_context),
+        ):
+            mock_reliefpkg_filter.return_value.order_by.return_value = []
+            return self.client.get("/api/v1/operations/requests/727")
+
+    def test_request_detail_includes_same_tenant_audit_timeline(self) -> None:
+        self._seed_audit_timeline_request()
+
+        response = self._get_detail_with_audit_timeline(
+            actor=self._principal("user-a", [PERM_OPERATIONS_REQUEST_EDIT_DRAFT]),
+            tenant_context=self._tenant_context(10, "TENANT_A"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        timeline = response.json()["audit_timeline"]
+        self.assertEqual([event["event_kind"] for event in timeline], ["STATUS_TRANSITION", "ACTION_AUDIT", "ACTION_AUDIT", "STATUS_TRANSITION"])
+        self.assertEqual(timeline[0]["actor_user_label"], "User ...er-a")
+        self.assertTrue(all("user-a" not in str(event["actor_user_label"] or "") for event in timeline))
+        self.assertEqual(timeline[1]["action_code"], ACTION_REQUEST_BRIDGE_CREATED)
+        self.assertEqual(timeline[1]["actor_role_code"], "ODPEM_BRIDGE_REQUESTER")
+        self.assertEqual(timeline[2]["action_code"], ACTION_REQUEST_CANCELLED)
+        self.assertEqual(timeline[2]["action_reason"], "Duplicate bridge request")
+        self.assertEqual(timeline[3]["to_status_code"], REQUEST_STATUS_CANCELLED)
+
+    def test_request_detail_masks_uuid_audit_actor_user_label(self) -> None:
+        self._seed_audit_timeline_request()
+        raw_actor_id = "550e8400-e29b-41d4-a716-446655440000"
+        OperationsActionAudit.objects.filter(
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            action_code=ACTION_REQUEST_CANCELLED,
+        ).update(acted_by_user_id=raw_actor_id)
+
+        response = self._get_detail_with_audit_timeline(
+            actor=self._principal("user-a", [PERM_OPERATIONS_REQUEST_EDIT_DRAFT]),
+            tenant_context=self._tenant_context(10, "TENANT_A"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        timeline = response.json()["audit_timeline"]
+        self.assertEqual(timeline[2]["actor_user_label"], "User ...0000")
+        self.assertTrue(all(raw_actor_id not in str(event["actor_user_label"] or "") for event in timeline))
+
+    def test_request_detail_redacts_cross_tenant_audit_actor_fields(self) -> None:
+        self._seed_audit_timeline_request()
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=727,
+            assigned_user_id="user-b",
+            assigned_tenant_id=20,
+        )
+
+        response = self._get_detail_with_audit_timeline(
+            actor=self._principal("user-b", [PERM_OPERATIONS_QUEUE_VIEW]),
+            tenant_context=self._tenant_context(20, "TENANT_B"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        timeline = response.json()["audit_timeline"]
+        self.assertEqual([event["occurred_at"] for event in timeline], sorted(event["occurred_at"] for event in timeline))
+        self.assertTrue(all(event["actor_role_code"] is None for event in timeline))
+        self.assertTrue(all(event["actor_user_label"] is None for event in timeline))
+        self.assertEqual(timeline[1]["action_code"], ACTION_REQUEST_BRIDGE_CREATED)
+        self.assertEqual(timeline[2]["action_code"], ACTION_REQUEST_CANCELLED)
+
+    def test_request_detail_keeps_audit_actor_fields_for_national_override(self) -> None:
+        self._seed_audit_timeline_request()
+
+        response = self._get_detail_with_audit_timeline(
+            actor=self._principal("national-user", [PERM_OPERATIONS_QUEUE_VIEW], roles=["ODPEM_DG"]),
+            tenant_context=self._tenant_context(
+                27,
+                "ODPEM",
+                can_read_all_tenants=True,
+                can_act_cross_tenant=True,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        timeline = response.json()["audit_timeline"]
+        self.assertEqual(timeline[1]["actor_role_code"], "ODPEM_BRIDGE_REQUESTER")
+        self.assertEqual(timeline[1]["actor_user_label"], "User ...idge")
+        self.assertEqual(timeline[2]["actor_role_code"], "AGENCY_DISTRIBUTOR")
+        self.assertEqual(timeline[2]["actor_user_label"], "User ...er-a")
 
 
 class OperationsViewHelperTests(SimpleTestCase):

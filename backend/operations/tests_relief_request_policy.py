@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from api.rbac import (
     PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
@@ -16,10 +17,11 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
 )
 from api.tenancy import TenantContext, TenantMembership
-from operations.constants import ORIGIN_MODE_FOR_SUBORDINATE, ORIGIN_MODE_ODPEM_BRIDGE
+from operations.constants import ORIGIN_MODE_FOR_SUBORDINATE, ORIGIN_MODE_ODPEM_BRIDGE, ORIGIN_MODE_SELF
 from operations import policy as operations_policy
 from operations import services as operations_service
 from operations.exceptions import OperationValidationError
+from replenishment.models import NeedsList
 
 
 def _tenant_context(
@@ -107,7 +109,236 @@ class ReliefRequestCapabilityTests(_DeterministicOdpemTenantResolutionMixin, Sim
         self.assertEqual(capabilities["allowed_origin_modes"], ["for_subordinate"])
 
 
-class ResolveOdpemTenantIdTests(SimpleTestCase):
+class ReliefRequestAuthorityPreviewTests(_DeterministicOdpemTenantResolutionMixin, TestCase):
+    def _create_needs_list(self, needs_list_id: int = 40) -> NeedsList:
+        return NeedsList.objects.create(
+            needs_list_id=needs_list_id,
+            needs_list_no=f"NL{needs_list_id:05d}",
+            event_id=12,
+            warehouse_id=11,
+            event_phase="SURGE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            status_code="APPROVED",
+            total_gap_qty=Decimal("1.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    @staticmethod
+    def _decision(
+        *,
+        origin_mode: str = ORIGIN_MODE_SELF,
+        requesting_tenant_id: int = 20,
+        beneficiary_tenant_id: int = 20,
+        agency_id: int = 501,
+    ) -> operations_policy.ReliefRequestWriteDecision:
+        return operations_policy.ReliefRequestWriteDecision(
+            agency_scope=operations_policy.AgencyScope(
+                agency_id=agency_id,
+                agency_name=f"Agency {agency_id}",
+                agency_type="SHELTER",
+                warehouse_id=11,
+                tenant_id=beneficiary_tenant_id,
+                tenant_code="ODPEM" if beneficiary_tenant_id == 27 else f"TENANT-{beneficiary_tenant_id}",
+                tenant_name=f"Tenant {beneficiary_tenant_id}",
+                tenant_type="NATIONAL" if beneficiary_tenant_id == 27 else "EXTERNAL",
+            ),
+            origin_mode=origin_mode,
+            requesting_tenant_id=requesting_tenant_id,
+            beneficiary_tenant_id=beneficiary_tenant_id,
+            requesting_agency_id=agency_id if origin_mode == ORIGIN_MODE_SELF else None,
+            beneficiary_agency_id=agency_id,
+        )
+
+    @staticmethod
+    def _policy_error(code: str) -> OperationValidationError:
+        return OperationValidationError({"agency_id": {"code": code, "message": "Authority preview blocked."}})
+
+    def test_authority_preview_allows_requester_owned_needs_list(self) -> None:
+        needs_list = self._create_needs_list()
+        decision = self._decision()
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            payload,
+            {
+                "can_create": True,
+                "allowed_origin_modes": [ORIGIN_MODE_SELF],
+                "required_authority_tenant_id": None,
+                "required_authority_tenant_name": None,
+                "beneficiary_tenant_id": 20,
+                "beneficiary_agency_id": 501,
+                "suggested_event_id": 12,
+                "blocked_reason_code": None,
+            },
+        )
+
+    def test_authority_preview_allows_tenant_agency_without_warehouse(self) -> None:
+        needs_list = self._create_needs_list(46)
+        decision = self._decision(agency_id=501)
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (501,)
+        connection_mock = MagicMock()
+        connection_mock.cursor.return_value = cursor
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_table_has_tenant_id", return_value=True),
+            patch("operations.services.connection", connection_mock),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertTrue(payload["can_create"])
+        self.assertEqual(payload["beneficiary_agency_id"], 501)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("a.warehouse_id IS NULL AND a.tenant_id = %s", sql)
+        self.assertEqual(params, [20, 20, 11])
+
+    def test_authority_preview_blocks_odpem_hq_replenishment_needs_list(self) -> None:
+        needs_list = self._create_needs_list(41)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=27),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=901),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch("operations.services.operations_policy.validate_relief_request_agency_selection") as mock_validate,
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=27, tenant_code="ODPEM", tenant_type="NATIONAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "odpem_replenishment_only_needs_list")
+        self.assertEqual(payload["beneficiary_tenant_id"], 27)
+        mock_validate.assert_not_called()
+
+    def test_authority_preview_reports_escalation_required(self) -> None:
+        needs_list = self._create_needs_list(42)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=400),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("request_authority_escalation_required"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "escalation_required")
+        self.assertEqual(payload["required_authority_tenant_id"], 400)
+
+    def test_authority_preview_reports_agency_out_of_scope(self) -> None:
+        needs_list = self._create_needs_list(43)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("agency_out_of_scope"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=21, tenant_code="OTHER", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "agency_out_of_scope")
+
+    def test_authority_preview_maps_cross_tenant_source_mismatch_to_scope_block(self) -> None:
+        needs_list = self._create_needs_list(44)
+        mismatched_decision = self._decision(beneficiary_tenant_id=21)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                return_value=mismatched_decision,
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=21, tenant_code="OTHER", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "agency_out_of_scope")
+
+    def test_authority_preview_reports_self_request_disabled(self) -> None:
+        needs_list = self._create_needs_list(45)
+
+        with (
+            patch("operations.services._needs_list_owner_tenant_id", return_value=20),
+            patch("operations.services._agency_id_for_needs_list_owner", return_value=501),
+            patch("operations.services._active_request_authority_tenant_id", return_value=None),
+            patch(
+                "operations.services.operations_policy.validate_relief_request_agency_selection",
+                side_effect=self._policy_error("self_request_disabled"),
+            ),
+        ):
+            payload = operations_service.get_request_authority_preview(
+                source_needs_list_id=needs_list.needs_list_id,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertFalse(payload["can_create"])
+        self.assertEqual(payload["blocked_reason_code"], "self_request_disabled")
+
+    def test_authority_preview_missing_needs_list_raises_stable_error(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service.get_request_authority_preview(
+                source_needs_list_id=404,
+                tenant_context=_tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL"),
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(raised.exception.errors["source_needs_list_id"]["code"], "source_needs_list_not_found")
+
+
+class ResolveOdpemTenantIdTests(TestCase):
     def tearDown(self) -> None:
         super().tearDown()
         operations_policy.resolve_odpem_tenant_id.cache_clear()
@@ -328,6 +559,15 @@ class TrackingNumberHelperTests(SimpleTestCase):
 
 @override_settings(AUTH_ENABLED=False, DEV_AUTH_ENABLED=True, TEST_DEV_AUTH_ENABLED=True)
 class ReliefRequestServiceTests(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        fully_dispatched_patcher = patch(
+            "operations.services._request_fully_dispatched",
+            return_value=False,
+        )
+        fully_dispatched_patcher.start()
+        self.addCleanup(fully_dispatched_patcher.stop)
+
     @patch("operations.services.data_access.get_item_names", return_value=({101: {"name": "Water Tabs", "code": "WT-001"}}, []))
     @patch(
         "operations.services._fetch_rows",
@@ -349,6 +589,7 @@ class ReliefRequestServiceTests(TestCase):
         self.assertEqual(items[0]["item_code"], "WT-001")
         self.assertEqual(items[0]["item_name"], "Water Tabs")
 
+    @patch("operations.services._load_request", return_value=SimpleNamespace(reliefrqst_id=77))
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 77, "tracking_no": "RQ00077"})
     @patch("operations.services._upsert_request_items")
     @patch("operations.services.ReliefRqst.objects.create")
@@ -363,6 +604,7 @@ class ReliefRequestServiceTests(TestCase):
         create_request_mock,
         _upsert_request_items_mock,
         _get_request_mock,
+        _load_request_mock,
     ) -> None:
         tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
         validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
@@ -533,15 +775,36 @@ class ReliefRequestServiceTests(TestCase):
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 88, "status_label": "Awaiting Approval"})
     @patch("operations.services._request_item_rows_for_allocation", return_value=[{"item_id": 101, "request_qty": "1", "issue_qty": "0"}])
     @patch("operations.services._load_request")
+    @patch("operations.services.operations_policy.get_agency_scope")
     @patch("operations.services.operations_policy.validate_relief_request_agency_selection")
     def test_submit_request_revalidates_existing_agency_scope(
         self,
         validate_scope_mock,
+        get_agency_scope_mock,
         load_request_mock,
         _request_items_mock,
         _get_request_mock,
     ) -> None:
-        request_record = SimpleNamespace(agency_id=501, status_code=operations_service.STATUS_DRAFT, version_nbr=1)
+        agency_scope = operations_policy.AgencyScope(
+            agency_id=501,
+            agency_name="Food For The Poor Shelter",
+            agency_type="SHELTER",
+            warehouse_id=11,
+            tenant_id=20,
+            tenant_code="FFP",
+            tenant_name="Food For The Poor",
+            tenant_type="EXTERNAL",
+        )
+        get_agency_scope_mock.return_value = agency_scope
+        validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=agency_scope,
+            origin_mode=operations_policy.ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+        request_record = SimpleNamespace(reliefrqst_id=88, agency_id=501, status_code=operations_service.STATUS_DRAFT, version_nbr=1)
         request_record.save = lambda **kwargs: None
         load_request_mock.return_value = request_record
         tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
@@ -610,25 +873,26 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        result = operations_service._save_package_allocation(
-            88,
-            payload={
-                "allocations": [
-                    {
-                        "item_id": 101,
-                        "inventory_id": 1,
-                        "batch_id": 1001,
-                        "quantity": "2",
-                    }
-                ],
-                "override_reason_code": "FEFO_BYPASS",
-                "override_note": "Approved by supervisor",
-            },
-            actor_id="manager-1",
-            allow_pending_override=False,
-            supervisor_user_id="manager-1",
-            supervisor_role_codes=["LOGISTICS_MANAGER"],
-        )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            result = operations_service._save_package_allocation(
+                88,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 101,
+                            "inventory_id": 1,
+                            "batch_id": 1001,
+                            "quantity": "2",
+                        }
+                    ],
+                    "override_reason_code": "FEFO_BYPASS",
+                    "override_note": "Approved by supervisor",
+                },
+                actor_id="manager-1",
+                allow_pending_override=False,
+                supervisor_user_id="manager-1",
+                supervisor_role_codes=["LOGISTICS_MANAGER"],
+            )
 
         self.assertEqual(result["status"], "COMMITTED")
         self.assertFalse(result["override_required"])
@@ -694,25 +958,26 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        with self.assertRaises(operations_service.OverrideApprovalError) as raised:
-            operations_service._save_package_allocation(
-                88,
-                payload={
-                    "allocations": [
-                        {
-                            "item_id": 101,
-                            "inventory_id": 1,
-                            "batch_id": 1001,
-                            "quantity": "2",
-                        }
-                    ],
-                    "override_reason_code": "FEFO_BYPASS",
-                },
-                actor_id="manager-1",
-                actor_roles=["LOGISTICS_OFFICER"],
-                actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
-                allow_pending_override=True,
-            )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            with self.assertRaises(operations_service.OverrideApprovalError) as raised:
+                operations_service._save_package_allocation(
+                    88,
+                    payload={
+                        "allocations": [
+                            {
+                                "item_id": 101,
+                                "inventory_id": 1,
+                                "batch_id": 1001,
+                                "quantity": "2",
+                            }
+                        ],
+                        "override_reason_code": "FEFO_BYPASS",
+                    },
+                    actor_id="manager-1",
+                    actor_roles=["LOGISTICS_OFFICER"],
+                    actor_permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
+                    allow_pending_override=True,
+                )
 
         self.assertEqual(raised.exception.code, "override_details_missing")
         validate_override_mock.assert_not_called()
@@ -773,22 +1038,23 @@ class ReliefRequestServiceTests(TestCase):
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
-        with self.assertRaises(operations_service.OverrideApprovalError) as raised:
-            operations_service._save_package_allocation(
-                88,
-                payload={
-                    "allocations": [
-                        {
-                            "item_id": 101,
-                            "inventory_id": 1,
-                            "batch_id": 1001,
-                            "quantity": "2",
-                        }
-                    ],
-                },
-                actor_id="manager-1",
-                allow_pending_override=True,
-            )
+        with patch("operations.services.data_access.get_warehouses_with_stock", return_value=({101: []}, [])):
+            with self.assertRaises(operations_service.OverrideApprovalError) as raised:
+                operations_service._save_package_allocation(
+                    88,
+                    payload={
+                        "allocations": [
+                            {
+                                "item_id": 101,
+                                "inventory_id": 1,
+                                "batch_id": 1001,
+                                "quantity": "2",
+                            }
+                        ],
+                    },
+                    actor_id="manager-1",
+                    allow_pending_override=True,
+                )
 
         self.assertEqual(raised.exception.code, "override_details_missing")
         upsert_rows_mock.assert_not_called()
@@ -832,7 +1098,13 @@ class ReliefRequestServiceTests(TestCase):
             save=lambda **kwargs: saved.update(kwargs),
         )
 
-        with patch("operations.services._load_request", return_value=request_record):
+        with (
+            patch("operations.services._load_request", return_value=request_record),
+            patch(
+                "operations.services.operations_policy.get_agency_scope",
+                return_value=validate_scope_mock.return_value.agency_scope,
+            ),
+        ):
             operations_service.update_request(
                 70,
                 payload={"urgency_ind": "H"},
@@ -1140,6 +1412,7 @@ class DispatchSubmissionStatusTests(TestCase):
                 90,
                 payload={"transport_mode": "TRUCK"},
                 actor_id="dispatch-1",
+                idempotency_key=f"dispatch-status-{request_completion_status}",
             )
 
         return request_filter
@@ -1188,6 +1461,7 @@ class PackageAllocationGuardTests(TestCase):
             payload={"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
             actor_id="manager-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            idempotency_key="override-approve-stable-submitter-88",
         )
 
         self.assertEqual(result, {"status": "COMMITTED"})

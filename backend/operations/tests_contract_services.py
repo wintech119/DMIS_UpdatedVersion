@@ -56,6 +56,7 @@ from operations.constants import (
     ROLE_LOGISTICS_OFFICER,
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    REQUEST_STATUS_DRAFT,
     REQUEST_STATUS_FULFILLED,
     REQUEST_STATUS_INELIGIBLE,
     REQUEST_STATUS_PARTIALLY_FULFILLED,
@@ -256,6 +257,7 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_name="Food For The Poor",
             tenant_type="EXTERNAL",
         )
+        self._seed_warehouse_access_scope()
         fully_dispatched_patcher = patch(
             "operations.contract_services._request_fully_dispatched",
             return_value=False,
@@ -265,6 +267,170 @@ class OperationsWorkflowContractTests(TestCase):
 
     def tearDown(self) -> None:
         cache.clear()
+
+    def _seed_warehouse_access_scope(self) -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS tenant (
+                            tenant_id INTEGER PRIMARY KEY,
+                            tenant_code VARCHAR(64),
+                            tenant_name VARCHAR(255),
+                            tenant_type VARCHAR(32),
+                            parish_code VARCHAR(2),
+                            data_scope VARCHAR(32),
+                            pii_access VARCHAR(32),
+                            mobile_priority VARCHAR(32),
+                            offline_required BOOLEAN,
+                            status_code VARCHAR(1),
+                            create_by_id VARCHAR(20),
+                            create_dtime TIMESTAMP,
+                            update_by_id VARCHAR(20),
+                            update_dtime TIMESTAMP,
+                            version_nbr INTEGER
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS warehouse (
+                            warehouse_id INTEGER PRIMARY KEY,
+                            warehouse_name VARCHAR(255),
+                            warehouse_type VARCHAR(32),
+                            address1_text VARCHAR(255),
+                            address2_text VARCHAR(255),
+                            parish_code VARCHAR(2),
+                            contact_name VARCHAR(255),
+                            phone_no VARCHAR(50),
+                            email_text VARCHAR(255),
+                            custodian_id INTEGER,
+                            status_code VARCHAR(1),
+                            reason_desc TEXT,
+                            create_by_id VARCHAR(20),
+                            create_dtime TIMESTAMP,
+                            update_by_id VARCHAR(20),
+                            update_dtime TIMESTAMP,
+                            version_nbr INTEGER,
+                            min_stock_threshold NUMERIC(12, 2),
+                            last_sync_dtime TIMESTAMP,
+                            sync_status VARCHAR(32),
+                            tenant_id INTEGER
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS tenant_warehouse (
+                            tenant_id INTEGER,
+                            warehouse_id INTEGER,
+                            effective_date DATE,
+                            expiry_date DATE,
+                            create_by_id VARCHAR(20),
+                            create_dtime TIMESTAMP,
+                            update_by_id VARCHAR(20),
+                            update_dtime TIMESTAMP,
+                            version_nbr INTEGER
+                        )
+                        """
+                    )
+                    now = datetime(2026, 3, 26, 9, 0, 0)
+                    tenants = [
+                        (20, "FFP", "Food For The Poor", "EXTERNAL"),
+                        (27, "OFFICE-OF-DISASTER-P", "Office of Disaster Preparedness", "NATIONAL"),
+                    ]
+                    for tenant_id, tenant_code, tenant_name, tenant_type in tenants:
+                        cursor.execute(
+                            """
+                            INSERT INTO tenant (
+                                tenant_id,
+                                tenant_code,
+                                tenant_name,
+                                tenant_type,
+                                status_code,
+                                create_by_id,
+                                create_dtime,
+                                update_by_id,
+                                update_dtime,
+                                version_nbr
+                            )
+                            VALUES (%s, %s, %s, %s, 'A', 'tester', %s, 'tester', %s, 1)
+                            ON CONFLICT (tenant_id) DO UPDATE
+                            SET tenant_code = EXCLUDED.tenant_code,
+                                tenant_name = EXCLUDED.tenant_name,
+                                tenant_type = EXCLUDED.tenant_type,
+                                status_code = EXCLUDED.status_code
+                            """,
+                            [tenant_id, tenant_code, tenant_name, tenant_type, now, now],
+                        )
+                    warehouses = [
+                        (1, "Warehouse 1", "WAREHOUSE", "01", 20),
+                        (2, "Warehouse 2", "WAREHOUSE", "01", 20),
+                        (3, "Warehouse 3", "WAREHOUSE", "01", 20),
+                        (4, "Warehouse 4", "WAREHOUSE", "01", 20),
+                        (5, "Warehouse 5", "WAREHOUSE", "01", 20),
+                        (8, "Warehouse 8", "WAREHOUSE", "01", 20),
+                        (9, "Warehouse 9", "WAREHOUSE", "01", 20),
+                        (11, "FFP Warehouse", "WAREHOUSE", "01", 20),
+                        (55, "ODPEM Hub 55", "SUB-HUB", "01", 27),
+                        (56, "ODPEM Hub 56", "SUB-HUB", "02", 27),
+                        (77, "ODPEM Hub 77", "SUB-HUB", "02", 27),
+                        (99, "Warehouse 99", "WAREHOUSE", "01", 20),
+                    ]
+                    for warehouse_id, warehouse_name, warehouse_type, parish_code, owner_tenant_id in warehouses:
+                        cursor.execute(
+                            """
+                            INSERT INTO warehouse (
+                                warehouse_id,
+                                warehouse_name,
+                                warehouse_type,
+                                parish_code,
+                                status_code,
+                                create_by_id,
+                                create_dtime,
+                                update_by_id,
+                                update_dtime,
+                                version_nbr,
+                                tenant_id
+                            )
+                            VALUES (%s, %s, %s, %s, 'A', 'tester', %s, 'tester', %s, 1, %s)
+                            ON CONFLICT (warehouse_id) DO UPDATE
+                            SET warehouse_name = EXCLUDED.warehouse_name,
+                                warehouse_type = EXCLUDED.warehouse_type,
+                                parish_code = EXCLUDED.parish_code,
+                                status_code = EXCLUDED.status_code,
+                                tenant_id = EXCLUDED.tenant_id
+                            """,
+                            [warehouse_id, warehouse_name, warehouse_type, parish_code, now, now, owner_tenant_id],
+                        )
+                        cursor.execute(
+                            """
+                            DELETE FROM tenant_warehouse
+                            WHERE tenant_id = %s
+                              AND warehouse_id = %s
+                            """,
+                            [20, warehouse_id],
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO tenant_warehouse (
+                                tenant_id,
+                                warehouse_id,
+                                effective_date,
+                                expiry_date,
+                                create_by_id,
+                                create_dtime,
+                                update_by_id,
+                                update_dtime,
+                                version_nbr
+                            )
+                            VALUES (%s, %s, %s, NULL, 'tester', %s, 'tester', %s, 1)
+                            """,
+                            [20, warehouse_id, date(2026, 1, 1), now, now],
+                        )
+        except DatabaseError as exc:
+            raise AssertionError(f"Warehouse fixture seeding failed: {exc}") from exc
 
     def _create_needs_list(self, *, needs_list_id: int = 17, warehouse_id: int = 1) -> NeedsList:
         return NeedsList.objects.create(
@@ -559,10 +725,16 @@ class OperationsWorkflowContractTests(TestCase):
                             "A",
                         ],
                     )
-        except DatabaseError:
-            return
+        except DatabaseError as exc:
+            raise AssertionError(f"Agency fixture seeding failed: {exc}") from exc
 
-    def _create_operations_request_record(self, relief_request_id: int = 70, agency_id: int = 501) -> OperationsReliefRequest:
+    def _create_operations_request_record(
+        self,
+        relief_request_id: int = 70,
+        agency_id: int = 501,
+        *,
+        status_code: str = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    ) -> OperationsReliefRequest:
         return OperationsReliefRequest.objects.create(
             relief_request_id=relief_request_id,
             request_no=f"RQ{relief_request_id:05d}",
@@ -574,7 +746,7 @@ class OperationsWorkflowContractTests(TestCase):
             event_id=12,
             request_date=date(2026, 3, 26),
             urgency_code="H",
-            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            status_code=status_code,
             create_by_id="tester",
             update_by_id="tester",
         )
@@ -865,6 +1037,7 @@ class OperationsWorkflowContractTests(TestCase):
         load_request_mock,
         validate_selection_mock,
     ) -> None:
+        self._create_operations_request_record(status_code=REQUEST_STATUS_DRAFT)
         draft_request = self._request_stub(
             reliefrqst_id=70,
             agency_id=501,
@@ -900,6 +1073,7 @@ class OperationsWorkflowContractTests(TestCase):
         validate_selection_mock,
         _get_request_mock,
     ) -> None:
+        self._create_operations_request_record(status_code=REQUEST_STATUS_DRAFT)
         validate_selection_mock.return_value = operations_policy.ReliefRequestWriteDecision(
             agency_scope=self.agency_scope,
             origin_mode=ORIGIN_MODE_SELF,
@@ -937,6 +1111,7 @@ class OperationsWorkflowContractTests(TestCase):
         load_request_mock,
         update_request_mock,
     ) -> None:
+        self._create_operations_request_record(status_code=REQUEST_STATUS_DRAFT)
         load_request_mock.return_value = self.request
 
         with self.assertRaises(OperationValidationError) as raised:
@@ -1316,7 +1491,11 @@ class OperationsWorkflowContractTests(TestCase):
             with self.assertRaises(OperationValidationError) as raised:
                 contract_services.approve_override(
                     70,
-                    payload={"allocations": [{"item_id": 101, "quantity": "1"}]},
+                    payload={
+                        "allocations": [
+                            {"item_id": 101, "inventory_id": 8, "batch_id": 8001, "quantity": "1"}
+                        ]
+                    },
                     actor_id="manager-1",
                     actor_roles=["LOGISTICS_MANAGER"],
                     tenant_context=self.dispatch_ready_context,
@@ -2518,6 +2697,7 @@ class OperationsWorkflowContractTests(TestCase):
                 tenant_context=self.dispatch_ready_context,
                 idempotency_key="submit-70",
             )
+        load_request_count_after_first_submit = load_request_mock.call_count
         queue_count = OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count()
         notification_count = OperationsNotification.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count()
         second = contract_services.submit_request(
@@ -2529,7 +2709,7 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(submit_request_mock.call_count, 1)
-        self.assertEqual(load_request_mock.call_count, 1)
+        self.assertEqual(load_request_mock.call_count, load_request_count_after_first_submit)
         self.assertEqual(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_id=70).count(),
             queue_count,
@@ -2583,7 +2763,7 @@ class OperationsWorkflowContractTests(TestCase):
             )
 
         self.assertIn("scope", raised.exception.errors)
-        self.assertEqual(submit_request_mock.call_count, 2)
+        self.assertEqual(submit_request_mock.call_count, 1)
 
     @patch("operations.contract_services.cache.set")
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
@@ -3442,14 +3622,15 @@ class OperationsWorkflowContractTests(TestCase):
             assignment_status="OPEN",
         )
 
-        contract_services.save_package(
-            95009,
-            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
-            actor_id="devon_tst",
-            actor_roles=[ROLE_LOGISTICS_OFFICER],
-            tenant_context=self.odpem_context,
-            permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
-        )
+        with patch("operations.contract_services.can_access_warehouse", return_value=True):
+            contract_services.save_package(
+                95009,
+                payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+                actor_id="devon_tst",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+                tenant_context=self.odpem_context,
+                permissions=[PERM_OPERATIONS_PACKAGE_OVERRIDE_REQUEST],
+            )
 
         override_assignment = OperationsQueueAssignment.objects.get(
             queue_code=QUEUE_CODE_OVERRIDE,
@@ -3484,6 +3665,130 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
+
+    @patch("operations.contract_services.list_staging_hubs")
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_staging_recommendation_includes_backend_vetted_hub_options(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+        list_staging_hubs_mock,
+    ) -> None:
+        self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        get_agency_scope_mock.return_value = self.agency_scope
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        list_staging_hubs_mock.return_value = [
+            {"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+            {"warehouse_id": 56, "warehouse_name": "ODPEM Hub 56", "parish_code": "02"},
+        ]
+
+        result = contract_services.get_staging_recommendation(
+            70,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual(result["recommended_staging_warehouse_id"], 55)
+        self.assertEqual(
+            result["staging_hubs"],
+            [
+                {"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+                {"warehouse_id": 56, "warehouse_name": "ODPEM Hub 56", "parish_code": "02"},
+            ],
+        )
+
+    @patch("operations.contract_services.list_staging_hubs")
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_staging_recommendation_falls_back_when_staging_hub_list_fails(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+        list_staging_hubs_mock,
+    ) -> None:
+        self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        get_agency_scope_mock.return_value = self.agency_scope
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        list_staging_hubs_mock.side_effect = DatabaseError("warehouse lookup unavailable")
+
+        with self.assertLogs("operations.contract_services", level="WARNING") as logs:
+            result = contract_services.get_staging_recommendation(
+                70,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(result["recommended_staging_warehouse_id"], 55)
+        self.assertEqual(result["staging_hubs"], [])
+        self.assertTrue(
+            any("failed to list staging hubs for recommendation" in message for message in logs.output)
+        )
+
+    @patch("operations.contract_services.list_staging_hubs")
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_staging_recommendation_denies_cross_tenant_access(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+        list_staging_hubs_mock,
+    ) -> None:
+        self._create_operations_request_record(relief_request_id=70, agency_id=501)
+        other_tenant_context = _tenant_context(
+            tenant_id=21,
+            tenant_code="OTHER",
+            tenant_type="EXTERNAL",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        get_agency_scope_mock.return_value = self.agency_scope
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        list_staging_hubs_mock.return_value = [
+            {"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+        ]
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.get_staging_recommendation(
+                70,
+                actor_id="other-logistics-manager",
+                actor_roles=self.dispatch_roles,
+                tenant_context=other_tenant_context,
+            )
+
+        self.assertIn("scope", raised.exception.errors)
+        recommend_staging_hub_mock.assert_not_called()
+        list_staging_hubs_mock.assert_not_called()
 
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
     @patch("operations.contract_services.recommend_staging_hub")
@@ -12621,6 +12926,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         fully_dispatched_patcher.start()
         self.addCleanup(fully_dispatched_patcher.stop)
 
+    @patch("operations.contract_services.can_access_warehouse", return_value=True)
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -12631,6 +12937,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         current_package_mock,
         load_request_mock,
         get_agency_scope_mock,
+        _can_access_warehouse_mock,
     ) -> None:
         load_request_mock.return_value = self.request_stub
         current_package_mock.return_value = self.package_stub
@@ -12673,6 +12980,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         self.assertEqual(lines[1].source_warehouse_id, 2)
         self.assertEqual(lines[1].batch_id, 20)
 
+    @patch("operations.contract_services.can_access_warehouse", return_value=True)
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -12683,6 +12991,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         current_package_mock,
         load_request_mock,
         get_agency_scope_mock,
+        _can_access_warehouse_mock,
     ) -> None:
         load_request_mock.return_value = self.request_stub
         current_package_mock.return_value = self.package_stub
@@ -12806,6 +13115,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         self.assertIn("allocations[1]", raised.exception.errors)
         save_package_mock.assert_not_called()
 
+    @patch("operations.contract_services.can_access_warehouse", return_value=True)
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -12816,6 +13126,7 @@ class MultiWarehouseDualWriteTests(TestCase):
         current_package_mock,
         load_request_mock,
         get_agency_scope_mock,
+        _can_access_warehouse_mock,
     ) -> None:
         load_request_mock.return_value = self.request_stub
         current_package_mock.return_value = self.package_stub

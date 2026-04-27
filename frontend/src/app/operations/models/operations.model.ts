@@ -58,6 +58,8 @@ export type EligibilityDecision = 'Y' | 'APPROVED' | 'REJECTED' | 'INELIGIBLE';
 export type AllocationSourceType = 'ON_HAND' | 'TRANSFER' | 'DONATION' | 'PROCUREMENT';
 export type AllocationMethod = 'FEFO' | 'FIFO' | 'MIXED' | 'MANUAL';
 export type OperationsEntityType = 'RELIEF_REQUEST' | 'REQUEST' | 'PACKAGE' | 'DISPATCH';
+export type RequestOriginMode = 'SELF' | 'FOR_SUBORDINATE' | 'ODPEM_BRIDGE';
+export type AuditEventKind = 'STATUS_TRANSITION' | 'ACTION_AUDIT';
 
 export interface RequestReferenceOption {
   value: number;
@@ -68,6 +70,17 @@ export interface RequestReferenceDataResponse {
   agencies: RequestReferenceOption[];
   events: RequestReferenceOption[];
   items: RequestReferenceOption[];
+}
+
+export interface RequestAuthorityPreviewResponse {
+  can_create: boolean;
+  allowed_origin_modes: RequestOriginMode[];
+  required_authority_tenant_id: number | null;
+  required_authority_tenant_name?: string | null;
+  beneficiary_tenant_id: number;
+  beneficiary_agency_id: number | null;
+  suggested_event_id: number | null;
+  blocked_reason_code: string | null;
 }
 
 // Request
@@ -163,17 +176,31 @@ export interface RequestSummary {
   execution_status: string | null;
   needs_list_id: number | null;
   compatibility_bridge: boolean;
-  request_mode: 'SELF' | 'FOR_SUBORDINATE' | 'ODPEM_BRIDGE' | null;
+  request_mode: RequestOriginMode | null;
   authority_context: string | null;
   requesting_tenant_id: number | null;
   requesting_agency_id: number | null;
   beneficiary_tenant_id: number | null;
   beneficiary_agency_id: number | null;
+  source_needs_list_id?: number | null;
+}
+
+export interface AuditEvent {
+  event_kind: AuditEventKind;
+  from_status_code: RequestStatusCode | string | null;
+  to_status_code: RequestStatusCode | string | null;
+  action_code: string | null;
+  action_reason: string | null;
+  occurred_at: string;
+  actor_role_code: string | null;
+  actor_user_label: string | null;
 }
 
 export interface RequestDetailResponse extends RequestSummary {
   items: RequestItem[];
   packages: PackageSummary[];
+  audit_timeline?: AuditEvent[];
+  audit_timeline_truncated?: boolean;
 }
 
 export interface RequestListResponse {
@@ -191,6 +218,9 @@ export interface CreateRequestItemPayload {
 
 export interface CreateRequestPayload {
   agency_id: number;
+  beneficiary_agency_id?: number | null;
+  origin_mode?: RequestOriginMode;
+  source_needs_list_id?: number | null;
   urgency_ind: UrgencyCode;
   eligible_event_id?: number | null;
   rqst_notes_text?: string;
@@ -199,6 +229,7 @@ export interface CreateRequestPayload {
 
 export interface UpdateRequestPayload {
   agency_id?: number;
+  source_needs_list_id?: number | null;
   urgency_ind?: UrgencyCode;
   eligible_event_id?: number | null;
   rqst_notes_text?: string;
@@ -824,6 +855,13 @@ export interface StagingRecommendationResponse {
   recommended_staging_warehouse_name: string | null;
   recommended_staging_parish_code: string | null;
   staging_selection_basis: StagingSelectionBasis | null;
+  staging_hubs: StagingHubOption[];
+}
+
+export interface StagingHubOption {
+  warehouse_id: number;
+  warehouse_name: string;
+  parish_code: string | null;
 }
 
 export interface PartialReleaseRequestPayload {

@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Any, Iterable
 
 from django.conf import settings
-from django.db import DatabaseError, connection, models
+from django.db import DatabaseError, connection, models, transaction
 from django.utils import timezone
 
 from api.rbac import (
@@ -88,21 +88,22 @@ def resolve_odpem_tenant_id() -> int | None:
         except (TypeError, ValueError):
             return None
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT tenant_id
-                FROM tenant
-                WHERE tenant_code IS NOT NULL
-                  AND (
-                    UPPER(REPLACE(REPLACE(tenant_code, '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P'
-                    OR UPPER(tenant_code) LIKE 'ODPEM%%'
-                  )
-                ORDER BY tenant_id
-                LIMIT 1
-                """
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT tenant_id
+                    FROM tenant
+                    WHERE tenant_code IS NOT NULL
+                      AND (
+                        UPPER(REPLACE(REPLACE(tenant_code, '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P'
+                        OR UPPER(tenant_code) LIKE 'ODPEM%%'
+                      )
+                    ORDER BY tenant_id
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return None
 
@@ -241,22 +242,23 @@ def _tenant_allows_relief_request_on_behalf(
         return bool(target_policy.allow_odpem_bridge_flag)
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT allow_neoc_actions, allow_cross_tenant_write
-                FROM tenant_access_policy
-                WHERE
-                    tenant_id = %s
-                    AND COALESCE(status_code, 'A') = 'A'
-                    AND effective_date <= CURRENT_DATE
-                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-                ORDER BY effective_date DESC, update_dtime DESC, policy_id DESC
-                LIMIT 1
-                """,
-                [int(target_tenant_id)],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT allow_neoc_actions, allow_cross_tenant_write
+                    FROM tenant_access_policy
+                    WHERE
+                        tenant_id = %s
+                        AND COALESCE(status_code, 'A') = 'A'
+                        AND effective_date <= CURRENT_DATE
+                        AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                    ORDER BY effective_date DESC, update_dtime DESC, policy_id DESC
+                    LIMIT 1
+                    """,
+                    [int(target_tenant_id)],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         row = None
 
@@ -264,22 +266,23 @@ def _tenant_allows_relief_request_on_behalf(
         return bool(row[0]) or bool(row[1])
 
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT config_value
-                FROM tenant_config
-                WHERE
-                    tenant_id = %s
-                    AND config_key = %s
-                    AND effective_date <= CURRENT_DATE
-                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-                ORDER BY effective_date DESC, update_dtime DESC, config_id DESC
-                LIMIT 1
-                """,
-                [int(target_tenant_id), _RELIEF_REQUEST_ON_BEHALF_POLICY_KEY],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT config_value
+                    FROM tenant_config
+                    WHERE
+                        tenant_id = %s
+                        AND config_key = %s
+                        AND effective_date <= CURRENT_DATE
+                        AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                    ORDER BY effective_date DESC, update_dtime DESC, config_id DESC
+                    LIMIT 1
+                    """,
+                    [int(target_tenant_id), _RELIEF_REQUEST_ON_BEHALF_POLICY_KEY],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return False
 
@@ -323,29 +326,30 @@ def _agency_scope_error(
 
 def get_agency_scope(agency_id: int) -> AgencyScope | None:
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    a.agency_id,
-                    a.agency_name,
-                    a.agency_type,
-                    a.warehouse_id,
-                    t.tenant_id,
-                    t.tenant_code,
-                    t.tenant_name,
-                    t.tenant_type
-                FROM agency a
-                LEFT JOIN warehouse w ON w.warehouse_id = a.warehouse_id
-                LEFT JOIN tenant t ON t.tenant_id = w.tenant_id
-                WHERE
-                    a.agency_id = %s
-                    AND COALESCE(a.status_code, 'A') = 'A'
-                LIMIT 1
-                """,
-                [int(agency_id)],
-            )
-            row = cursor.fetchone()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        a.agency_id,
+                        a.agency_name,
+                        a.agency_type,
+                        a.warehouse_id,
+                        t.tenant_id,
+                        t.tenant_code,
+                        t.tenant_name,
+                        t.tenant_type
+                    FROM agency a
+                    LEFT JOIN warehouse w ON w.warehouse_id = a.warehouse_id
+                    LEFT JOIN tenant t ON t.tenant_id = w.tenant_id
+                    WHERE
+                        a.agency_id = %s
+                        AND COALESCE(a.status_code, 'A') = 'A'
+                    LIMIT 1
+                    """,
+                    [int(agency_id)],
+                )
+                row = cursor.fetchone()
     except DatabaseError:
         return None
 

@@ -86,6 +86,7 @@ const OPERATIONS_ANY_PERMISSIONS = [
   'operations.request.create.on_behalf_bridge',
   'operations.request.edit.draft',
   'operations.request.submit',
+  'operations.request.cancel',
   'operations.eligibility',
   'operations.eligibility.*',
   'operations.eligibility.review',
@@ -110,6 +111,7 @@ const OPERATIONS_REQUEST_PERMISSIONS = [
   'operations.request.create.on_behalf_bridge',
   'operations.request.edit.draft',
   'operations.request.submit',
+  'operations.request.cancel',
 ];
 
 const OPERATIONS_ELIGIBILITY_PERMISSIONS = [
@@ -329,6 +331,10 @@ export class AppAccessService {
 
   canSubmitReliefRequest(): boolean {
     return this.hasPermission('operations.request.submit');
+  }
+
+  canCancelReliefRequest(): boolean {
+    return this.hasPermission('operations.request.cancel');
   }
 
   private canAccessEligibility(): boolean {

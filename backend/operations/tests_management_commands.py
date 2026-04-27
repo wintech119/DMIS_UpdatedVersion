@@ -689,6 +689,19 @@ class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
         self.assertNotIn(rbac.PERM_OPERATIONS_CONSOLIDATION_RECEIVE, permissions)
         self.assertNotIn(rbac.PERM_OPERATIONS_PICKUP_RELEASE, permissions)
 
+    def test_cancel_permission_seed_is_limited_to_requester_roles(self) -> None:
+        from api import rbac
+        from operations.management.commands.seed_operations_rbac_permissions import (
+            OPERATIONS_ROLE_PERMISSION_MAP,
+        )
+
+        for role_code in ("AGENCY_DISTRIBUTOR", "AGENCY_SHELTER", "CUSTODIAN", "SYSTEM_ADMINISTRATOR"):
+            with self.subTest(role_code=role_code):
+                self.assertIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, OPERATIONS_ROLE_PERMISSION_MAP[role_code])
+
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, OPERATIONS_ROLE_PERMISSION_MAP["LOGISTICS_OFFICER"])
+        self.assertNotIn(rbac.PERM_OPERATIONS_REQUEST_CANCEL, OPERATIONS_ROLE_PERMISSION_MAP["LOGISTICS_MANAGER"])
+
     @patch(
         "operations.management.commands.seed_operations_rbac_permissions.Command._fetch_role_permission_keys",
         return_value=set(),
