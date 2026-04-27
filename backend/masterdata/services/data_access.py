@@ -52,6 +52,11 @@ _WORKFLOW_STATE_ALIASES = {
 }
 
 
+def _legacy_user_name(value: object) -> str:
+    text = str(value or "").strip() or "KEYCLOAK_USER"
+    return text[:20]
+
+
 # ---------------------------------------------------------------------------
 # DB helpers (same pattern as replenishment.services.data_access)
 # ---------------------------------------------------------------------------
@@ -311,6 +316,7 @@ class TableConfig:
         audit_update_time: str = "update_dtime",
         default_order: str = "",
         dependencies: list[DependencyDef] | None = None,
+        unique_together: list[tuple[str, ...]] | None = None,
         active_status: str = "A",
         inactive_status: str = "I",
         has_audit: bool = True,
@@ -330,6 +336,7 @@ class TableConfig:
         self.audit_update_time = audit_update_time
         self.default_order = default_order or pk_field
         self.dependencies = dependencies or []
+        self.unique_together = unique_together or []
         self.active_status = active_status
         self.inactive_status = inactive_status
         self.has_audit = has_audit
@@ -341,6 +348,17 @@ class TableConfig:
             raise ValueError(
                 f"lookup_label {self.lookup_label!r} is not defined on table {self.key!r}"
             )
+        for unique_group in self.unique_together:
+            missing_fields = [
+                field_name
+                for field_name in unique_group
+                if field_name not in self._field_map
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"unique_together {unique_group!r} contains undefined field(s) "
+                    f"on table {self.key!r}: {', '.join(missing_fields)}"
+                )
         self._pk_def: FieldDef | None = next((f for f in fields if f.pk), None)
 
     def field(self, name: str) -> FieldDef | None:
@@ -363,10 +381,16 @@ class TableConfig:
         """Fields that appear in create/update payloads (excludes auto-PK, audit, version)."""
         exclude: set[str] = set()
         if self.has_audit:
-            exclude.update({
-                self.audit_create_user, self.audit_create_time,
-                self.audit_update_user, self.audit_update_time,
-            })
+            exclude.update(
+                audit_field
+                for audit_field in (
+                    self.audit_create_user,
+                    self.audit_create_time,
+                    self.audit_update_user,
+                    self.audit_update_time,
+                )
+                if audit_field
+            )
         if self.has_version:
             exclude.add(self.version_field)
         return [f for f in self.fields if not f.auto_pk and f.name not in exclude]
@@ -382,6 +406,113 @@ TABLE_REGISTRY: Dict[str, TableConfig] = {}
 def _register(cfg: TableConfig) -> TableConfig:
     TABLE_REGISTRY[cfg.key] = cfg
     return cfg
+
+
+_register(TableConfig(
+    key="user",
+    db_table='"user"',
+    pk_field="user_id",
+    display_name="Users",
+    default_order="username",
+    lookup_label="username",
+    audit_create_user="",
+    audit_update_user="",
+    fields=[
+        FieldDef("user_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("username", unique=True, max_length=60, searchable=True, label="Username"),
+        FieldDef("email", required=True, unique=True, max_length=200, searchable=True, label="Email"),
+        FieldDef("first_name", max_length=100, searchable=True, label="First Name"),
+        FieldDef("last_name", max_length=100, searchable=True, label="Last Name"),
+        FieldDef("full_name", max_length=200, searchable=True, label="Full Name"),
+        FieldDef("is_active", db_type="boolean", default=True, label="Active"),
+        FieldDef("assigned_warehouse_id", db_type="int", label="Assigned Warehouse",
+                 fk_table="warehouse", fk_pk="warehouse_id", fk_label="warehouse_name"),
+        FieldDef("agency_id", db_type="int", label="Agency",
+                 fk_table="agency", fk_pk="agency_id", fk_label="agency_name"),
+        FieldDef("phone", max_length=50, label="Phone"),
+        FieldDef("timezone", required=True, max_length=50, default="America/Jamaica", label="Timezone"),
+        FieldDef("language", required=True, max_length=10, default="en", label="Language"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I", "L"], label="Status"),
+    ],
+))
+
+_register(TableConfig(
+    key="role",
+    db_table="role",
+    pk_field="id",
+    display_name="Roles",
+    status_field="",
+    has_audit=False,
+    has_version=False,
+    default_order="code",
+    lookup_label="code",
+    fields=[
+        FieldDef("id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("code", required=True, unique=True, uppercase=True,
+                 max_length=50, searchable=True, label="Code",
+                 pattern=r"^[A-Z_][A-Z0-9_]*$",
+                 pattern_message="Only uppercase letters, digits, and underscores are allowed."),
+        FieldDef("name", required=True, max_length=100, searchable=True, label="Name"),
+        FieldDef("description", db_type="text", label="Description"),
+    ],
+))
+
+_register(TableConfig(
+    key="permission",
+    db_table="permission",
+    pk_field="perm_id",
+    display_name="Permissions",
+    status_field="",
+    default_order="resource",
+    unique_together=[("resource", "action")],
+    lookup_label="resource",
+    fields=[
+        FieldDef("perm_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("resource", required=True, max_length=40, searchable=True, label="Resource"),
+        FieldDef("action", required=True, max_length=32, searchable=True, label="Action"),
+    ],
+))
+
+_register(TableConfig(
+    key="tenant",
+    db_table="tenant",
+    pk_field="tenant_id",
+    display_name="Tenants",
+    default_order="tenant_code",
+    lookup_label="tenant_name",
+    fields=[
+        FieldDef("tenant_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("tenant_code", required=True, unique=True, uppercase=True,
+                 max_length=20, searchable=True, label="Tenant Code"),
+        FieldDef("tenant_name", required=True, uppercase=True,
+                 max_length=120, searchable=True, label="Tenant Name"),
+        FieldDef("tenant_type", required=True, max_length=20, label="Tenant Type",
+                 choices=[
+                     "NATIONAL", "MILITARY", "SOCIAL_SERVICES", "PARISH", "NGO",
+                     "MINISTRY", "EXTERNAL", "INFRASTRUCTURE", "PUBLIC",
+                 ]),
+        FieldDef("parent_tenant_id", db_type="int", label="Parent Tenant",
+                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
+        FieldDef("data_scope", max_length=50, default="OWN_DATA", label="Data Scope",
+                 choices=["OWN_DATA", "PARISH_DATA", "REGIONAL_DATA", "NATIONAL_DATA"]),
+        FieldDef("pii_access", max_length=20, default="NONE", label="PII Access",
+                 choices=["NONE", "AGGREGATED", "LIMITED", "MASKED", "FULL"]),
+        FieldDef("offline_required", db_type="boolean", default=False, label="Offline Required"),
+        FieldDef("mobile_priority", max_length=10, default="LOW", label="Mobile Priority",
+                 choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+        FieldDef("address1_text", max_length=255, label="Address Line 1"),
+        FieldDef("parish_code", uppercase=True, max_length=2, label="Parish",
+                 fk_table="parish", fk_pk="parish_code", fk_label="parish_name"),
+        FieldDef("contact_name", max_length=50, searchable=True, label="Contact Name"),
+        FieldDef("phone_no", max_length=20, label="Phone"),
+        FieldDef("email_text", max_length=100, label="Email",
+                 pattern=r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
+                 pattern_message="Invalid email format"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+))
 
 
 # ── Item Categories ───────────────────────────────────────────────────────
@@ -1068,10 +1199,16 @@ def get_record(
     # Include audit + version columns if present
     extra_cols: list[str] = []
     if cfg.has_audit:
-        extra_cols.extend([
-            cfg.audit_create_user, cfg.audit_create_time,
-            cfg.audit_update_user, cfg.audit_update_time,
-        ])
+        extra_cols.extend(
+            audit_field
+            for audit_field in (
+                cfg.audit_create_user,
+                cfg.audit_create_time,
+                cfg.audit_update_user,
+                cfg.audit_update_time,
+            )
+            if audit_field
+        )
     if cfg.has_version:
         extra_cols.append(cfg.version_field)
     all_cols = columns
@@ -1301,11 +1438,34 @@ def create_record(
             columns.append(fd.name)
             values.append(fd.default)
 
+    if table_key == "user":
+        username = data.get("username") or data.get("email")
+        hidden_defaults = {
+            "password_hash": "",
+            "user_name": _legacy_user_name(username),
+            "password_algo": "argon2id",
+            "mfa_enabled": False,
+            "failed_login_count": 0,
+            "login_count": 0,
+        }
+        for column_name, value in hidden_defaults.items():
+            columns.append(column_name)
+            values.append(value)
+
     # Audit columns
     if cfg.has_audit:
-        columns.extend([cfg.audit_create_user, cfg.audit_create_time,
-                         cfg.audit_update_user, cfg.audit_update_time])
-        values.extend([actor_id, "NOW()", actor_id, "NOW()"])
+        if cfg.audit_create_user:
+            columns.append(cfg.audit_create_user)
+            values.append(actor_id)
+        if cfg.audit_create_time:
+            columns.append(cfg.audit_create_time)
+            values.append("NOW()")
+        if cfg.audit_update_user:
+            columns.append(cfg.audit_update_user)
+            values.append(actor_id)
+        if cfg.audit_update_time:
+            columns.append(cfg.audit_update_time)
+            values.append("NOW()")
     if cfg.has_version:
         columns.append(cfg.version_field)
         values.append(1)
@@ -1411,9 +1571,11 @@ def update_record(
 
     # Audit
     if cfg.has_audit:
-        set_parts.append(f"{cfg.audit_update_user} = %s")
-        params.append(actor_id)
-        set_parts.append(f"{cfg.audit_update_time} = NOW()")
+        if cfg.audit_update_user:
+            set_parts.append(f"{cfg.audit_update_user} = %s")
+            params.append(actor_id)
+        if cfg.audit_update_time:
+            set_parts.append(f"{cfg.audit_update_time} = NOW()")
     if cfg.has_version:
         set_parts.append(f"{cfg.version_field} = {cfg.version_field} + 1")
 
@@ -1852,6 +2014,67 @@ def check_uniqueness(
             return count == 0, []
     except DatabaseError as exc:
         logger.warning("check_uniqueness(%s.%s) failed: %s", table_key, field_name, exc)
+        return True, ["db_error"]
+
+
+def check_composite_uniqueness(
+    table_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+    exclude_pk: Any = None,
+) -> Tuple[bool, List[str]]:
+    """
+    Check if a configured field tuple is unique.
+    Field names come from TableConfig.unique_together; values stay parameterized.
+    """
+    cfg = TABLE_REGISTRY[table_key]
+    field_defs = [cfg.field(field_name) for field_name in field_names]
+    if any(fd is None for fd in field_defs):
+        logger.warning(
+            "check_composite_uniqueness(%s.%s): invalid field_names",
+            table_key,
+            ",".join(field_names),
+        )
+        return True, ["invalid_field"]
+
+    if _is_sqlite():
+        return True, ["db_unavailable"]
+
+    schema = _schema_name()
+    where_parts: list[str] = []
+    params: list[Any] = []
+    for fd in field_defs:
+        if fd is None:
+            continue
+        if fd.db_type in {"varchar", "char", "text"}:
+            where_parts.append(f"UPPER({fd.name}) = UPPER(%s)")
+        else:
+            where_parts.append(f"{fd.name} = %s")
+        params.append(values.get(fd.name))
+
+    if exclude_pk is not None:
+        where_parts.append(f"{cfg.pk_field} != %s")
+        params.append(exclude_pk)
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {schema}.{cfg.db_table}
+                WHERE {" AND ".join(where_parts)}
+                """,
+                params,
+            )
+            count = cursor.fetchone()[0]
+            return count == 0, []
+    except DatabaseError as exc:
+        logger.warning(
+            "check_composite_uniqueness(%s.%s) failed: %s",
+            table_key,
+            ",".join(field_names),
+            exc,
+        )
         return True, ["db_error"]
 
 

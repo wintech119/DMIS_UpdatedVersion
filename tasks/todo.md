@@ -145,3 +145,13 @@ Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 0, e
 2. Completed: patched only confirmed gaps while preserving backend authorization enforcement and avoiding visual layout/style changes.
 3. Completed: ran focused Django, Angular, markdown-reference, and diff verification.
 4. Completed: completed post-implementation backend/frontend and architecture-review closeout.
+
+## Advanced/System Master Data Brief #2 - 2026-04-27
+
+Risk score: 9 / High-by-brief using the architecture-review handoff. Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: read the implementation brief, backend implementation skill, backend guidance, and targeted architecture/security controls.
+2. Completed: inspect current RBAC, masterdata permission, validation, registry, schema, and test patterns before editing.
+3. Completed: add advanced permission constants, seed migration, flat advanced `TableConfig` entries, permission routing, and focused tests.
+4. Completed: run migration and targeted advanced masterdata verification; full masterdata suite was attempted and hit pre-existing baseline failures after rerun with `--keepdb`.
+5. Completed: completed post-implementation architecture review and report per the brief.
