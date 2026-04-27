@@ -9,21 +9,288 @@ import { localAuthHarnessClientEnabled } from '../core/dev-user.interceptor';
 import { DmisLocalHarnessSwitcherComponent } from '../local-harness-switcher.component';
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
 
+const AUTH_PAGE_STYLES = [`
+  :host {
+    position: relative;
+    display: block;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--color-surface-muted);
+    color: var(--color-text-primary);
+    font-family: var(--dmis-font-sans);
+  }
+
+  :host::before {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 1;
+    height: 4px;
+    background: var(--color-accent);
+  }
+
+  .auth-page {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 4rem var(--page-padding) var(--page-padding);
+  }
+
+  .auth-card {
+    position: relative;
+    width: min(100%, 26rem);
+    padding: 2rem 1.75rem;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text-primary) 4%, transparent);
+  }
+
+  .auth-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: var(--color-accent);
+  }
+
+  .auth-brand-mark {
+    width: 32px;
+    aspect-ratio: 1;
+    margin: 0 0 0.75rem;
+    border-radius: var(--radius-inner);
+    background: var(--color-surface-muted);
+  }
+
+  .auth-eyebrow {
+    margin: 0 0 0.5rem;
+    color: var(--color-accent);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-wide);
+    line-height: var(--leading-tight);
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: clamp(1.875rem, 5.5vw, 2.25rem);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0;
+    line-height: 1.1;
+  }
+
+  .auth-status,
+  .auth-warning,
+  .auth-hint,
+  .auth-copy {
+    color: var(--color-text-primary);
+    font-size: var(--text-base);
+    font-weight: var(--weight-normal);
+    line-height: var(--leading-relaxed);
+  }
+
+  .auth-status {
+    margin: 1rem 0 0;
+  }
+
+  .auth-status[data-tone='critical'] {
+    padding-left: 0.875rem;
+    border-left: 1px solid var(--color-critical);
+  }
+
+  .auth-warning {
+    margin: 0;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-bg-warning);
+    color: var(--color-warning-text);
+  }
+
+  .auth-hint,
+  .auth-copy {
+    margin: 1rem 0 0;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  .auth-primary,
+  .auth-secondary,
+  .auth-link {
+    min-height: 44px;
+    border-radius: var(--radius-card);
+    font-family: var(--dmis-font-sans);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    line-height: 1;
+    text-decoration: none;
+  }
+
+  .auth-primary {
+    width: 100%;
+    margin-top: 1.5rem;
+    border: 0;
+    padding: 0.75rem 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-accent);
+    color: var(--color-surface);
+    cursor: pointer;
+    transition: background-color 200ms ease;
+  }
+
+  .auth-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-accent) 88%, var(--color-text-primary));
+  }
+
+  .auth-primary:focus-visible,
+  .auth-secondary:focus-visible,
+  .auth-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+  }
+
+  .auth-primary:active:not(:disabled) {
+    transform: translateY(1px);
+    background: color-mix(in srgb, var(--color-accent) 80%, var(--color-text-primary));
+  }
+
+  .auth-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .auth-primary__skeleton {
+    position: relative;
+    width: 60%;
+    height: 12px;
+    overflow: hidden;
+    border-radius: var(--radius-inner);
+    background: color-mix(in srgb, var(--color-surface) 25%, var(--color-accent));
+  }
+
+  .auth-primary__skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--color-surface) 45%, transparent),
+      transparent
+    );
+    transform: translateX(-100%);
+  }
+
+  .auth-secondary,
+  .auth-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+    color: var(--color-accent);
+  }
+
+  .auth-local-harness {
+    margin-top: 1.5rem;
+    display: grid;
+    gap: 1rem;
+  }
+
+  .auth-local-harness dmis-local-harness-switcher {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .auth-actions {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .auth-actions .auth-primary,
+  .auth-actions .auth-secondary {
+    margin-top: 0;
+  }
+
+  code {
+    color: var(--color-text-primary);
+    font-size: 0.95em;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .auth-primary__skeleton::after {
+      animation: auth-skeleton-shimmer 1.2s ease-in-out infinite;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-primary,
+    .auth-primary__skeleton::after {
+      transition: none;
+      animation: none;
+    }
+
+    .auth-primary:active:not(:disabled) {
+      transform: none;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .auth-page {
+      place-items: start center;
+    }
+
+    .auth-card {
+      width: 100%;
+    }
+  }
+
+  @keyframes auth-skeleton-shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+`];
+
 @Component({
   selector: 'dmis-auth-login-page',
   standalone: true,
   imports: [DmisLocalHarnessSwitcherComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="auth-page">
+    <section class="auth-page" aria-label="DMIS authentication sign in">
       <div class="auth-card">
+        <div class="auth-brand-mark" aria-hidden="true"></div>
         <p class="auth-eyebrow">DMIS Authentication</p>
         <h1>Sign in to continue</h1>
-        <p class="auth-copy">{{ message() }}</p>
+        <p class="auth-status" role="status" aria-live="polite" [attr.data-tone]="state().tone">
+          {{ state().message }}
+        </p>
 
         @if (loginEnabled()) {
-          <button type="button" class="auth-primary" (click)="signIn()" [disabled]="working()">
-            {{ working() ? 'Redirecting...' : 'Sign in with OIDC' }}
+          <button
+            type="button"
+            class="auth-primary"
+            (click)="signIn()"
+            [disabled]="working()"
+            [attr.aria-busy]="working() ? 'true' : 'false'">
+            @if (working()) {
+              <span class="auth-primary__skeleton" aria-hidden="true"></span>
+              <span class="sr-only">Redirecting to OIDC sign-in</span>
+            } @else {
+              <span>Sign in with OIDC</span>
+            }
           </button>
         } @else if (localHarnessClientEnabled) {
           <div class="auth-local-harness">
@@ -34,13 +301,16 @@ import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
               type="button"
               class="auth-primary"
               (click)="continueLocalHarness()"
-              [disabled]="localHarnessWorking()">
-              {{ localHarnessWorking() ? 'Checking local session...' : 'Continue in local mode' }}
+              [disabled]="localHarnessWorking()"
+              [attr.aria-busy]="localHarnessWorking() ? 'true' : 'false'">
+              @if (localHarnessWorking()) {
+                <span class="auth-primary__skeleton" aria-hidden="true"></span>
+                <span class="sr-only">Checking local session</span>
+              } @else {
+                <span>Continue in local mode</span>
+              }
             </button>
             <dmis-local-harness-switcher />
-            @if (localHarnessError()) {
-              <p class="auth-warning">{{ localHarnessError() }}</p>
-            }
           </div>
         } @else {
           <p class="auth-warning">
@@ -55,97 +325,7 @@ import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
       </div>
     </section>
   `,
-  styles: [`
-    :host {
-      display: block;
-      min-height: 100vh;
-      background:
-        radial-gradient(circle at top, rgba(17, 93, 89, 0.16), transparent 34%),
-        linear-gradient(180deg, #eef7f5 0%, #f7faf9 100%);
-    }
-
-    .auth-page {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1.5rem;
-    }
-
-    .auth-card {
-      width: min(100%, 34rem);
-      padding: 2rem;
-      border-radius: 1.5rem;
-      background: rgba(255, 255, 255, 0.96);
-      border: 1px solid rgba(17, 93, 89, 0.14);
-      box-shadow: 0 1.25rem 3rem rgba(19, 49, 46, 0.1);
-    }
-
-    .auth-eyebrow {
-      margin: 0 0 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #115d59;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.9rem, 5vw, 2.5rem);
-      line-height: 1.05;
-      color: #17302f;
-    }
-
-    .auth-copy,
-    .auth-warning,
-    .auth-hint {
-      margin: 1rem 0 0;
-      color: #365654;
-      line-height: 1.55;
-    }
-
-    .auth-warning {
-      padding: 0.9rem 1rem;
-      border-radius: 0.9rem;
-      background: #fff3d6;
-      border: 1px solid #efdca5;
-      color: #684e16;
-    }
-
-    .auth-primary {
-      margin-top: 1.25rem;
-      border: 0;
-      border-radius: 999px;
-      padding: 0.9rem 1.25rem;
-      background: linear-gradient(135deg, #115d59 0%, #16807b 100%);
-      color: #fff;
-      font: inherit;
-      font-weight: 700;
-      cursor: pointer;
-      box-shadow: 0 0.8rem 1.8rem rgba(17, 93, 89, 0.24);
-    }
-
-    .auth-primary:disabled {
-      cursor: wait;
-      opacity: 0.75;
-    }
-
-    .auth-local-harness {
-      margin-top: 1.25rem;
-      display: grid;
-      gap: 0.875rem;
-    }
-
-    .auth-local-harness dmis-local-harness-switcher {
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }
-
-    code {
-      font-size: 0.95em;
-      color: #17302f;
-    }
-  `],
+  styles: AUTH_PAGE_STYLES,
 })
 export class DmisAuthLoginPageComponent {
   readonly defaultReturnUrl = '/replenishment/dashboard';
@@ -169,6 +349,20 @@ export class DmisAuthLoginPageComponent {
       this.authSession.state().status,
       this.authSession.state().message,
     );
+  });
+  readonly state = computed(() => {
+    const status = this.authSession.state().status;
+    const routeReason = String(this.route.snapshot.queryParamMap.get('reason') ?? '').trim().toLowerCase();
+    const localError = this.localHarnessError();
+    const critical = Boolean(localError)
+      || routeReason === 'expired_or_invalid_token'
+      || routeReason === 'backend_auth_failure'
+      || status === 'expired_or_invalid_token'
+      || status === 'backend_auth_failure';
+    return {
+      message: localError ?? this.message(),
+      tone: critical ? 'critical' : 'neutral',
+    };
   });
 
   constructor() {
@@ -238,11 +432,18 @@ export class DmisAuthLoginPageComponent {
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="auth-page">
+    <section class="auth-page" aria-label="DMIS authentication callback">
       <div class="auth-card">
+        <div class="auth-brand-mark" aria-hidden="true"></div>
         <p class="auth-eyebrow">DMIS Authentication</p>
         <h1>Completing sign-in</h1>
-        <p class="auth-copy">{{ message() }}</p>
+        <p
+          class="auth-status"
+          role="status"
+          aria-live="polite"
+          [attr.data-tone]="showRetry() ? 'critical' : 'neutral'">
+          {{ message() }}
+        </p>
 
         @if (showRetry()) {
           <a class="auth-link" routerLink="/auth/login">Return to sign-in</a>
@@ -250,61 +451,7 @@ export class DmisAuthLoginPageComponent {
       </div>
     </section>
   `,
-  styles: [`
-    :host {
-      display: block;
-      min-height: 100vh;
-      background:
-        radial-gradient(circle at top, rgba(17, 93, 89, 0.16), transparent 34%),
-        linear-gradient(180deg, #eef7f5 0%, #f7faf9 100%);
-    }
-
-    .auth-page {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1.5rem;
-    }
-
-    .auth-card {
-      width: min(100%, 30rem);
-      padding: 2rem;
-      border-radius: 1.5rem;
-      background: rgba(255, 255, 255, 0.96);
-      border: 1px solid rgba(17, 93, 89, 0.14);
-      box-shadow: 0 1.25rem 3rem rgba(19, 49, 46, 0.1);
-    }
-
-    .auth-eyebrow {
-      margin: 0 0 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #115d59;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.8rem, 5vw, 2.35rem);
-      line-height: 1.05;
-      color: #17302f;
-    }
-
-    .auth-copy {
-      margin: 1rem 0 0;
-      color: #365654;
-      line-height: 1.55;
-    }
-
-    .auth-link {
-      display: inline-block;
-      margin-top: 1.25rem;
-      color: #115d59;
-      font-weight: 700;
-      text-decoration: none;
-    }
-  `],
+  styles: AUTH_PAGE_STYLES,
 })
 export class DmisAuthCallbackPageComponent {
   private readonly authSession = inject(AuthSessionService);
@@ -332,93 +479,27 @@ export class DmisAuthCallbackPageComponent {
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="access-page">
-      <div class="access-card">
-        <p class="access-eyebrow">Access Denied</p>
+    <section class="auth-page" aria-label="DMIS access denied">
+      <div class="auth-card">
+        <div class="auth-brand-mark" aria-hidden="true"></div>
+        <p class="auth-eyebrow">Access Denied</p>
         <h1>You are signed in, but this route is not available to your account.</h1>
-        <p class="access-copy">
+        <p class="auth-status" role="status" aria-live="polite" data-tone="critical">
           DMIS keeps backend authorization as the source of truth. The frontend blocked this route early so you do
           not land on a misleading empty page.
         </p>
-        <p class="access-copy">
+        <p class="auth-hint">
           Signed in as <strong>{{ currentUser() }}</strong>
         </p>
 
-        <div class="access-actions">
-          <a class="access-primary" [routerLink]="['/replenishment/dashboard']">Go to dashboard</a>
-          <a class="access-secondary" [routerLink]="['/operations/dashboard']">Try operations</a>
+        <div class="auth-actions">
+          <a class="auth-primary" [routerLink]="['/replenishment/dashboard']">Go to dashboard</a>
+          <a class="auth-secondary" [routerLink]="['/operations/dashboard']">Try operations</a>
         </div>
       </div>
     </section>
   `,
-  styles: [`
-    :host {
-      display: block;
-      min-height: 100%;
-    }
-
-    .access-page {
-      display: grid;
-      place-items: center;
-      padding: 1rem 0 3rem;
-    }
-
-    .access-card {
-      width: min(100%, 42rem);
-      padding: 1.75rem;
-      border-radius: 1.25rem;
-      background: linear-gradient(180deg, rgba(255, 247, 235, 0.9) 0%, rgba(255, 255, 255, 0.98) 100%);
-      border: 1px solid rgba(211, 162, 76, 0.28);
-      box-shadow: 0 1rem 2.4rem rgba(68, 49, 14, 0.12);
-    }
-
-    .access-eyebrow {
-      margin: 0 0 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #8b5e17;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.7rem, 5vw, 2.2rem);
-      line-height: 1.1;
-      color: #2c220f;
-    }
-
-    .access-copy {
-      margin: 1rem 0 0;
-      color: #5d4c2c;
-      line-height: 1.55;
-    }
-
-    .access-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      margin-top: 1.5rem;
-    }
-
-    .access-primary,
-    .access-secondary {
-      border-radius: 999px;
-      padding: 0.8rem 1.1rem;
-      font-weight: 700;
-      text-decoration: none;
-    }
-
-    .access-primary {
-      background: #8b5e17;
-      color: #fff;
-    }
-
-    .access-secondary {
-      background: rgba(139, 94, 23, 0.08);
-      color: #8b5e17;
-    }
-  `],
+  styles: AUTH_PAGE_STYLES,
 })
 export class DmisAccessDeniedPageComponent {
   private readonly authRbac = inject(AuthRbacService);
