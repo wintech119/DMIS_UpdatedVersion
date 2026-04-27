@@ -3,6 +3,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.db import DatabaseError, IntegrityError
 from django.test import RequestFactory, SimpleTestCase
@@ -1471,6 +1472,118 @@ class ItemCodeMigrationSchemaTests(SimpleTestCase):
         executed_sql = schema_editor.execute.call_args.args[0]
         self.assertIn("ALTER TABLE tenant_a.item", executed_sql)
         self.assertIn("CREATE VIEW tenant_a.v_stock_status AS", executed_sql)
+
+
+class MasterDataCriticalHardeningTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin_user = SimpleNamespace(
+            pk="masterdata-admin",
+            is_authenticated=True,
+            user_id="masterdata-admin",
+            roles=["SYSTEM_ADMINISTRATOR"],
+            permissions=[
+                views.PERM_MASTERDATA_VIEW,
+                views.PERM_MASTERDATA_CREATE,
+                views.PERM_MASTERDATA_EDIT,
+                views.PERM_MASTERDATA_INACTIVATE,
+            ],
+        )
+        self.view_user = SimpleNamespace(
+            pk="masterdata-viewer",
+            is_authenticated=True,
+            user_id="masterdata-viewer",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_VIEW],
+        )
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    def test_parish_patch_returns_405(self, _mock_permission):
+        request = self.factory.patch(
+            "/api/v1/masterdata/parishes/01",
+            {"parish_name": "Kingston"},
+            format="json",
+        )
+        force_authenticate(request, user=self.admin_user)
+
+        response = views.master_detail_update(request, "parishes", "01")
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.data, {"detail": "Parishes are read-only."})
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_warehouse_update_payload_rejects_cross_tenant(self):
+        request = self.factory.patch(
+            "/api/v1/masterdata/agencies/5",
+            {"warehouse_id": 99},
+            format="json",
+        )
+        force_authenticate(request, user=self.admin_user)
+
+        with patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True):
+            with patch("masterdata.views.get_record", return_value=({"agency_id": 5}, [])):
+                with patch("masterdata.views._tenant_context", return_value=object()):
+                    with patch("masterdata.views.tenant_context_to_dict", return_value={"active_tenant_id": 1}):
+                        with patch("masterdata.views.can_access_warehouse", return_value=False) as mock_can_access:
+                            response = views.master_detail_update(request, "agencies", "5")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_can_access.assert_called_once()
+
+    def test_item_create_requires_system_administrator(self):
+        request = self.factory.post(
+            "/api/v1/masterdata/items/",
+            {"item_name": "Water", "item_code": "WATER-001"},
+            format="json",
+        )
+        force_authenticate(request, user=self.view_user)
+
+        with patch(
+            "masterdata.permissions.resolve_roles_and_permissions",
+            return_value=([], [views.PERM_MASTERDATA_VIEW]),
+        ):
+            response = views.master_list_create(request, "items")
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.get_record", return_value=({"custodian_id": 1, "custodian_name": "Ops"}, []))
+    @patch("masterdata.views.update_record", return_value=(True, []))
+    @patch("masterdata.views.validate_operational_master_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_masterdata_write_throttle(
+        self,
+        _mock_validate_record,
+        _mock_validate_operational,
+        _mock_update_record,
+        _mock_get_record,
+        _mock_permission,
+    ):
+        throttle_user = SimpleNamespace(
+            pk="masterdata-throttle-user",
+            is_authenticated=True,
+            user_id="masterdata-throttle-user",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_EDIT],
+        )
+        responses = []
+        for _ in range(41):
+            request = self.factory.patch(
+                "/api/v1/masterdata/custodians/1",
+                {"custodian_name": "Ops"},
+                format="json",
+            )
+            force_authenticate(request, user=throttle_user)
+            responses.append(views.master_detail_update(request, "custodians", "1"))
+
+        self.assertEqual(responses[39].status_code, 200)
+        self.assertEqual(responses[40].status_code, 429)
+        self.assertIn("Retry-After", responses[40])
 
 
 @override_settings(

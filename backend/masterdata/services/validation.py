@@ -6,6 +6,7 @@ the Angular form controls via ``control.setErrors({server: msg})``.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from typing import Any, Dict, List, Tuple
@@ -15,6 +16,9 @@ from masterdata.services.data_access import (
     check_fk_exists,
     check_uniqueness,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def validate_record(
@@ -154,8 +158,8 @@ def _cross_field_validation(
                     sd_date = sd if isinstance(sd, date) else date.fromisoformat(str(sd))
                     if cd_date < sd_date:
                         errors["closed_date"] = "Closed date cannot be before start date."
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.warning("Failed to validate event date ordering for %s: %s", cfg.key, exc)
         elif status == "A":
             if closed_date:
                 errors["closed_date"] = "Closed date must be empty for active events."

@@ -1,5 +1,12 @@
 # Current Task Plan
 
+## Worktree and Branch Cleanup - 2026-04-26
+
+1. In progress: inventory local worktrees, branch tracking state, and dirty files before cleanup.
+2. Pending: classify stale detached worktrees, attached worktrees, and local branches by safety to remove.
+3. Pending: remove only unused clean worktrees/branches and prune git worktree metadata.
+4. Pending: verify the final worktree and branch state after cleanup.
+
 ## EP-05 Module 1 Relief Request Intake Closure - 2026-04-25
 
 Risk score: 8 / Medium using the architecture-review handoff rubric.

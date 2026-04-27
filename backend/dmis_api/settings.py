@@ -120,6 +120,8 @@ _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS = {
     "staging",
     "production",
 }
+_REPLENISHMENT_ENABLED_RUNTIME_ENVIRONMENTS = {"local-harness"}
+_OPERATIONS_ENABLED_RUNTIME_ENVIRONMENTS = {"local-harness"}
 _REDIS_REQUIRED_RUNTIME_ENVIRONMENTS = {
     "prod-like-local",
     "shared-dev",
@@ -366,6 +368,28 @@ def validate_runtime_auth_configuration(
         if debug:
             raise RuntimeError(
                 f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_DEBUG=0."
+            )
+
+
+def validate_runtime_module_configuration(
+    *,
+    runtime_env: str,
+    replenishment_enabled: bool,
+    operations_enabled: bool,
+    testing: bool,
+) -> None:
+    if testing or runtime_env == "test":
+        return
+    if runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS:
+        if replenishment_enabled:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DMIS_REPLENISHMENT_ENABLED=0; "
+                "the replenishment module is local-harness only."
+            )
+        if operations_enabled:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DMIS_OPERATIONS_ENABLED=0; "
+                "the operations module is local-harness only."
             )
 
 
@@ -704,6 +728,15 @@ ALLOWED_HOSTS = [
 ]
 DMIS_ALLOWED_HOSTS_EXPLICIT = _allowed_hosts_env is not None
 
+DMIS_REPLENISHMENT_ENABLED = _get_bool_env(
+    "DMIS_REPLENISHMENT_ENABLED",
+    DMIS_RUNTIME_ENV in _REPLENISHMENT_ENABLED_RUNTIME_ENVIRONMENTS,
+)
+DMIS_OPERATIONS_ENABLED = _get_bool_env(
+    "DMIS_OPERATIONS_ENABLED",
+    DMIS_RUNTIME_ENV in _OPERATIONS_ENABLED_RUNTIME_ENVIRONMENTS,
+)
+
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -1010,6 +1043,12 @@ validate_runtime_auth_configuration(
     auth_enabled=AUTH_ENABLED,
     dev_auth_enabled=DEV_AUTH_ENABLED,
     local_auth_harness_enabled=LOCAL_AUTH_HARNESS_ENABLED,
+    testing=TESTING,
+)
+validate_runtime_module_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    replenishment_enabled=DMIS_REPLENISHMENT_ENABLED,
+    operations_enabled=DMIS_OPERATIONS_ENABLED,
     testing=TESTING,
 )
 validate_runtime_security_configuration(

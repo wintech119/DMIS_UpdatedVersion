@@ -15,7 +15,12 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 from django.db import DatabaseError, connection
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+    throttle_classes,
+)
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
@@ -43,6 +48,7 @@ from masterdata.permissions import (
     PERM_MASTERDATA_VIEW,
 )
 from masterdata.serializers import IFRCSuggestionResponseSerializer
+from masterdata.throttling import MasterDataWriteThrottle
 from masterdata.services.data_access import (
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
@@ -1077,6 +1083,7 @@ def _resolve_ifrc_suggestion(
 @api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_list_create(request, table_key: str):
     cfg, err = _validate_table_key(table_key)
     if err:
@@ -1351,10 +1358,13 @@ def _handle_item_create(request, cfg):
 @api_view(["GET", "PATCH"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_detail_update(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if request.method == "PATCH" and cfg.key == "parishes":
+        return Response({"detail": "Parishes are read-only."}, status=405)
     if is_governed_catalog_table(cfg.key):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
@@ -1378,8 +1388,8 @@ def _coerce_pk(cfg, pk_str: str) -> Any:
     if pk_def and pk_def.db_type in ("int", "smallint"):
         try:
             return int(pk_str)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.warning("Failed to coerce pk for %s: %s", cfg.key, exc)
     return pk_str
 
 
@@ -1462,6 +1472,8 @@ def _handle_detail(cfg, pk_value):
 
 
 def _handle_update(request, cfg, pk_value):
+    if cfg.key == "parishes":
+        return Response({"detail": "Parishes are read-only."}, status=405)
     if cfg.key == "items":
         return _handle_item_update(request, cfg, pk_value)
     if is_governed_catalog_table(cfg.key):
@@ -1495,6 +1507,10 @@ def _handle_update(request, cfg, pk_value):
         )
         if tenant_errors:
             return Response({"errors": tenant_errors}, status=400)
+    if "warehouse_id" in data:
+        scope_error = _require_warehouse_scope(request, data.get("warehouse_id"), write=True)
+        if scope_error is not None:
+            return scope_error
 
     errors = validate_record(
         cfg,
@@ -1698,7 +1714,7 @@ warehouse_stock_health_detail.required_permission = PERM_MASTERDATA_VIEW
 
 
 def _handle_item_update(request, cfg, pk_value):
-    data = request.data or {}
+    data = dict(request.data or {})
     expected_version = data.pop("version_nbr", None)
     if expected_version is not None:
         try:
@@ -1714,6 +1730,11 @@ def _handle_item_update(request, cfg, pk_value):
                 status=500,
             )
         return Response({"detail": "Not found."}, status=404)
+
+    if "warehouse_id" in data:
+        scope_error = _require_warehouse_scope(request, data.get("warehouse_id"), write=True)
+        if scope_error is not None:
+            return scope_error
 
     errors = validate_record(
         cfg,
@@ -2193,6 +2214,7 @@ def _write_ifrc_audit_log(
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_inactivate(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
@@ -2279,6 +2301,7 @@ master_inactivate.required_permission = PERM_MASTERDATA_INACTIVATE
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_activate(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
