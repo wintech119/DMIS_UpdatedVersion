@@ -1,9 +1,15 @@
 import { Routes } from '@angular/router';
 
 import { appAccessMatchGuard } from './core/app-access.guard';
+import { environmentFeatureGuard } from './core/environment-feature.guard';
+
+const REPLENISHMENT_ENABLED = typeof DMIS_REPLENISHMENT_ENABLED === 'undefined'
+  ? true
+  : DMIS_REPLENISHMENT_ENABLED;
+const DEFAULT_ROUTE = REPLENISHMENT_ENABLED ? 'replenishment/dashboard' : 'master-data';
 
 export const routes: Routes = [
-  { path: '', redirectTo: 'replenishment/dashboard', pathMatch: 'full' },
+  { path: '', redirectTo: DEFAULT_ROUTE, pathMatch: 'full' },
   {
     path: 'auth/login',
     loadComponent: () =>
@@ -21,6 +27,8 @@ export const routes: Routes = [
   },
   {
     path: 'replenishment',
+    canMatch: [environmentFeatureGuard],
+    data: { feature: 'replenishment' },
     loadChildren: () => import('./replenishment/replenishment.routes').then(m => m.REPLENISHMENT_ROUTES),
   },
   {
@@ -31,9 +39,9 @@ export const routes: Routes = [
   },
   {
     path: 'operations',
-    canMatch: [appAccessMatchGuard],
-    data: { accessKey: 'operations.dashboard' },
+    canMatch: [appAccessMatchGuard, environmentFeatureGuard],
+    data: { accessKey: 'operations.dashboard', feature: 'operations' },
     loadChildren: () => import('./operations/operations.routes').then(m => m.OPERATIONS_ROUTES),
   },
-  { path: '**', redirectTo: 'replenishment/dashboard' }
+  { path: '**', redirectTo: DEFAULT_ROUTE }
 ];
