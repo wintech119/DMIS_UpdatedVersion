@@ -1,6 +1,6 @@
 from django.urls import path
 
-from masterdata import views
+from masterdata import views, views_advanced
 
 urlpatterns = [
     # IFRC assistant endpoints (must come before generic table routes)
@@ -15,6 +15,14 @@ urlpatterns = [
     path("ifrc-item-references/suggest", views.ifrc_item_reference_suggest, name="ifrc-item-reference-suggest"),
     path("ifrc-families/<str:pk>/replacement", views.ifrc_family_replacement, name="ifrc-family-replacement"),
     path("ifrc-item-references/<str:pk>/replacement", views.ifrc_item_reference_replacement, name="ifrc-item-reference-replacement"),
+    path("user/<int:user_id>/roles", views_advanced.user_roles, name="advanced-user-roles"),
+    path("role/<int:role_id>/permissions", views_advanced.role_permissions, name="advanced-role-permissions"),
+    path("tenant/<int:tenant_id>/users", views_advanced.tenant_users, name="advanced-tenant-users"),
+    path(
+        "tenant/<int:tenant_id>/users/<int:user_id>/roles",
+        views_advanced.tenant_user_roles,
+        name="advanced-tenant-user-roles",
+    ),
 
     # Generic CRUD endpoints parameterized by table_key
     path("<str:table_key>/", views.master_list_create, name="master-list-create"),

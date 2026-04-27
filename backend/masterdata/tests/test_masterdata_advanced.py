@@ -1,15 +1,17 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from api.rbac import (
     PERM_MASTERDATA_ADVANCED_CREATE,
+    PERM_MASTERDATA_ADVANCED_EDIT,
     PERM_MASTERDATA_ADVANCED_VIEW,
 )
-from masterdata import views
+from masterdata import views, views_advanced
 from masterdata.services import data_access as data_access_service
+from masterdata.services import iam_data_access
 from masterdata.services.data_access import TABLE_REGISTRY
 
 
@@ -30,10 +32,10 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
 
-    def _principal(self, permissions):
+    def _principal(self, permissions, user_id="tester"):
         return SimpleNamespace(
             is_authenticated=True,
-            user_id="tester",
+            user_id=user_id,
             roles=[],
             permissions=list(permissions),
         )
@@ -227,3 +229,319 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("resource", response.data["errors"])
+
+    def test_user_roles_endpoint_get_post_delete_and_403(self):
+        with (
+            patch("masterdata.views_advanced.iam_data_access.list_user_roles") as mock_list,
+            patch("masterdata.views_advanced.iam_data_access.assign_user_role") as mock_assign,
+            patch("masterdata.views_advanced.iam_data_access.revoke_user_role") as mock_revoke,
+        ):
+            mock_list.return_value = [
+                {"role_id": 3, "code": "LOGISTICS", "name": "Logistics", "assigned_at": "now"}
+            ]
+            mock_assign.side_effect = [True, False]
+            mock_revoke.side_effect = [True, False]
+
+            denied = self.factory.get("/api/v1/masterdata/user/7/roles")
+            force_authenticate(denied, user=self._principal([views.PERM_MASTERDATA_VIEW]))
+            denied_response = views_advanced.user_roles(denied, 7)
+            self.assertEqual(denied_response.status_code, 403)
+            mock_list.assert_not_called()
+
+            get_request = self.factory.get("/api/v1/masterdata/user/7/roles")
+            force_authenticate(
+                get_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW]),
+            )
+            get_response = views_advanced.user_roles(get_request, 7)
+            self.assertEqual(get_response.status_code, 200)
+            self.assertEqual(get_response.data["results"][0]["role_id"], 3)
+
+            post_request = self.factory.post(
+                "/api/v1/masterdata/user/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                post_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            post_response = views_advanced.user_roles(post_request, 7)
+            self.assertEqual(post_response.status_code, 201)
+            mock_assign.assert_called_with(7, 3, 99)
+
+            idem_request = self.factory.post(
+                "/api/v1/masterdata/user/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                idem_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            idem_response = views_advanced.user_roles(idem_request, 7)
+            self.assertEqual(idem_response.status_code, 200)
+
+            delete_request = self.factory.delete("/api/v1/masterdata/user/7/roles?role_id=3")
+            force_authenticate(
+                delete_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            delete_response = views_advanced.user_roles(delete_request, 7)
+            self.assertEqual(delete_response.status_code, 204)
+
+            missing_delete = self.factory.delete("/api/v1/masterdata/user/7/roles?role_id=4")
+            force_authenticate(
+                missing_delete,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            missing_response = views_advanced.user_roles(missing_delete, 7)
+            self.assertEqual(missing_response.status_code, 404)
+
+    def test_role_permissions_endpoint_get_post_delete_and_403(self):
+        with (
+            patch("masterdata.views_advanced.iam_data_access.list_role_permissions") as mock_list,
+            patch("masterdata.views_advanced.iam_data_access.assign_role_permission") as mock_assign,
+            patch("masterdata.views_advanced.iam_data_access.revoke_role_permission") as mock_revoke,
+        ):
+            mock_list.return_value = [
+                {
+                    "perm_id": 8,
+                    "resource": "masterdata.advanced",
+                    "action": "view",
+                    "scope_json": {"tenant_id": 1},
+                }
+            ]
+            mock_assign.side_effect = [True, False]
+            mock_revoke.side_effect = [True, False]
+
+            denied = self.factory.get("/api/v1/masterdata/role/3/permissions")
+            force_authenticate(denied, user=self._principal([views.PERM_MASTERDATA_VIEW]))
+            denied_response = views_advanced.role_permissions(denied, 3)
+            self.assertEqual(denied_response.status_code, 403)
+            mock_list.assert_not_called()
+
+            get_request = self.factory.get("/api/v1/masterdata/role/3/permissions")
+            force_authenticate(
+                get_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW]),
+            )
+            get_response = views_advanced.role_permissions(get_request, 3)
+            self.assertEqual(get_response.status_code, 200)
+            self.assertEqual(get_response.data["results"][0]["perm_id"], 8)
+
+            post_request = self.factory.post(
+                "/api/v1/masterdata/role/3/permissions",
+                {"perm_id": 8, "scope_json": {"tenant_id": 1}},
+                format="json",
+            )
+            force_authenticate(
+                post_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            post_response = views_advanced.role_permissions(post_request, 3)
+            self.assertEqual(post_response.status_code, 201)
+            mock_assign.assert_called_with(3, 8, "99", {"tenant_id": 1})
+
+            idem_request = self.factory.post(
+                "/api/v1/masterdata/role/3/permissions",
+                {"perm_id": 8},
+                format="json",
+            )
+            force_authenticate(
+                idem_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            idem_response = views_advanced.role_permissions(idem_request, 3)
+            self.assertEqual(idem_response.status_code, 200)
+
+            delete_request = self.factory.delete("/api/v1/masterdata/role/3/permissions?perm_id=8")
+            force_authenticate(
+                delete_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            delete_response = views_advanced.role_permissions(delete_request, 3)
+            self.assertEqual(delete_response.status_code, 204)
+
+            missing_delete = self.factory.delete("/api/v1/masterdata/role/3/permissions?perm_id=9")
+            force_authenticate(
+                missing_delete,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            missing_response = views_advanced.role_permissions(missing_delete, 3)
+            self.assertEqual(missing_response.status_code, 404)
+
+    def test_tenant_users_endpoint_get_post_delete_and_403(self):
+        with (
+            patch("masterdata.views_advanced.iam_data_access.list_tenant_users") as mock_list,
+            patch("masterdata.views_advanced.iam_data_access.assign_tenant_user") as mock_assign,
+            patch("masterdata.views_advanced.iam_data_access.revoke_tenant_user") as mock_revoke,
+        ):
+            mock_list.return_value = [
+                {
+                    "user_id": 7,
+                    "username": "field-admin",
+                    "email": "field-admin@example.test",
+                    "access_level": "ADMIN",
+                    "is_primary_tenant": True,
+                    "last_login_at": None,
+                }
+            ]
+            mock_assign.side_effect = [True, False]
+            mock_revoke.side_effect = [True, False]
+
+            denied = self.factory.get("/api/v1/masterdata/tenant/2/users")
+            force_authenticate(denied, user=self._principal([views.PERM_MASTERDATA_VIEW]))
+            denied_response = views_advanced.tenant_users(denied, 2)
+            self.assertEqual(denied_response.status_code, 403)
+            mock_list.assert_not_called()
+
+            get_request = self.factory.get("/api/v1/masterdata/tenant/2/users")
+            force_authenticate(
+                get_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW]),
+            )
+            get_response = views_advanced.tenant_users(get_request, 2)
+            self.assertEqual(get_response.status_code, 200)
+            self.assertEqual(get_response.data["results"][0]["access_level"], "ADMIN")
+
+            post_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users",
+                {"user_id": 7, "access_level": "admin"},
+                format="json",
+            )
+            force_authenticate(
+                post_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            post_response = views_advanced.tenant_users(post_request, 2)
+            self.assertEqual(post_response.status_code, 201)
+            mock_assign.assert_called_with(2, 7, "ADMIN", 99)
+
+            idem_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users",
+                {"user_id": 7, "access_level": "ADMIN"},
+                format="json",
+            )
+            force_authenticate(
+                idem_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            idem_response = views_advanced.tenant_users(idem_request, 2)
+            self.assertEqual(idem_response.status_code, 200)
+
+            delete_request = self.factory.delete("/api/v1/masterdata/tenant/2/users?user_id=7")
+            force_authenticate(
+                delete_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            delete_response = views_advanced.tenant_users(delete_request, 2)
+            self.assertEqual(delete_response.status_code, 204)
+
+            missing_delete = self.factory.delete("/api/v1/masterdata/tenant/2/users?user_id=8")
+            force_authenticate(
+                missing_delete,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            missing_response = views_advanced.tenant_users(missing_delete, 2)
+            self.assertEqual(missing_response.status_code, 404)
+
+    def test_tenant_user_roles_endpoint_get_post_delete_and_403(self):
+        with (
+            patch("masterdata.views_advanced.iam_data_access.list_user_tenant_roles") as mock_list,
+            patch("masterdata.views_advanced.iam_data_access.assign_user_tenant_role") as mock_assign,
+            patch("masterdata.views_advanced.iam_data_access.revoke_user_tenant_role") as mock_revoke,
+        ):
+            mock_list.return_value = [
+                {"role_id": 3, "code": "LOGISTICS", "name": "Logistics"}
+            ]
+            mock_assign.side_effect = [True, False]
+            mock_revoke.side_effect = [True, False]
+
+            denied = self.factory.get("/api/v1/masterdata/tenant/2/users/7/roles")
+            force_authenticate(denied, user=self._principal([views.PERM_MASTERDATA_VIEW]))
+            denied_response = views_advanced.tenant_user_roles(denied, 2, 7)
+            self.assertEqual(denied_response.status_code, 403)
+            mock_list.assert_not_called()
+
+            get_request = self.factory.get("/api/v1/masterdata/tenant/2/users/7/roles")
+            force_authenticate(
+                get_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW]),
+            )
+            get_response = views_advanced.tenant_user_roles(get_request, 2, 7)
+            self.assertEqual(get_response.status_code, 200)
+            self.assertEqual(get_response.data["results"][0]["role_id"], 3)
+
+            post_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                post_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            post_response = views_advanced.tenant_user_roles(post_request, 2, 7)
+            self.assertEqual(post_response.status_code, 201)
+            mock_assign.assert_called_with(2, 7, 3, 99)
+
+            idem_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                idem_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            idem_response = views_advanced.tenant_user_roles(idem_request, 2, 7)
+            self.assertEqual(idem_response.status_code, 200)
+
+            delete_request = self.factory.delete("/api/v1/masterdata/tenant/2/users/7/roles?role_id=3")
+            force_authenticate(
+                delete_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            delete_response = views_advanced.tenant_user_roles(delete_request, 2, 7)
+            self.assertEqual(delete_response.status_code, 204)
+
+            missing_delete = self.factory.delete("/api/v1/masterdata/tenant/2/users/7/roles?role_id=4")
+            force_authenticate(
+                missing_delete,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+            missing_response = views_advanced.tenant_user_roles(missing_delete, 2, 7)
+            self.assertEqual(missing_response.status_code, 404)
+
+    def test_assign_user_role_sql_uses_on_conflict_and_assigned_by(self):
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+        with patch("masterdata.services.iam_data_access.connection", connection):
+            created = iam_data_access.assign_user_role(7, 3, 99)
+
+        self.assertTrue(created)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("ON CONFLICT (user_id, role_id) DO NOTHING", sql)
+        self.assertEqual(params[:3], [7, 3, 99])
+
+    def test_assign_tenant_user_sql_populates_assigned_by(self):
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+        with patch("masterdata.services.iam_data_access.connection", connection):
+            created = iam_data_access.assign_tenant_user(2, 7, "ADMIN", 99)
+
+        self.assertTrue(created)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("ON CONFLICT (tenant_id, user_id) DO NOTHING", sql)
+        self.assertEqual(params[:4], [2, 7, "ADMIN", 99])
