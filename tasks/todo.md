@@ -1,5 +1,15 @@
 # Current Task Plan
 
+## Advanced/System Master Data Brief #1 - JWT User Auto-Provision - 2026-04-27
+
+Risk score: 8 / Medium-High using the architecture-review handoff rubric.
+Axes: blast radius 2, data sensitivity 2, authority change 1, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: read the approved handoff brief, backend auth/test patterns, schema constraints, and architecture/security references.
+2. Completed: added first-login DB user auto-provisioning to the JWT success path without changing local-harness behavior.
+3. Completed: added focused tests for first-login insert, idempotent existing-user behavior, and `AUTH_USE_DB_RBAC=0` no-write behavior.
+4. Completed: ran targeted Django checks/tests and completed the post-implementation architecture review.
+
 ## Worktree and Branch Cleanup - 2026-04-26
 
 1. In progress: inventory local worktrees, branch tracking state, and dirty files before cleanup.

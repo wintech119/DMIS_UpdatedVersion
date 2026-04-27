@@ -90,6 +90,71 @@ def _parse_roles(value) -> list[str]:
     return [str(value)]
 
 
+def _legacy_user_name(value: object) -> str:
+    text = str(value or "").strip() or "KEYCLOAK_USER"
+    return text[:20]
+
+
+def _ensure_user_row(user_id, username, email, full_name) -> None:
+    if not getattr(settings, "AUTH_USE_DB_RBAC", False):
+        return
+
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return
+
+    normalized_username = str(username or "").strip() or normalized_user_id
+    normalized_email = str(email or "").strip() or f"{normalized_user_id}@keycloak.dmis.local"
+    normalized_full_name = str(full_name or "").strip() or normalized_username
+    legacy_user_name = _legacy_user_name(normalized_username)
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO "user" (
+                    user_id,
+                    email,
+                    password_hash,
+                    full_name,
+                    is_active,
+                    username,
+                    user_name,
+                    password_algo,
+                    mfa_enabled,
+                    failed_login_count,
+                    status_code,
+                    version_nbr,
+                    login_count
+                )
+                VALUES (%s, %s, %s, %s, TRUE, %s, %s, %s, FALSE, 0, %s, 1, 0)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                [
+                    normalized_user_id,
+                    normalized_email,
+                    "",
+                    normalized_full_name,
+                    normalized_username,
+                    legacy_user_name,
+                    "argon2id",
+                    "A",
+                ],
+            )
+            if cursor.rowcount:
+                logger.info(
+                    "Auto-provisioned DMIS user row for user_id=%s username=%s",
+                    normalized_user_id,
+                    normalized_username,
+                )
+    except DatabaseError:
+        logger.exception(
+            "Failed to auto-provision DMIS user row for user_id=%s username=%s",
+            normalized_user_id,
+            normalized_username,
+        )
+
+
 def local_auth_harness_enabled() -> bool:
     return bool(
         settings.LOCAL_AUTH_HARNESS_ENABLED
@@ -280,6 +345,13 @@ class LegacyCompatAuthentication(BaseAuthentication):
             username=str(username) if username is not None else None,
             roles=roles,
         )
+        email = payload.get("email")
+        full_name = payload.get("name")
+        if not full_name:
+            given_name = str(payload.get("given_name") or "").strip()
+            family_name = str(payload.get("family_name") or "").strip()
+            full_name = " ".join(part for part in (given_name, family_name) if part)
+        _ensure_user_row(principal.user_id, principal.username, email, full_name)
         return principal, None
 
     def authenticate_header(self, request) -> str:
