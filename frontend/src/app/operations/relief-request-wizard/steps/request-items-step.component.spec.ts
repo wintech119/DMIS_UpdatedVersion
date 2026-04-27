@@ -212,4 +212,72 @@ describe('RequestItemsStepComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Justification is required for high-urgency requests.');
   });
+
+  it('renders four size="lg" urgency chips inside a radiogroup with aria-label', () => {
+    const host = fixture.nativeElement as HTMLElement;
+    const group = host.querySelector<HTMLElement>('.urgency-chip-group');
+    expect(group).not.toBeNull();
+    expect(group?.getAttribute('role')).toBe('radiogroup');
+    expect(group?.getAttribute('aria-label')).toBe('Select request urgency');
+
+    const chips = host.querySelectorAll<HTMLElement>('app-ops-status-chip');
+    expect(chips.length).toBe(4);
+    chips.forEach((chip) => {
+      expect(chip.getAttribute('size')).toBe('lg');
+    });
+
+    const hosts = host.querySelectorAll<HTMLElement>('.urgency-chip-host');
+    expect(hosts.length).toBe(4);
+    expect(hosts[0].getAttribute('tabindex')).toBe('0');
+    expect(hosts[1].getAttribute('tabindex')).toBe('-1');
+    expect(hosts[2].getAttribute('tabindex')).toBe('-1');
+    expect(hosts[3].getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('marks exactly one chip aria-checked="true" when an urgency is selected', () => {
+    component.form.get('urgency_ind')!.setValue('H');
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const checkedHosts = host.querySelectorAll<HTMLElement>('[role="radio"][aria-checked="true"]');
+    expect(checkedHosts.length).toBe(1);
+    // 'H' is the second URGENCY_OPTIONS entry → index 1.
+    const allHosts = host.querySelectorAll<HTMLElement>('[role="radio"]');
+    expect(allHosts[1].getAttribute('aria-checked')).toBe('true');
+    expect(allHosts[1].textContent).toContain('High');
+  });
+
+  it('marks the urgency chip-group aria-invalid when control is invalid and touched', () => {
+    component.form.get('urgency_ind')!.markAsTouched();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const group = host.querySelector<HTMLElement>('.urgency-chip-group');
+    expect(group?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('renders a visible char counter and verbatim helper text under the notes field', () => {
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Reviewers see this verbatim.');
+    expect(text).toContain('0 / 500');
+  });
+
+  it('updates the notes char counter live when the user types', () => {
+    component.form.get('rqst_notes_text')!.setValue('Hello, Kemar.');
+    fixture.detectChanges();
+
+    expect(component.notesCharCount()).toBe(13);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('13 / 500');
+  });
+
+  it('renders a dashed full-width Add Item CTA wired to onAddItem', () => {
+    const host = fixture.nativeElement as HTMLElement;
+    const cta = host.querySelector<HTMLButtonElement>('.step-items-add-cta');
+    expect(cta).not.toBeNull();
+    expect(cta?.textContent ?? '').toContain('Add another item');
+
+    cta!.click();
+    expect(component.onAddItem as jasmine.Spy).toHaveBeenCalled();
+  });
 });

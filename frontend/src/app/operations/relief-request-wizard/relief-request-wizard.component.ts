@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, OnInit, ViewChild, computed, effect, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -10,7 +10,7 @@ import {
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatRadioModule } from '@angular/material/radio';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
@@ -30,6 +30,7 @@ import {
   OperationsCapabilities,
 } from '../../replenishment/services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { RequestItemsStepComponent } from './steps/request-items-step.component';
 import { RequestReviewStepComponent, ReviewFormValue } from './steps/request-review-step.component';
@@ -64,9 +65,10 @@ interface ReliefRequestBridgeState {
     MatIconModule,
     MatStepperModule,
     MatProgressBarModule,
-    MatRadioModule,
+    MatProgressSpinnerModule,
     MatTooltipModule,
     DmisSkeletonLoaderComponent,
+    DmisEmptyStateComponent,
     DmisStepTrackerComponent,
     RequestItemsStepComponent,
     RequestReviewStepComponent,
@@ -85,6 +87,8 @@ export class ReliefRequestWizardComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('stepper') stepper!: MatStepper;
+  @ViewChild('originModeGroup', { read: ElementRef }) originModeGroup?: ElementRef<HTMLElement>;
+  private readonly hostRef: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly loading = signal(true);
   readonly referenceLoading = signal(true);
@@ -149,6 +153,27 @@ export class ReliefRequestWizardComponent implements OnInit {
     const modes = this.availableOriginModes();
     return modes.length === 1 ? modes[0] : null;
   });
+
+  readonly originModeOptions = computed<readonly OriginModeOption[]>(() =>
+    this.availableOriginModes().map((mode) => ({
+      value: mode,
+      label: this.originModeLabel(mode),
+      hint: this.originModeHint(mode),
+      icon: ORIGIN_MODE_ICONS[mode],
+    })),
+  );
+
+  readonly bridgeBeneficiaryName = computed<string | null>(() => {
+    const bridge = this.bridgeState();
+    const id = bridge?.beneficiary_agency_id ?? null;
+    if (!id) {
+      return null;
+    }
+    const matched = this.agencyOptions().find((option) => option.value === id)?.label;
+    return matched && matched.trim().length > 0 ? matched : null;
+  });
+
+  readonly originModeFocusIndex = signal(0);
 
   readonly selectedOriginMode = computed<RequestOriginMode | null>(() => {
     this.formVersion();
@@ -857,7 +882,117 @@ export class ReliefRequestWizardComponent implements OnInit {
         return 'Submit for your own organisation.';
     }
   }
+
+  selectOriginMode(mode: RequestOriginMode): void {
+    if (this.originModeControl.value === mode) {
+      this.originModeControl.markAsTouched();
+      return;
+    }
+    this.originModeControl.setValue(mode);
+    this.originModeControl.markAsTouched();
+  }
+
+  /**
+   * Roving-tabindex keyboard handler for the custom radio-card picker.
+   * Mirrors `dmis-step-tracker.onKeydown` (frontend/src/app/shared/
+   * dmis-step-tracker/dmis-step-tracker.component.ts L161-204) — Arrow
+   * keys move focus only, Enter/Space commit the selection.
+   */
+  onOriginModeKeydown(event: KeyboardEvent, index: number): void {
+    const options = this.originModeOptions();
+    if (options.length === 0) {
+      return;
+    }
+
+    let targetIndex: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault();
+        targetIndex = (index + 1) % options.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault();
+        targetIndex = (index - 1 + options.length) % options.length;
+        break;
+      case 'Home':
+        event.preventDefault();
+        targetIndex = 0;
+        break;
+      case 'End':
+        event.preventDefault();
+        targetIndex = options.length - 1;
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        this.selectOriginMode(options[index].value);
+        return;
+      default:
+        return;
+    }
+
+    if (targetIndex == null) {
+      return;
+    }
+    this.originModeFocusIndex.set(targetIndex);
+    const cards = this.originModeGroup?.nativeElement.querySelectorAll<HTMLElement>('[role="radio"]');
+    cards?.[targetIndex]?.focus();
+  }
+
+  /**
+   * Step 1 → Step 2 advance handler. Replaces `matStepperNext` so we can
+   * mark all controls touched and move focus to the first invalid field
+   * before refusing to advance. Closes architecture-review Required
+   * Change #6 (a11y wiring) and improves Kemar's recovery loop on a
+   * one-handed mobile fill.
+   */
+  goToReview(): void {
+    if (this.isStep1Valid()) {
+      this.stepper?.next();
+      return;
+    }
+    this.requestForm.markAllAsTouched();
+    this.itemsArray.controls.forEach((control) => (control as FormGroup).markAllAsTouched());
+    this.formVersion.update((version) => version + 1);
+    this.focusFirstInvalidField();
+  }
+
+  /**
+   * Move focus to the first invalid form control in DOM order. Looks for
+   * `aria-invalid="true"` first (set by Angular Material on touched +
+   * invalid mat-form-fields and by the wizard on the urgency chip
+   * group), then falls back to the first `[data-rrw-focus]` anchor.
+   */
+  private focusFirstInvalidField(): void {
+    const host = this.hostRef.nativeElement;
+    const invalid = host.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (invalid) {
+      const focusable = invalid.matches('input, select, textarea, button, [tabindex]')
+        ? invalid
+        : invalid.querySelector<HTMLElement>('input, select, textarea, button, [tabindex]')
+          ?? invalid;
+      focusable?.focus?.();
+      return;
+    }
+    const anchor = host.querySelector<HTMLElement>('[data-rrw-focus]');
+    anchor?.focus?.();
+  }
 }
+
+interface OriginModeOption {
+  readonly value: RequestOriginMode;
+  readonly label: string;
+  readonly hint: string;
+  readonly icon: string;
+}
+
+const ORIGIN_MODE_ICONS: Record<RequestOriginMode, string> = {
+  SELF: 'business',
+  FOR_SUBORDINATE: 'account_tree',
+  ODPEM_BRIDGE: 'support_agent',
+};
 
 function selectedReferenceValidator(control: { value: unknown }): Record<string, true> | null {
   const value = control.value;
