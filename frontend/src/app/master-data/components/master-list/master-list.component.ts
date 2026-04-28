@@ -19,7 +19,13 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCardModule } from '@angular/material/card';
 
-import { MasterColumnConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
+import {
+  MasterColumnConfig,
+  MasterRecord,
+  MasterTableConfig,
+  MasterTone,
+  MasterToneRule,
+} from '../../models/master-data.models';
 import {
   IfrcFamilyLookup,
   IfrcReferenceLookup,
@@ -35,6 +41,13 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { MasterDataAccessService } from '../../services/master-data-access.service';
 
 import { Subject, combineLatest, debounceTime, distinctUntilChanged, tap } from 'rxjs';
+
+interface ResolvedColumnPill {
+  label: string;
+  icon: string | null;
+  tone: MasterTone | null;
+  legacyStatus: string | null;
+}
 
 @Component({
   selector: 'dmis-master-list',
@@ -499,6 +512,77 @@ export class MasterListComponent implements OnInit {
     return 'status-inactive';
   }
 
+  getColumnPill(column: MasterColumnConfig, value: unknown): ResolvedColumnPill | null {
+    const normalized = this.normalizePillValue(value);
+    if (column.toneMap?.length) {
+      const rule = this.findToneRule(column.toneMap, normalized);
+      const fallbackTone: MasterTone = column.type === 'pill' || column.type === 'status' ? 'neutral' : 'neutral';
+      return {
+        label: rule?.label ?? this.getPillLabel(column, normalized),
+        icon: rule?.icon ?? null,
+        tone: rule?.tone ?? fallbackTone,
+        legacyStatus: null,
+      };
+    }
+
+    if (column.type === 'status') {
+      return {
+        label: this.getStatusLabel(value),
+        icon: normalized === 'A' ? 'check_circle' : 'cancel',
+        tone: null,
+        legacyStatus: normalized,
+      };
+    }
+
+    if (column.type === 'pill') {
+      return {
+        label: this.getPillLabel(column, normalized),
+        icon: null,
+        tone: 'neutral',
+        legacyStatus: null,
+      };
+    }
+
+    return null;
+  }
+
+  getPillClasses(pill: ResolvedColumnPill): string[] {
+    return pill.tone ? ['ops-chip', `ops-chip--${pill.tone}`] : [];
+  }
+
+  getDisplayValue(column: MasterColumnConfig, value: unknown): string {
+    if (value === null || value === undefined || value === '') {
+      return '';
+    }
+
+    const raw = String(value);
+    if (!column.truncate || raw.length <= column.truncate) {
+      return raw;
+    }
+
+    return `${raw.slice(0, Math.max(0, column.truncate - 1))}\u2026`;
+  }
+
+  getColumnPrefixIcon(column: MasterColumnConfig, value: unknown): string | null {
+    if (!column.prefixIcon || value === null || value === undefined || value === '') {
+      return null;
+    }
+    return column.prefixIcon;
+  }
+
+  getStatusColumn(cfg: MasterTableConfig): MasterColumnConfig | null {
+    const statusField = cfg.statusField || 'status_code';
+    return cfg.columns.find((column) => column.field === statusField) ?? null;
+  }
+
+  getColumnFontFamily(column: MasterColumnConfig): string | null {
+    return column.monospace ? 'var(--dmis-font-mono)' : null;
+  }
+
+  getColumnFontWeight(column: MasterColumnConfig): string | null {
+    return column.semibold ? '600' : null;
+  }
+
   getItemCategoryFilterLabel(item: ItemCategoryLookup): string {
     const code = String(item.category_code ?? '').trim();
     return code ? `${item.label} (${code})` : item.label;
@@ -577,6 +661,34 @@ export class MasterListComponent implements OnInit {
     }
 
     return this.sortDirection() === 'desc' ? `-${field}` : field;
+  }
+
+  private normalizePillValue(value: unknown): string {
+    return String(value ?? '').trim().toUpperCase();
+  }
+
+  private findToneRule(rules: readonly MasterToneRule[], normalizedValue: string): MasterToneRule | null {
+    const defaultRule = rules.find((rule) => !rule.value && !rule.values?.length && !rule.startsWith);
+    const matched = rules.find((rule) => {
+      if (rule.value && normalizedValue === rule.value.trim().toUpperCase()) {
+        return true;
+      }
+      if (rule.values?.some((value) => normalizedValue === value.trim().toUpperCase())) {
+        return true;
+      }
+      if (rule.startsWith && normalizedValue.startsWith(rule.startsWith.trim().toUpperCase())) {
+        return true;
+      }
+      return false;
+    });
+    return matched ?? defaultRule ?? null;
+  }
+
+  private getPillLabel(column: MasterColumnConfig, normalizedValue: string): string {
+    if (column.type === 'status') {
+      return this.getStatusLabel(normalizedValue);
+    }
+    return normalizedValue || 'Unknown';
   }
 
   private applyClientSort(cfg: MasterTableConfig, rows: MasterRecord[]): MasterRecord[] {

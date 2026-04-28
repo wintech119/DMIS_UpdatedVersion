@@ -136,7 +136,6 @@ export const MANAGEMENT_SECTION: NavSection = {
         { label: 'Donation Reports', icon: 'receipt_long', disabled: true },
       ],
     },
-    { label: 'User Management', icon: 'manage_accounts', disabled: true },
     { label: 'Notifications', icon: 'notifications', disabled: true },
   ],
 };

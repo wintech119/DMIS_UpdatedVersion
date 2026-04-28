@@ -4,8 +4,19 @@
 
 export type FormMode = 'dialog' | 'page';
 export type FieldType = 'text' | 'number' | 'select' | 'lookup' | 'boolean' | 'date' | 'textarea' | 'email' | 'phone';
-export type ColumnType = 'text' | 'number' | 'date' | 'boolean' | 'status';
+export type ColumnType = 'text' | 'number' | 'date' | 'boolean' | 'status' | 'pill';
+export type MasterDomainKey = 'catalogs' | 'operational' | 'policies' | 'tenant-access' | 'advanced';
+export type MasterTone = 'critical' | 'warning' | 'success' | 'info' | 'neutral';
 export type MasterRecord = Record<string, unknown>;
+
+export interface MasterToneRule {
+  value?: string;
+  values?: readonly string[];
+  startsWith?: string;
+  label?: string;
+  tone: MasterTone;
+  icon?: string;
+}
 
 export interface MasterColumnConfig {
   field: string;
@@ -14,6 +25,16 @@ export interface MasterColumnConfig {
   sortable?: boolean;
   /** Hide on mobile screens */
   hideMobile?: boolean;
+  /** Render with code-like typography */
+  monospace?: boolean;
+  /** Render as semibold when the value carries identity weight */
+  semibold?: boolean;
+  /** Trim long text for dense list columns */
+  truncate?: number;
+  /** Optional tone/icon mapping for status and semantic pill columns */
+  toneMap?: readonly MasterToneRule[];
+  /** Optional leading icon when a non-empty value needs context */
+  prefixIcon?: string;
 }
 
 export interface MasterFieldConfig {
@@ -39,13 +60,25 @@ export interface MasterFieldConfig {
   /** Group label for form section grouping */
   group?: string;
   /** Grid span (1 or 2 columns) */
-  colspan?: 1 | 2;
+  colspan?: 1 | 2 | 4;
+  /** Hide from create forms while keeping the control available for edit payloads */
+  editOnly?: boolean;
   /** Optional help text rendered below the field */
   hint?: string;
+  /** Value-specific help text, used when a select value needs operational context */
+  valueHints?: { value: string; hint: string }[];
   /** Optional tooltip text rendered from an inline help affordance */
   tooltip?: string;
   /** Optional placeholder text shown inside the input when empty */
   placeholder?: string;
+}
+
+export interface MasterEmptyStateConfig {
+  icon: string;
+  title: string;
+  message: string;
+  actionLabel?: string;
+  actionIcon?: string;
 }
 
 export interface MasterTableConfig {
@@ -54,6 +87,7 @@ export interface MasterTableConfig {
   icon: string;
   pkField: string;
   routePath: string;
+  domain?: MasterDomainKey;
   formMode: FormMode;
   /** Read-only table (e.g. parishes) */
   readOnly?: boolean;
@@ -71,6 +105,8 @@ export interface MasterTableConfig {
   columns: MasterColumnConfig[];
   /** Fields shown in the create/edit form */
   formFields: MasterFieldConfig[];
+  /** Config-specific empty state copy */
+  emptyState?: MasterEmptyStateConfig;
   searchPlaceholder?: string;
   /** Custom status field name (default 'status_code') */
   statusField?: string;

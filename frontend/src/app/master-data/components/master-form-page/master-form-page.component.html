@@ -319,6 +319,9 @@
                       <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                     }
                   </mat-select>
+                  @if (getStatusFieldHint(); as statusHint) {
+                    <mat-hint>{{ statusHint }}</mat-hint>
+                  }
                 </mat-form-field>
               }
             }
@@ -359,7 +362,7 @@
                 <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.key">
                   @for (field of getRenderableFields(group); track field.field) {
                     <div class="form-field"
-                      [class.colspan-2]="field.colspan === 2"
+                      [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                       [class.locked-field]="isGovernedLockedField(field)"
                       [attr.data-field]="field.field">
 
@@ -1031,7 +1034,7 @@
 
               @for (field of getRenderableFields(group); track field.field) {
                 <div class="form-field"
-                  [class.colspan-2]="field.colspan === 2"
+                  [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                   [class.locked-field]="isGovernedLockedField(field)"
                   [attr.data-field]="field.field">
 
@@ -1518,6 +1521,9 @@
                     <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                   }
                 </mat-select>
+                @if (getStatusFieldHint(); as statusHint) {
+                  <mat-hint>{{ statusHint }}</mat-hint>
+                }
               </mat-form-field>
             }
           }
@@ -1803,7 +1809,7 @@
 
             @for (field of getRenderableFields(group); track field.field) {
               <div class="form-field"
-                [class.colspan-2]="field.colspan === 2"
+                [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                 [class.locked-field]="isGovernedLockedField(field)"
                 [attr.data-field]="field.field">
 

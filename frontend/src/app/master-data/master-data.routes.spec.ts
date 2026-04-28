@@ -53,4 +53,15 @@ describe('MASTER_DATA_ROUTES', () => {
     expect(routePaths).not.toContain('uom/:pk');
     expect(routePaths).not.toContain('uom/:pk/edit');
   });
+
+  it('exposes advanced system master maintenance routes under /master-data', () => {
+    const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
+
+    for (const routePath of ['users', 'roles', 'permissions', 'tenants']) {
+      expect(routePaths).toContain(routePath);
+      expect(routePaths).toContain(`${routePath}/new`);
+      expect(routePaths).toContain(`${routePath}/:pk`);
+      expect(routePaths).toContain(`${routePath}/:pk/edit`);
+    }
+  });
 });

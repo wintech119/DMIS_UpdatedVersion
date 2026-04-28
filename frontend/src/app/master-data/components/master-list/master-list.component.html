@@ -143,11 +143,11 @@
     } @else if (rows().length === 0) {
       <!-- Empty State -->
         <dmis-empty-state
-          icon="search_off"
-          title="No records found"
-          [message]="searchText() ? 'Try adjusting your search or filters.' : 'No ' + cfg.displayName.toLowerCase() + ' exist yet.'"
-          [actionLabel]="canCreate() ? 'Add New' : ''"
-          actionIcon="add"
+          [icon]="cfg.emptyState?.icon || 'search_off'"
+          [title]="cfg.emptyState?.title || 'No records found'"
+          [message]="searchText() ? 'Try adjusting your search or filters.' : (cfg.emptyState?.message || 'No ' + cfg.displayName.toLowerCase() + ' exist yet.')"
+          [actionLabel]="canCreate() ? (cfg.emptyState?.actionLabel || 'Add New') : ''"
+          [actionIcon]="cfg.emptyState?.actionIcon || 'add'"
           (action)="onAdd()"
         />
     } @else {
@@ -158,24 +158,34 @@
             @for (col of cfg.columns; track col.field) {
               <ng-container [matColumnDef]="col.field">
                 <th mat-header-cell *matHeaderCellDef>{{ col.header }}</th>
-                <td mat-cell *matCellDef="let row">
-                  @switch (col.type) {
-                    @case ('status') {
-                      <span class="status-chip" [attr.data-status]="row[col.field]">
-                        <mat-icon class="status-icon">{{ row[col.field] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
-                        {{ getStatusLabel(row[col.field]) }}
-                      </span>
-                    }
-                    @case ('boolean') {
-                      <mat-icon [class.bool-true]="row[col.field]" [class.bool-false]="!row[col.field]">
-                        {{ row[col.field] ? 'check_circle' : 'cancel' }}
-                      </mat-icon>
-                    }
-                    @case ('date') {
-                      {{ row[col.field] | date:'mediumDate' }}
-                    }
-                    @default {
-                      {{ row[col.field] }}
+                <td mat-cell *matCellDef="let row"
+                  [style.font-family]="getColumnFontFamily(col)"
+                  [style.font-weight]="getColumnFontWeight(col)">
+                  @if (getColumnPill(col, row[col.field]); as pill) {
+                    <span class="status-chip"
+                      [ngClass]="getPillClasses(pill)"
+                      [attr.data-status]="pill.legacyStatus">
+                      @if (pill.icon) {
+                        <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                      }
+                      {{ pill.label }}
+                    </span>
+                  } @else {
+                    @switch (col.type) {
+                      @case ('boolean') {
+                        <mat-icon [class.bool-true]="row[col.field]" [class.bool-false]="!row[col.field]">
+                          {{ row[col.field] ? 'check_circle' : 'cancel' }}
+                        </mat-icon>
+                      }
+                      @case ('date') {
+                        {{ row[col.field] | date:'mediumDate' }}
+                      }
+                      @default {
+                        @if (getColumnPrefixIcon(col, row[col.field]); as prefixIcon) {
+                          <mat-icon class="status-icon" aria-hidden="true">{{ prefixIcon }}</mat-icon>
+                        }
+                        {{ getDisplayValue(col, row[col.field]) }}
+                      }
                     }
                   }
                 </td>
@@ -238,10 +248,18 @@
               <mat-card-header>
                 <span class="card-title">{{ row[cfg.columns[0].field] || row[cfg.pkField] }}</span>
                 @if (cfg.hasStatus !== false) {
-                  <span class="status-chip" [attr.data-status]="row[cfg.statusField || 'status_code']">
-                    <mat-icon class="status-icon">{{ row[cfg.statusField || 'status_code'] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
-                    {{ getStatusLabel(row[cfg.statusField || 'status_code']) }}
-                  </span>
+                  @if (getStatusColumn(cfg); as statusColumn) {
+                    @if (getColumnPill(statusColumn, row[statusColumn.field]); as pill) {
+                      <span class="status-chip"
+                        [ngClass]="getPillClasses(pill)"
+                        [attr.data-status]="pill.legacyStatus">
+                        @if (pill.icon) {
+                          <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                        }
+                        {{ pill.label }}
+                      </span>
+                    }
+                  }
                 }
               </mat-card-header>
               <mat-card-content>
@@ -249,7 +267,25 @@
                   @if (!col.hideMobile && col.type !== 'status' && row[col.field]) {
                     <div class="card-field">
                       <span class="card-label">{{ col.header }}</span>
-                      <span>{{ row[col.field] }}</span>
+                      <span
+                        [style.font-family]="getColumnFontFamily(col)"
+                        [style.font-weight]="getColumnFontWeight(col)">
+                        @if (getColumnPill(col, row[col.field]); as pill) {
+                          <span class="status-chip"
+                            [ngClass]="getPillClasses(pill)"
+                            [attr.data-status]="pill.legacyStatus">
+                            @if (pill.icon) {
+                              <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                            }
+                            {{ pill.label }}
+                          </span>
+                        } @else {
+                          @if (getColumnPrefixIcon(col, row[col.field]); as prefixIcon) {
+                            <mat-icon class="status-icon" aria-hidden="true">{{ prefixIcon }}</mat-icon>
+                          }
+                          {{ getDisplayValue(col, row[col.field]) }}
+                        }
+                      </span>
                     </div>
                   }
                 }

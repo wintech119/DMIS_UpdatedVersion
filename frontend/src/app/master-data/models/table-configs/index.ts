@@ -16,6 +16,10 @@ import { SUPPLIER_CONFIG } from './supplier.config';
 import { COUNTRY_CONFIG } from './country.config';
 import { CURRENCY_CONFIG } from './currency.config';
 import { PARISH_CONFIG } from './parish.config';
+import { USERS_CONFIG } from './users.config';
+import { ROLES_CONFIG } from './roles.config';
+import { PERMISSIONS_CONFIG } from './permissions.config';
+import { TENANTS_CONFIG } from './tenants.config';
 
 export {
   ITEM_CATEGORY_CONFIG,
@@ -34,6 +38,10 @@ export {
   COUNTRY_CONFIG,
   CURRENCY_CONFIG,
   PARISH_CONFIG,
+  USERS_CONFIG,
+  ROLES_CONFIG,
+  PERMISSIONS_CONFIG,
+  TENANTS_CONFIG,
 };
 
 /** All table configs indexed by routePath for route resolution */
@@ -54,4 +62,8 @@ export const ALL_TABLE_CONFIGS: Record<string, MasterTableConfig> = {
   'countries': COUNTRY_CONFIG,
   'currencies': CURRENCY_CONFIG,
   'parishes': PARISH_CONFIG,
+  'users': USERS_CONFIG,
+  'roles': ROLES_CONFIG,
+  'permissions': PERMISSIONS_CONFIG,
+  'tenants': TENANTS_CONFIG,
 };

@@ -329,6 +329,10 @@ export class MasterFormPageComponent implements OnInit {
     const usedKeys = new Map<string, number>();
 
     for (const f of cfg.formFields) {
+      if (f.editOnly && !this.isEdit()) {
+        continue;
+      }
+
       const groupLabel = f.group || 'General';
       let group = seen.get(groupLabel);
 
@@ -2316,6 +2320,11 @@ export class MasterFormPageComponent implements OnInit {
     return this.getStatusField()?.options ?? [];
   }
 
+  getStatusFieldHint(): string | null {
+    const field = this.getStatusField();
+    return field ? this.getFieldHint(field) : null;
+  }
+
   private buildFieldGroupKey(label: string, usedKeys: Map<string, number>): string {
     const slugBase = this.slugifyFieldGroupLabel(label) || 'general';
     const duplicateCount = usedKeys.get(slugBase) ?? 0;
@@ -2334,6 +2343,12 @@ export class MasterFormPageComponent implements OnInit {
   getFieldTooltip(field: MasterFieldConfig): string | null {
     const tooltip = String(field.tooltip ?? '').trim();
     return tooltip || null;
+  }
+
+  getFieldHint(field: MasterFieldConfig): string | null {
+    const currentValue = String(this.form.get(field.field)?.value ?? '').trim().toUpperCase();
+    const matched = field.valueHints?.find((hint) => hint.value.trim().toUpperCase() === currentValue);
+    return matched?.hint ?? field.hint ?? null;
   }
 
   getPrimarySaveLabel(): string {

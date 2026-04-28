@@ -42,5 +42,10 @@ export const MASTER_DATA_ROUTES: Routes = [
   ...pageRoutes('donors'),
   ...pageRoutes('events'),
   ...pageRoutes('suppliers'),
+
+  ...pageRoutes('users'),
+  ...pageRoutes('roles'),
+  ...pageRoutes('permissions'),
+  ...pageRoutes('tenants'),
 ];
 
