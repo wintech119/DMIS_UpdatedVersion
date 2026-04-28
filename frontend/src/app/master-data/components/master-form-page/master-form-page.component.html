@@ -329,17 +329,24 @@
           <div class="wizard-footer" role="toolbar" aria-label="Wizard navigation">
             @if (lastGroupIsSingleStatus()) {
               @if (getStatusField(); as statusField) {
-                <mat-form-field appearance="outline" class="action-bar-status" subscriptSizing="dynamic">
+                <mat-form-field
+                  appearance="outline"
+                  class="action-bar-status"
+                  subscriptSizing="dynamic"
+                  [matTooltip]="getStatusFieldHint() || ''"
+                  [matTooltipDisabled]="!getStatusFieldHint()">
                   <mat-label>{{ statusField.label }}</mat-label>
-                  <mat-select [formControlName]="statusField.field">
+                  <mat-select
+                    [formControlName]="statusField.field"
+                    [attr.aria-describedby]="getStatusFieldHint() ? statusField.field + '-action-hint' : null">
                     @for (opt of getStatusOptions(); track opt.value) {
                       <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                     }
                   </mat-select>
-                  @if (getStatusFieldHint(); as statusHint) {
-                    <mat-hint>{{ statusHint }}</mat-hint>
-                  }
                 </mat-form-field>
+                @if (getStatusFieldHint(); as statusHint) {
+                  <span class="sr-only" [id]="statusField.field + '-action-hint'">{{ statusHint }}</span>
+                }
               }
             }
             <div class="wizard-footer__nav">
@@ -1537,17 +1544,24 @@
         <div class="form-actions" [class.form-actions--with-status]="lastGroupIsSingleStatus()" role="toolbar" aria-label="Form actions">
           @if (lastGroupIsSingleStatus(); as hasStatus) {
             @if (getStatusField(); as statusField) {
-              <mat-form-field appearance="outline" class="action-bar-status" subscriptSizing="dynamic">
+              <mat-form-field
+                appearance="outline"
+                class="action-bar-status"
+                subscriptSizing="dynamic"
+                [matTooltip]="getStatusFieldHint() || ''"
+                [matTooltipDisabled]="!getStatusFieldHint()">
                 <mat-label>{{ statusField.label }}</mat-label>
-                <mat-select [formControlName]="statusField.field">
+                <mat-select
+                  [formControlName]="statusField.field"
+                  [attr.aria-describedby]="getStatusFieldHint() ? statusField.field + '-action-hint' : null">
                   @for (opt of getStatusOptions(); track opt.value) {
                     <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                   }
                 </mat-select>
-                @if (getStatusFieldHint(); as statusHint) {
-                  <mat-hint>{{ statusHint }}</mat-hint>
-                }
               </mat-form-field>
+              @if (getStatusFieldHint(); as statusHint) {
+                <span class="sr-only" [id]="statusField.field + '-action-hint'">{{ statusHint }}</span>
+              }
             }
           }
           <div class="action-bar-buttons">

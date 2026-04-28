@@ -44,14 +44,16 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-block-size: 72px;
   background: var(--ops-card);
   border: 1px solid var(--ops-border);
   border-radius: var(--ops-radius-md);
   box-shadow: var(--ops-shadow-sticky);
 
   .action-bar-status {
+    align-self: center;
     flex-shrink: 0;
-    inline-size: 160px;
+    inline-size: 176px;
   }
 }
 
@@ -1138,6 +1140,7 @@ fieldset.form-grid {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-block-size: 44px;
   }
 
   .cancel-btn,
@@ -1327,6 +1330,7 @@ fieldset.form-grid {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    min-block-size: 44px;
   }
 
   &__back,
