@@ -401,8 +401,8 @@ class BootstrapReliefManagementAuthorityBaselineCommandTests(SimpleTestCase):
             [
                 TenantSnapshot(tenant_id=27, tenant_code="OFFICE-OF-DISASTER-P", tenant_name="ODPEM", tenant_type="NATIONAL", parent_tenant_id=None),
                 TenantSnapshot(tenant_id=14, tenant_code="PARISH-KN", tenant_name="Parish", tenant_type="PARISH", parent_tenant_id=None),
-                TenantSnapshot(tenant_id=20, tenant_code="FFP", tenant_name="Food For The Poor", tenant_type="EXTERNAL", parent_tenant_id=None),
-                TenantSnapshot(tenant_id=25, tenant_code="PUBLIC", tenant_name="Public", tenant_type="PUBLIC", parent_tenant_id=None),
+                TenantSnapshot(tenant_id=20, tenant_code="FFP", tenant_name="Food For The Poor", tenant_type="NGO", parent_tenant_id=None),
+                TenantSnapshot(tenant_id=25, tenant_code="PUBLIC", tenant_name="Public", tenant_type="PARTNER", parent_tenant_id=None),
             ],
             date(2026, 3, 26),
         )

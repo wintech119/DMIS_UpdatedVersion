@@ -267,7 +267,7 @@ describe('Auth pages', () => {
               tenant_id: 2,
               tenant_code: 'ODPEM-NEOC',
               tenant_name: 'ODPEM NEOC',
-              tenant_type: 'NEOC',
+              tenant_type: 'NATIONAL',
               is_primary: true,
               access_level: 'FULL',
             },

@@ -1,5 +1,15 @@
 # Current Task Plan
 
+## Tenant Type Review Fixes - 2026-04-28
+
+Risk score: 5 / Low-Medium using the architecture-review rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 1, external surface 1, operational impact 0.
+
+1. Completed: inspected current tenant-type backend, migration, frontend access patterns, and local architecture/security guidance.
+2. Completed: patched PATCH inactivation dependency enforcement, defensive legacy-column migration handling, and frontend write permission alignment.
+3. Completed: updated focused backend and frontend regression coverage in existing test files.
+4. Completed: ran targeted verification and completed architecture-review closeout.
+
 ## Canonical Generation Prompt Review Fixes - 2026-04-28
 
 Risk score: 2 / Low by total, architecture-review triggered by blast radius 2 because canonical prompt and skill docs shape future frontend implementation.

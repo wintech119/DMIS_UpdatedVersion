@@ -15,7 +15,7 @@ PERM_MASTERDATA_CREATE = "masterdata.create"
 PERM_MASTERDATA_EDIT = "masterdata.edit"
 PERM_MASTERDATA_INACTIVATE = "masterdata.inactivate"
 
-ADVANCED_TABLE_KEYS = {"user", "role", "permission", "tenant"}
+ADVANCED_TABLE_KEYS = {"user", "role", "permission", "tenant", "tenant_types"}
 ADVANCED_REQUIRED_PERMISSION = {
     "GET": PERM_MASTERDATA_ADVANCED_VIEW,
     "POST": PERM_MASTERDATA_ADVANCED_CREATE,

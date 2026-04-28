@@ -4165,6 +4165,7 @@ CREATE TABLE public.ref_tenant_type (
     tenant_type_code character varying(30) NOT NULL,
     tenant_type_name character varying(120) NOT NULL,
     description text,
+    display_order integer DEFAULT 90 NOT NULL,
     status_code character(1) DEFAULT 'A'::bpchar NOT NULL,
     create_by_id character varying(20) DEFAULT 'SYSTEM'::character varying NOT NULL,
     create_dtime timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -4638,8 +4639,7 @@ CREATE TABLE public.tenant (
     CONSTRAINT tenant_mobile_priority_check CHECK (((mobile_priority)::text = ANY ((ARRAY['CRITICAL'::character varying, 'HIGH'::character varying, 'MEDIUM'::character varying, 'LOW'::character varying])::text[]))),
     CONSTRAINT tenant_name_upper CHECK (((tenant_name)::text = upper((tenant_name)::text))),
     CONSTRAINT tenant_pii_access_check CHECK (((pii_access)::text = ANY ((ARRAY['NONE'::character varying, 'AGGREGATED'::character varying, 'LIMITED'::character varying, 'MASKED'::character varying, 'FULL'::character varying])::text[]))),
-    CONSTRAINT tenant_status_code_check CHECK ((status_code = ANY (ARRAY['A'::bpchar, 'I'::bpchar]))),
-    CONSTRAINT tenant_tenant_type_check CHECK (((tenant_type)::text = ANY (ARRAY['NATIONAL'::text, 'MILITARY'::text, 'SOCIAL_SERVICES'::text, 'PARISH'::text, 'NGO'::text, 'MINISTRY'::text, 'EXTERNAL'::text, 'INFRASTRUCTURE'::text, 'PUBLIC'::text])))
+    CONSTRAINT tenant_status_code_check CHECK ((status_code = ANY (ARRAY['A'::bpchar, 'I'::bpchar])))
 );
 
 ALTER TABLE ONLY public.tenant FORCE ROW LEVEL SECURITY;
@@ -4656,7 +4656,7 @@ COMMENT ON TABLE public.tenant IS 'Canonical organization registry for multi-ten
 -- Name: COLUMN tenant.tenant_type; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.tenant.tenant_type IS 'NATIONAL=ODPEM/NDRMC, MILITARY=JDF/JCF, PARISH=Municipal Corps, MINISTRY=Govt ministries, EXTERNAL=NGOs, INFRASTRUCTURE=Utilities, PUBLIC=Dashboard access';
+COMMENT ON COLUMN public.tenant.tenant_type IS 'Canonical FK to ref_tenant_type. Baseline: NATIONAL, MILITARY, SOCIAL_SERVICES, PARISH, COMMUNITY, NGO, UTILITY, SHELTER_OPERATOR, PARTNER.';
 
 
 --

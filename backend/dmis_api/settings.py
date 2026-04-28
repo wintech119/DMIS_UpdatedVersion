@@ -1112,6 +1112,13 @@ NATIONAL_PHASE_WINDOW_ADMIN_CODES = _get_csv_env(
     ["OFFICE-OF-DISASTER-P"],
 )
 
+# Only these active tenant codes may administer the canonical tenant-type
+# baseline when paired with the dedicated tenant-type management permission.
+TENANT_TYPE_ADMIN_TENANT_CODES = _get_csv_env(
+    "TENANT_TYPE_ADMIN_TENANT_CODES",
+    ["ODPEM", "ODPEM_NEOC", "NEOC", "OFFICE_OF_DISASTER_P", "JAMICTA"],
+)
+
 NEEDS_SAFETY_FACTOR = _get_float_env("NEEDS_SAFETY_FACTOR", 1.25)
 NEEDS_HORIZON_A_DAYS = _get_int_env("NEEDS_HORIZON_A_DAYS", 7)
 NEEDS_HORIZON_B_DAYS = _get_int_env("NEEDS_HORIZON_B_DAYS", None)

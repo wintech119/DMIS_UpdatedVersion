@@ -1,0 +1,41 @@
+{
+  "file": "C:\\Users\\wbowe\\OneDrive\\Desktop\\project\\DMIS_UpdatedVersion\\artifacts\\playwright\\status-alignment\\after-items-new-mobile.png",
+  "consoleErrors": [],
+  "eval": {
+    "title": "DmisFrontend",
+    "url": "http://localhost:4200/master-data/items/new",
+    "status": {
+      "x": 286,
+      "y": 690,
+      "w": 1031.0625,
+      "h": 57,
+      "top": 690,
+      "bottom": 747,
+      "left": 286,
+      "right": 1317.0625
+    },
+    "bar": {
+      "x": 269,
+      "y": 677,
+      "w": 1065.0625,
+      "h": 135,
+      "top": 677,
+      "bottom": 812,
+      "left": 269,
+      "right": 1334.0625
+    },
+    "buttons": {
+      "x": 286,
+      "y": 755,
+      "w": 1031.0625,
+      "h": 44,
+      "top": 755,
+      "bottom": 799,
+      "left": 286,
+      "right": 1317.0625
+    },
+    "className": "wizard-footer",
+    "hiddenHintText": "Active items can be requested and stocked; inactive items remain for history.",
+    "text": "Status\nActive\nActive items can be requested and stocked; inactive items remain for history.\narrow_back\nBack\nStep 1 of 7\narrow_forward\nNext"
+  }
+}

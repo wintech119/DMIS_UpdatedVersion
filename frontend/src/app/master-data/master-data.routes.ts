@@ -46,6 +46,7 @@ export const MASTER_DATA_ROUTES: Routes = [
   ...pageRoutes('users'),
   ...pageRoutes('roles'),
   ...pageRoutes('permissions'),
+  ...pageRoutes('tenant-types'),
   {
     path: 'tenants/:pk/users/:userId/roles',
     component: MasterDetailPageComponent,

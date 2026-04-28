@@ -7,6 +7,12 @@ const PERM_MASTERDATA_VIEW = 'masterdata.view';
 const PERM_MASTERDATA_CREATE = 'masterdata.create';
 const PERM_MASTERDATA_EDIT = 'masterdata.edit';
 const PERM_MASTERDATA_INACTIVATE = 'masterdata.inactivate';
+const PERM_MASTERDATA_ADVANCED_VIEW = 'masterdata.advanced.view';
+const PERM_MASTERDATA_ADVANCED_CREATE = 'masterdata.advanced.create';
+const PERM_MASTERDATA_ADVANCED_EDIT = 'masterdata.advanced.edit';
+const PERM_MASTERDATA_ADVANCED_INACTIVATE = 'masterdata.advanced.inactivate';
+const PERM_MASTERDATA_TENANT_TYPE_MANAGE = 'masterdata.tenant_type.manage';
+const TENANT_TYPE_ROUTE_PATH = 'tenant-types';
 
 const GLOBAL_MASTER_ROUTE_PATHS = new Set([
   'item-categories',
@@ -32,6 +38,14 @@ const OPERATIONAL_MASTER_ROUTE_PATHS = new Set([
 
 const LEGACY_MASTER_ROUTE_PATHS = new Set([
   'custodians',
+]);
+
+const TENANT_TYPE_ADMIN_TENANT_CODES = new Set([
+  'ODPEM',
+  'ODPEM_NEOC',
+  'NEOC',
+  'OFFICE_OF_DISASTER_P',
+  'JAMICTA',
 ]);
 
 const GLOBAL_MASTER_ROLE_CODES = new Set([
@@ -269,12 +283,18 @@ export class AppAccessService {
     if (OPERATIONAL_MASTER_ROUTE_PATHS.has(routePath)) {
       return this.canAccessOperationalMasters();
     }
+    if (routePath === TENANT_TYPE_ROUTE_PATH) {
+      return this.isSystemAdministrator() && this.hasPermission(PERM_MASTERDATA_ADVANCED_VIEW);
+    }
     return this.isSystemAdministrator();
   }
 
   canCreateMasterRoutePath(routePath: string, readOnly = false): boolean {
     if (readOnly) {
       return false;
+    }
+    if (routePath === TENANT_TYPE_ROUTE_PATH) {
+      return this.canManageTenantTypes(PERM_MASTERDATA_ADVANCED_CREATE);
     }
     return this.canAccessMasterRoutePath(routePath) && this.hasPermission(PERM_MASTERDATA_CREATE);
   }
@@ -283,12 +303,20 @@ export class AppAccessService {
     if (readOnly) {
       return false;
     }
+    if (routePath === TENANT_TYPE_ROUTE_PATH) {
+      return this.canManageTenantTypes(PERM_MASTERDATA_ADVANCED_EDIT);
+    }
     return this.canAccessMasterRoutePath(routePath) && this.hasPermission(PERM_MASTERDATA_EDIT);
   }
 
   canToggleMasterStatus(routePath: string, isActive: boolean, readOnly = false): boolean {
     if (readOnly || !this.canAccessMasterRoutePath(routePath)) {
       return false;
+    }
+    if (routePath === TENANT_TYPE_ROUTE_PATH) {
+      return this.canManageTenantTypes(
+        isActive ? PERM_MASTERDATA_ADVANCED_INACTIVATE : PERM_MASTERDATA_ADVANCED_EDIT,
+      );
     }
     if (isActive) {
       return this.hasPermission(PERM_MASTERDATA_INACTIVATE);
@@ -366,6 +394,25 @@ export class AppAccessService {
       && this.hasOperationalTenantScope();
   }
 
+  private canManageTenantTypes(requiredWritePermission: string): boolean {
+    return this.canAccessMasterRoutePath(TENANT_TYPE_ROUTE_PATH)
+      && this.hasPermission(requiredWritePermission)
+      && this.hasPermission(PERM_MASTERDATA_TENANT_TYPE_MANAGE)
+      && this.hasTenantTypeAdminScope();
+  }
+
+  private hasTenantTypeAdminScope(): boolean {
+    const context = this.auth.tenantContext();
+    if (!context || context.active_tenant_id == null) {
+      return false;
+    }
+    const activeTenantCode = this.normalizeTenantCode(context.active_tenant_code);
+    const hasDirectActiveMembership = context.memberships.some(
+      (membership) => membership.tenant_id === context.active_tenant_id,
+    );
+    return hasDirectActiveMembership && TENANT_TYPE_ADMIN_TENANT_CODES.has(activeTenantCode);
+  }
+
   private hasOperationalTenantScope(): boolean {
     const context = this.auth.tenantContext();
     if (!context) {
@@ -388,5 +435,9 @@ export class AppAccessService {
 
   private normalizeToken(value: unknown): string {
     return String(value ?? '').trim().toUpperCase();
+  }
+
+  private normalizeTenantCode(value: unknown): string {
+    return this.normalizeToken(value).replace(/[-\s]+/g, '_').replace(/_+/g, '_');
   }
 }

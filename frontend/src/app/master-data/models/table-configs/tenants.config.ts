@@ -5,14 +5,17 @@ const STATUS_TONES = [
   { value: 'I', label: 'Inactive', tone: 'neutral', icon: 'radio_button_unchecked' },
 ] as const;
 const TYPE_TONES = [
-  { value: 'NEOC', tone: 'critical', icon: 'crisis_alert' },
-  { value: 'NATIONAL_LEVEL', tone: 'warning', icon: 'account_balance' },
-  { value: 'AGENCY', tone: 'info', icon: 'apartment' },
-  { value: 'SHELTER', tone: 'success', icon: 'home' },
-  { value: 'OTHER', tone: 'neutral' },
+  { value: 'NATIONAL', tone: 'critical', icon: 'crisis_alert' },
+  { value: 'MILITARY', tone: 'warning', icon: 'shield' },
+  { value: 'SOCIAL_SERVICES', tone: 'info', icon: 'diversity_3' },
+  { value: 'PARISH', tone: 'success', icon: 'location_city' },
+  { value: 'COMMUNITY', tone: 'info', icon: 'groups' },
+  { value: 'NGO', tone: 'neutral', icon: 'volunteer_activism' },
+  { value: 'UTILITY', tone: 'warning', icon: 'electrical_services' },
+  { value: 'SHELTER_OPERATOR', tone: 'success', icon: 'home_work' },
+  { value: 'PARTNER', tone: 'neutral', icon: 'handshake' },
   { tone: 'neutral' },
 ] as const;
-const TENANT_TYPES = ['NEOC', 'NATIONAL_LEVEL', 'AGENCY', 'SHELTER', 'OTHER'];
 
 export const TENANTS_CONFIG: MasterTableConfig = {
   tableKey: 'tenant',
@@ -47,10 +50,12 @@ export const TENANTS_CONFIG: MasterTableConfig = {
       hint: 'Full organization name shown in access, routing, and reports.',
       placeholder: 'Kingston NEOC',
       group: 'Identity' },
-    { field: 'tenant_type', label: 'Tenant Type', type: 'select', required: true,
+    { field: 'tenant_type', label: 'Tenant Type', type: 'lookup', required: true, lookupTable: 'tenant_types',
       hint: 'Classifies the tenant operational level for access and reporting.',
-      options: TENANT_TYPES.map((value) => ({ value, label: value.replace('_', ' ') })), group: 'Identity' },
-    { field: 'parent_tenant_id', label: 'Parent Tenant', type: 'lookup', hint: 'Parent organization this tenant reports through; leave blank for national root.', lookupTable: 'tenant', group: 'Identity' },
+      group: 'Identity' },
+    { field: 'parent_tenant_id', label: 'Parent Tenant', type: 'lookup',
+      hint: 'Choose None when this tenant is a root or standalone organization.',
+      lookupTable: 'tenant', noneOptionLabel: 'None', group: 'Identity' },
     { field: 'data_scope', label: 'Data Scope', type: 'select', defaultValue: 'OWN_DATA',
       hint: 'Controls which tenant data users can see when assigned under this tenant.',
       options: ['OWN_DATA', 'PARISH_DATA', 'REGIONAL_DATA', 'NATIONAL_DATA'].map((value) => ({ value, label: value })),

@@ -370,6 +370,35 @@ describe('MasterFormPageComponent', () => {
     });
   }
 
+  it('offers None as a selectable parent tenant option and keeps it nullable', () => {
+    const { component } = setup('tenants');
+    const parentField = component.config()?.formFields.find((field) => field.field === 'parent_tenant_id');
+
+    expect(parentField).toBeDefined();
+    expect(component.hasLookupNoneOption(parentField!)).toBeTrue();
+
+    (component as unknown as MasterFormPageComponentTestAccess)['writeLookup']('tenant', [
+      { value: 1, label: 'ODPEM' },
+    ]);
+
+    const parentOptions = component.getLookupOptions(parentField!);
+    expect(parentOptions[0].label).toBe('None');
+    expect(typeof parentOptions[0].value).toBe('string');
+    expect(parentOptions[1]).toEqual({ value: 1, label: 'ODPEM' });
+
+    component.form.patchValue({
+      tenant_code: 'JDF',
+      tenant_name: 'Jamaica Defence Force',
+      tenant_type: 'MILITARY',
+      parent_tenant_id: parentOptions[0].value,
+    });
+
+    const payload = (component as unknown as MasterFormPageComponentTestAccess)['buildPreparedFormPayload'](
+      component.config()!,
+    );
+    expect(payload['parent_tenant_id']).toBeNull();
+  });
+
   it('requires an IFRC family for new items when a category is selected', () => {
     const { component } = setup();
 

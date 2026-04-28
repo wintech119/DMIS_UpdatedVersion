@@ -331,6 +331,7 @@ export class MasterFormPageComponent implements OnInit {
   private _ifrcBadgeTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
+  readonly lookupNoneValue = '__DMIS_LOOKUP_NONE__';
   private readonly lookupRequestIds: Record<string, number> = {};
   private latestStorageAssignmentRequestId = 0;
   locationForm = new FormGroup({
@@ -523,7 +524,7 @@ export class MasterFormPageComponent implements OnInit {
 
       this.form.addControl(
         field.field,
-        new FormControl(field.defaultValue ?? null, validators),
+        new FormControl(this.toLookupControlValue(field, field.defaultValue ?? null), validators),
       );
     }
 
@@ -1276,9 +1277,13 @@ export class MasterFormPageComponent implements OnInit {
 
       return !['item_categories', 'ifrc_families', 'ifrc_references'].includes(field.lookupTable);
     });
-    const lookupTables = new Map<string, string>();
+    const lookupTables = new Map<string, { label: string; field: MasterFieldConfig }>();
     for (const field of lookupFields) {
-      lookupTables.set(field.lookupTable!, field.label);
+      const existing = lookupTables.get(field.lookupTable!);
+      lookupTables.set(field.lookupTable!, {
+        label: existing?.label ?? field.label,
+        field: this.hasLookupNoneOption(field) ? field : existing?.field ?? field,
+      });
     }
     if (cfg.tableKey === 'items') {
       this.loadItemCategoryOptions();
@@ -1288,7 +1293,7 @@ export class MasterFormPageComponent implements OnInit {
 
     this.lookupErrors.set({});
 
-    for (const [tableKey, label] of lookupTables.entries()) {
+    for (const [tableKey, { label, field }] of lookupTables.entries()) {
       // For the IFRC Item Reference form, load families with group context
       // so users can see which product group each family belongs to.
       if (tableKey === 'ifrc_families' && cfg.tableKey === 'ifrc_item_references') {
@@ -1301,7 +1306,7 @@ export class MasterFormPageComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       ).subscribe({
         next: (items) => {
-          this.writeLookup(tableKey, items);
+          this.writeLookup(tableKey, this.withLookupNoneOption(field, items));
           this.setLookupLoading(tableKey, false);
           this.setLookupError(tableKey, null);
         },
@@ -1811,7 +1816,7 @@ export class MasterFormPageComponent implements OnInit {
         for (const field of cfg.formFields) {
           const control = this.form.get(field.field);
           if (control && record[field.field] !== undefined) {
-            control.setValue(record[field.field], { emitEvent: false });
+            control.setValue(this.toLookupControlValue(field, record[field.field]), { emitEvent: false });
           }
         }
 
@@ -2492,6 +2497,11 @@ export class MasterFormPageComponent implements OnInit {
     const rawData = { ...this.form.getRawValue() } as MasterRecord;
 
     for (const field of cfg.formFields) {
+      if (this.isLookupNoneValue(field, rawData[field.field])) {
+        rawData[field.field] = null;
+        continue;
+      }
+
       if (field.uppercase && typeof rawData[field.field] === 'string') {
         const currentValue = rawData[field.field] as string;
         rawData[field.field] = currentValue.trim().toUpperCase();
@@ -2699,7 +2709,7 @@ export class MasterFormPageComponent implements OnInit {
         continue;
       }
 
-      const nextValue = this.loadedRecordSnapshot[field.field] ?? null;
+      const nextValue = this.toLookupControlValue(field, this.loadedRecordSnapshot[field.field] ?? null);
       control.setValue(nextValue, { emitEvent: false });
     }
   }
@@ -3027,6 +3037,47 @@ export class MasterFormPageComponent implements OnInit {
 
   isLookupLoading(lookupKey: string): boolean {
     return this.lookupLoading()[lookupKey] === true;
+  }
+
+  hasLookupNoneOption(field: MasterFieldConfig): boolean {
+    return field.type === 'lookup'
+      && !field.required
+      && (!!field.noneOptionLabel || field.field === 'parent_tenant_id');
+  }
+
+  getLookupOptions(field: MasterFieldConfig): LookupItem[] {
+    const items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
+    return this.withLookupNoneOption(field, items);
+  }
+
+  getLookupOptionTrackValue(item: LookupItem): string | number {
+    return item.value;
+  }
+
+  private toLookupControlValue(field: MasterFieldConfig, value: unknown): unknown {
+    if (this.hasLookupNoneOption(field) && (value === null || value === undefined || value === '')) {
+      return this.lookupNoneValue;
+    }
+    return value;
+  }
+
+  private isLookupNoneValue(field: MasterFieldConfig, value: unknown): boolean {
+    return this.hasLookupNoneOption(field) && value === this.lookupNoneValue;
+  }
+
+  getLookupNoneLabel(field: MasterFieldConfig): string {
+    return field.noneOptionLabel ?? 'None';
+  }
+
+  private withLookupNoneOption(field: MasterFieldConfig, items: LookupItem[]): LookupItem[] {
+    if (!this.hasLookupNoneOption(field)) {
+      return items;
+    }
+
+    return [
+      { value: this.lookupNoneValue, label: this.getLookupNoneLabel(field) },
+      ...items.filter((item) => item.value !== this.lookupNoneValue),
+    ];
   }
 
   getItemTaxonomyFieldError(fieldName: 'category_id' | 'ifrc_family_id' | 'ifrc_item_ref_id'): string | null {

@@ -23,6 +23,65 @@ _ORDER_BY_PATTERN = re.compile(
 )
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
+BASELINE_TENANT_TYPES: tuple[dict[str, Any], ...] = (
+    {
+        "tenant_type_code": "NATIONAL",
+        "tenant_type_name": "National Coordination",
+        "description": "ODPEM and NEOC national coordination functions.",
+        "display_order": 10,
+    },
+    {
+        "tenant_type_code": "MILITARY",
+        "tenant_type_name": "Military",
+        "description": "Jamaica Defence Force and other approved military coordination tenants.",
+        "display_order": 20,
+    },
+    {
+        "tenant_type_code": "SOCIAL_SERVICES",
+        "tenant_type_name": "Social Services",
+        "description": "MLSS and social-services coordination entities.",
+        "display_order": 30,
+    },
+    {
+        "tenant_type_code": "PARISH",
+        "tenant_type_name": "Parish",
+        "description": "Parish Councils and parish disaster offices.",
+        "display_order": 40,
+    },
+    {
+        "tenant_type_code": "COMMUNITY",
+        "tenant_type_name": "Community",
+        "description": "Community-level entities or distribution points under a parent tenant.",
+        "display_order": 50,
+    },
+    {
+        "tenant_type_code": "NGO",
+        "tenant_type_name": "NGO",
+        "description": "Aid organizations and humanitarian NGOs.",
+        "display_order": 60,
+    },
+    {
+        "tenant_type_code": "UTILITY",
+        "tenant_type_name": "Utility",
+        "description": "JPS, NWC, NWA, telecoms, and similar lifeline operators.",
+        "display_order": 70,
+    },
+    {
+        "tenant_type_code": "SHELTER_OPERATOR",
+        "tenant_type_name": "Shelter Operator",
+        "description": "Organizations directly managing shelters.",
+        "display_order": 80,
+    },
+    {
+        "tenant_type_code": "PARTNER",
+        "tenant_type_name": "Partner",
+        "description": "Other approved platform agencies and entities.",
+        "display_order": 90,
+    },
+)
+BASELINE_TENANT_TYPE_CODES = frozenset(
+    row["tenant_type_code"] for row in BASELINE_TENANT_TYPES
+)
 
 _FORWARD_WRITE_BLOCK_ALWAYS_TABLES = {"inventory", "itembatch", "item_location"}
 _FORWARD_WRITE_STATE_TABLES = {
@@ -475,6 +534,30 @@ _register(TableConfig(
 ))
 
 _register(TableConfig(
+    key="tenant_types",
+    db_table="ref_tenant_type",
+    pk_field="tenant_type_code",
+    display_name="Tenant Types",
+    default_order="display_order",
+    lookup_label="tenant_type_name",
+    fields=[
+        FieldDef("tenant_type_code", pk=True, required=True, unique=True,
+                 uppercase=True, max_length=30, searchable=True, label="Code",
+                 pattern=r"^[A-Z_][A-Z0-9_]*$",
+                 pattern_message="Only uppercase letters, digits, and underscores are allowed."),
+        FieldDef("tenant_type_name", required=True, max_length=120,
+                 searchable=True, label="Name"),
+        FieldDef("description", db_type="text", label="Description"),
+        FieldDef("display_order", db_type="int", default=90, label="Display Order"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("tenant", "tenant_type", "Tenants"),
+    ],
+))
+
+_register(TableConfig(
     key="tenant",
     db_table="tenant",
     pk_field="tenant_id",
@@ -488,10 +571,8 @@ _register(TableConfig(
         FieldDef("tenant_name", required=True, uppercase=True,
                  max_length=120, searchable=True, label="Tenant Name"),
         FieldDef("tenant_type", required=True, max_length=20, label="Tenant Type",
-                 choices=[
-                     "NATIONAL", "MILITARY", "SOCIAL_SERVICES", "PARISH", "NGO",
-                     "MINISTRY", "EXTERNAL", "INFRASTRUCTURE", "PUBLIC",
-                 ]),
+                 fk_table="ref_tenant_type", fk_pk="tenant_type_code",
+                 fk_label="tenant_type_name"),
         FieldDef("parent_tenant_id", db_type="int", label="Parent Tenant",
                  fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
         FieldDef("data_scope", max_length=50, default="OWN_DATA", label="Data Scope",
@@ -1725,6 +1806,10 @@ def get_lookup(
         where = f"WHERE {cfg.status_field} = %s"
         params.append(cfg.active_status)
 
+    order_by_sql = label_field
+    if cfg.key == "tenant_types":
+        order_by_sql = "display_order, tenant_type_code"
+
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1732,7 +1817,7 @@ def get_lookup(
                 SELECT {cfg.pk_field}, {label_field}
                 FROM {schema}.{cfg.db_table}
                 {where}
-                ORDER BY {label_field}
+                ORDER BY {order_by_sql}
                 """,
                 params,
             )

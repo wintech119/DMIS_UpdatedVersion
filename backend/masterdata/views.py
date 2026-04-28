@@ -24,10 +24,15 @@ from rest_framework.decorators import (
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from api.rbac import has_governed_catalog_access, resolve_roles_and_permissions
+from api.rbac import (
+    PERM_MASTERDATA_TENANT_TYPE_MANAGE,
+    has_governed_catalog_access,
+    resolve_roles_and_permissions,
+)
 from api.tenancy import (
     can_access_tenant,
     can_access_warehouse,
+    can_manage_tenant_types,
     resolve_tenant_context,
     tenant_context_to_dict,
 )
@@ -50,6 +55,7 @@ from masterdata.permissions import (
 from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.throttling import MasterDataWriteThrottle
 from masterdata.services.data_access import (
+    BASELINE_TENANT_TYPE_CODES,
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
     _safe_rollback,
@@ -218,6 +224,82 @@ def _tenant_context(request):
     context = resolve_tenant_context(request, request.user, permissions)
     request._tenant_context_cache = context
     return context
+
+
+def _normalized_code(value: Any) -> str:
+    text = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    while "__" in text:
+        text = text.replace("__", "_")
+    return text
+
+
+def _require_tenant_type_write_access(request):
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    context = resolve_tenant_context(request, request.user, permissions)
+    request._tenant_context_cache = context
+    if can_manage_tenant_types(context, permissions):
+        return None
+    return Response(
+        {
+            "detail": (
+                "Tenant type maintenance requires "
+                f"{PERM_MASTERDATA_TENANT_TYPE_MANAGE} and an approved ODPEM/NEOC/JAMICTA tenant context."
+            )
+        },
+        status=403,
+    )
+
+
+def _baseline_tenant_type_errors(
+    data: dict[str, Any],
+    *,
+    pk_value: Any | None = None,
+    is_update: bool = False,
+) -> dict[str, str]:
+    raw_code = data.get("tenant_type_code", pk_value)
+    normalized = _normalized_code(raw_code)
+    if not normalized:
+        return {"tenant_type_code": "Tenant type code is required."}
+    if normalized not in BASELINE_TENANT_TYPE_CODES:
+        return {
+            "tenant_type_code": (
+                "Only approved baseline tenant type codes may be created or maintained."
+            )
+        }
+    if is_update and "tenant_type_code" in data and normalized != _normalized_code(pk_value):
+        return {"tenant_type_code": "Tenant type code cannot be changed after creation."}
+    if "tenant_type_code" in data:
+        data["tenant_type_code"] = normalized
+    return {}
+
+
+def _is_inactivation_payload(cfg, data: dict[str, Any]) -> bool:
+    if not cfg.has_status or cfg.status_field not in data:
+        return False
+    requested_status = str(data.get(cfg.status_field) or "").strip().upper()
+    return requested_status == str(cfg.inactive_status).strip().upper()
+
+
+def _dependency_block_response(table_key: str, pk_value: Any) -> Response | None:
+    blocking, dep_warnings = check_dependencies(table_key, pk_value)
+    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
+        return Response(
+            {
+                "detail": "Failed to validate dependencies before inactivation.",
+                "warnings": dep_warnings,
+            },
+            status=500,
+        )
+    if blocking:
+        return Response(
+            {
+                "detail": "Cannot inactivate: referenced by other records.",
+                "blocking": blocking,
+                "warnings": dep_warnings,
+            },
+            status=409,
+        )
+    return None
 
 
 def _should_enforce_tenant_scope() -> bool:
@@ -1171,8 +1253,16 @@ def _handle_create(request, cfg):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
             return access_error
+    if cfg.key == "tenant_types":
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
 
     data = dict(request.data or {})
+    if cfg.key == "tenant_types":
+        baseline_errors = _baseline_tenant_type_errors(data, is_update=False)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
     if cfg.key == "warehouses":
         data, tenant_errors = _prepare_warehouse_write_payload(request, data)
         if tenant_errors:
@@ -1371,6 +1461,8 @@ def master_detail_update(request, table_key: str, pk: str):
             return access_error
 
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
 
     if request.method == "GET":
         return _handle_detail(cfg, pk_value)
@@ -1480,6 +1572,10 @@ def _handle_update(request, cfg, pk_value):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
             return access_error
+    if cfg.key == "tenant_types":
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
 
     data = dict(request.data or {})
     expected_version = data.pop("version_nbr", None)
@@ -1488,6 +1584,19 @@ def _handle_update(request, cfg, pk_value):
             expected_version = int(expected_version)
         except (ValueError, TypeError):
             expected_version = None
+
+    if cfg.key == "tenant_types":
+        baseline_errors = _baseline_tenant_type_errors(
+            data,
+            pk_value=pk_value,
+            is_update=True,
+        )
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
+        if _is_inactivation_payload(cfg, data):
+            dependency_error = _dependency_block_response(cfg.key, pk_value)
+            if dependency_error is not None:
+                return dependency_error
 
     existing_record = None
     if is_governed_catalog_table(cfg.key) or cfg.key in {"warehouses", "agencies"}:
@@ -2226,23 +2335,19 @@ def master_inactivate(request, table_key: str, pk: str):
         if access_error is not None:
             return access_error
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
+        baseline_errors = _baseline_tenant_type_errors({}, pk_value=pk_value)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
 
-    # Check dependencies first
-    blocking, dep_warnings = check_dependencies(cfg.key, pk_value)
-    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
-        return Response(
-            {
-                "detail": "Failed to validate dependencies before inactivation.",
-                "warnings": dep_warnings,
-            },
-            status=500,
-        )
-    if blocking:
-        return Response({
-            "detail": "Cannot inactivate: referenced by other records.",
-            "blocking": blocking,
-            "warnings": dep_warnings,
-        }, status=409)
+    # Check dependencies first.
+    dependency_error = _dependency_block_response(cfg.key, pk_value)
+    if dependency_error is not None:
+        return dependency_error
 
     expected_version = (request.data or {}).get("version_nbr")
     if expected_version is not None:
@@ -2313,6 +2418,14 @@ def master_activate(request, table_key: str, pk: str):
         if access_error is not None:
             return access_error
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
+        baseline_errors = _baseline_tenant_type_errors({}, pk_value=pk_value)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
 
     expected_version = (request.data or {}).get("version_nbr")
     if expected_version is not None:

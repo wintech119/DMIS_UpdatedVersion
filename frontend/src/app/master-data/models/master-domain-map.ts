@@ -77,7 +77,6 @@ export const MASTER_DOMAIN_DEFINITIONS: MasterDomainDefinition[] = [
     description: 'Tenant structure and RBAC assignment masters.',
     implementedRoutePaths: [],
     plannedTables: [
-      'ref_tenant_type',
       'tenant',
       'user_tenant_role',
     ],
@@ -88,7 +87,7 @@ export const MASTER_DOMAIN_DEFINITIONS: MasterDomainDefinition[] = [
     icon: 'security',
     description: 'Restricted system and audit master/admin artifacts.',
     sysadminOnly: true,
-    implementedRoutePaths: ['users', 'roles', 'permissions', 'tenants'],
+    implementedRoutePaths: ['users', 'roles', 'permissions', 'tenant-types', 'tenants'],
     plannedTables: [],
   },
 ];

@@ -158,6 +158,12 @@ The data tier owns:
 - future read-scaling where needed
 - durable object storage for generated artifacts and exports
 
+### Tenant Type Taxonomy
+
+`ref_tenant_type` is the canonical source of truth for DMIS tenant classifications. The approved baseline codes are `NATIONAL`, `MILITARY`, `SOCIAL_SERVICES`, `PARISH`, `COMMUNITY`, `NGO`, `UTILITY`, `SHELTER_OPERATOR`, and `PARTNER`.
+
+Tenant records must reference this table through `tenant.tenant_type`; duplicate hard-coded check constraints or frontend-only option lists are not authoritative. Tenant-type administration is a restricted Advanced/System capability, and the Django backend remains the enforcement point for baseline-only codes, write authorization, tenant-context checks, and in-use inactivation blocking.
+
 ### Coordination tier
 
 Redis and the worker plane own:

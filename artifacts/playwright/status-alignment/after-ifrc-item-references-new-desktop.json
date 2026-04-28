@@ -1,0 +1,41 @@
+{
+  "file": "C:\\Users\\wbowe\\OneDrive\\Desktop\\project\\DMIS_UpdatedVersion\\artifacts\\playwright\\status-alignment\\after-ifrc-item-references-new-desktop.png",
+  "consoleErrors": [],
+  "eval": {
+    "title": "DmisFrontend",
+    "url": "http://localhost:4200/master-data/ifrc-item-references/new",
+    "status": {
+      "x": 310,
+      "y": 720.5,
+      "w": 176,
+      "h": 57,
+      "top": 720.5,
+      "bottom": 777.5,
+      "left": 310,
+      "right": 486
+    },
+    "bar": {
+      "x": 285,
+      "y": 698,
+      "w": 956,
+      "h": 102,
+      "top": 698,
+      "bottom": 800,
+      "left": 285,
+      "right": 1241
+    },
+    "buttons": {
+      "x": 498,
+      "y": 727,
+      "w": 718,
+      "h": 44,
+      "top": 727,
+      "bottom": 771,
+      "left": 498,
+      "right": 1216
+    },
+    "className": "wizard-footer",
+    "hiddenHintText": "Active references can map items; inactive references remain for existing catalog history.",
+    "text": "Status\nActive\nActive references can map items; inactive references remain for existing catalog history.\narrow_back\nBack\nStep 1 of 5\narrow_forward\nNext"
+  }
+}

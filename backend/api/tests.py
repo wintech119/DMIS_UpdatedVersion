@@ -1421,13 +1421,13 @@ class AsyncJobApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=2,
             active_tenant_code="AGENCY_B",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=2,
                     tenant_code="AGENCY_B",
                     tenant_name="Agency B",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),
@@ -2532,7 +2532,7 @@ class AuthWhoAmITests(TestCase):
                             "tenant_id": 1,
                             "tenant_code": "ODPEM-NEOC",
                             "tenant_name": "ODPEM NEOC",
-                            "tenant_type": "NEOC",
+                            "tenant_type": "NATIONAL",
                             "is_primary": True,
                             "access_level": "FULL",
                         }

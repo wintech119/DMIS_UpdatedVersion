@@ -9,10 +9,11 @@ from api.tenancy import (
     TenantMembership,
     can_access_tenant,
     can_manage_phase_window_config,
+    can_manage_tenant_types,
     resolve_tenant_context,
 )
 from api.authentication import Principal
-from api.rbac import PERM_NATIONAL_READ_ALL_TENANTS
+from api.rbac import PERM_MASTERDATA_TENANT_TYPE_MANAGE, PERM_NATIONAL_READ_ALL_TENANTS
 
 
 class TenancyAccessTests(SimpleTestCase):
@@ -133,7 +134,7 @@ class TenancyAccessTests(SimpleTestCase):
             requested_tenant_id=1,
             active_tenant_id=1,
             active_tenant_code="ODPEM-NEOC",
-            active_tenant_type="NEOC",
+            active_tenant_type="NATIONAL",
             memberships=(),
             can_read_all_tenants=True,
             can_act_cross_tenant=True,
@@ -160,7 +161,7 @@ class TenancyAccessTests(SimpleTestCase):
             requested_tenant_id=1,
             active_tenant_id=1,
             active_tenant_code="ODPEM-NEOC",
-            active_tenant_type="NEOC",
+            active_tenant_type="NATIONAL",
             memberships=(),
             can_read_all_tenants=True,
             can_act_cross_tenant=True,
@@ -207,7 +208,7 @@ class TenancyAccessTests(SimpleTestCase):
                     tenant_id=2,
                     tenant_code="ODPEM-NEOC",
                     tenant_name="ODPEM NEOC",
-                    tenant_type="NEOC",
+                    tenant_type="NATIONAL",
                     is_primary=True,
                     access_level="admin",
                 ),
@@ -256,6 +257,86 @@ class TenancyAccessTests(SimpleTestCase):
         self.assertFalse(can_manage_phase_window_config(neoc_context))
         self.assertFalse(can_manage_phase_window_config(other_context))
         self.assertFalse(can_manage_phase_window_config(stale_env_neoc_context))
+
+    @override_settings(
+        TENANT_TYPE_ADMIN_TENANT_CODES=[
+            "ODPEM",
+            "ODPEM_NEOC",
+            "NEOC",
+            "OFFICE_OF_DISASTER_P",
+            "JAMICTA",
+        ]
+    )
+    def test_tenant_type_management_requires_permission_and_allowed_active_tenant(self) -> None:
+        odpem_context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM",
+            active_tenant_type="NATIONAL",
+            memberships=(
+                TenantMembership(
+                    tenant_id=1,
+                    tenant_code="ODPEM",
+                    tenant_name="ODPEM",
+                    tenant_type="NATIONAL",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=True,
+        )
+        parish_context = TenantContext(
+            requested_tenant_id=20,
+            active_tenant_id=20,
+            active_tenant_code="PAR20",
+            active_tenant_type="PARISH",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="PAR20",
+                    tenant_name="Parish 20",
+                    tenant_type="PARISH",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+        jamicta_context = TenantContext(
+            requested_tenant_id=9,
+            active_tenant_id=9,
+            active_tenant_code="JAMICTA",
+            active_tenant_type="PARTNER",
+            memberships=(
+                TenantMembership(
+                    tenant_id=9,
+                    tenant_code="JAMICTA",
+                    tenant_name="JAMICTA",
+                    tenant_type="PARTNER",
+                    is_primary=True,
+                    access_level="admin",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+        provisional_context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=True,
+        )
+
+        self.assertTrue(can_manage_tenant_types(odpem_context, [PERM_MASTERDATA_TENANT_TYPE_MANAGE]))
+        self.assertTrue(can_manage_tenant_types(jamicta_context, [PERM_MASTERDATA_TENANT_TYPE_MANAGE]))
+        self.assertFalse(can_manage_tenant_types(odpem_context, []))
+        self.assertFalse(can_manage_tenant_types(parish_context, [PERM_MASTERDATA_TENANT_TYPE_MANAGE]))
+        self.assertFalse(can_manage_tenant_types(provisional_context, [PERM_MASTERDATA_TENANT_TYPE_MANAGE]))
 
     @patch("api.tenancy._tenant_by_id")
     @patch("api.tenancy.list_user_tenant_memberships")

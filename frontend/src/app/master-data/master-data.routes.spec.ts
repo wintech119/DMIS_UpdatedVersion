@@ -57,7 +57,7 @@ describe('MASTER_DATA_ROUTES', () => {
   it('exposes advanced system master maintenance routes under /master-data', () => {
     const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
 
-    for (const routePath of ['users', 'roles', 'permissions', 'tenants']) {
+    for (const routePath of ['users', 'roles', 'permissions', 'tenant-types', 'tenants']) {
       expect(routePaths).toContain(routePath);
       expect(routePaths).toContain(`${routePath}/new`);
       expect(routePaths).toContain(`${routePath}/:pk`);

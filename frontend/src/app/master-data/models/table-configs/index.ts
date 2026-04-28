@@ -19,6 +19,7 @@ import { PARISH_CONFIG } from './parish.config';
 import { USERS_CONFIG } from './users.config';
 import { ROLES_CONFIG } from './roles.config';
 import { PERMISSIONS_CONFIG } from './permissions.config';
+import { TENANT_TYPES_CONFIG } from './tenant-types.config';
 import { TENANTS_CONFIG } from './tenants.config';
 
 export {
@@ -41,6 +42,7 @@ export {
   USERS_CONFIG,
   ROLES_CONFIG,
   PERMISSIONS_CONFIG,
+  TENANT_TYPES_CONFIG,
   TENANTS_CONFIG,
 };
 
@@ -65,5 +67,6 @@ export const ALL_TABLE_CONFIGS: Record<string, MasterTableConfig> = {
   'users': USERS_CONFIG,
   'roles': ROLES_CONFIG,
   'permissions': PERMISSIONS_CONFIG,
+  'tenant-types': TENANT_TYPES_CONFIG,
   'tenants': TENANTS_CONFIG,
 };

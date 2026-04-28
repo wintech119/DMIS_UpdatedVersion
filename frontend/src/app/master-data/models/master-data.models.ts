@@ -49,6 +49,8 @@ export interface MasterFieldConfig {
   options?: { value: string; label: string }[];
   /** For 'lookup' type: which table_key to fetch dropdown data from */
   lookupTable?: string;
+  /** For optional lookup fields: render a selectable option that writes null */
+  noneOptionLabel?: string;
   /** Optional read/display field for detail pages */
   displayField?: string;
   /** For 'boolean' type: default value */

@@ -1,3 +1,4 @@
+import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -7,7 +8,9 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from api.rbac import (
     PERM_MASTERDATA_ADVANCED_CREATE,
     PERM_MASTERDATA_ADVANCED_EDIT,
+    PERM_MASTERDATA_ADVANCED_INACTIVATE,
     PERM_MASTERDATA_ADVANCED_VIEW,
+    PERM_MASTERDATA_TENANT_TYPE_MANAGE,
 )
 from masterdata import views, views_advanced
 from masterdata.services import data_access as data_access_service
@@ -101,6 +104,84 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
             limit=views.DEFAULT_PAGE_LIMIT,
             offset=0,
         )
+
+    @patch("masterdata.views.list_records", return_value=([], 0, []))
+    def test_tenant_type_list_requires_advanced_view(self, mock_list_records):
+        standard_request = self.factory.get("/api/v1/masterdata/tenant_types/")
+        force_authenticate(
+            standard_request,
+            user=self._principal([views.PERM_MASTERDATA_VIEW]),
+        )
+
+        standard_response = views.master_list_create(standard_request, "tenant_types")
+
+        self.assertEqual(standard_response.status_code, 403)
+        mock_list_records.assert_not_called()
+
+        sysadmin_request = self.factory.get("/api/v1/masterdata/tenant_types/")
+        force_authenticate(
+            sysadmin_request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW]),
+        )
+
+        sysadmin_response = views.master_list_create(sysadmin_request, "tenant_types")
+
+        self.assertEqual(sysadmin_response.status_code, 200)
+        mock_list_records.assert_called_once_with(
+            "tenant_types",
+            status_filter=None,
+            search=None,
+            order_by=None,
+            limit=views.DEFAULT_PAGE_LIMIT,
+            offset=0,
+        )
+
+    def test_tenant_type_registry_uses_ref_table_as_canonical_lookup(self):
+        self.assertIn("tenant_types", TABLE_REGISTRY)
+        tenant_type_field = TABLE_REGISTRY["tenant"].field("tenant_type")
+
+        self.assertIsNotNone(tenant_type_field)
+        self.assertEqual(tenant_type_field.fk_table, "ref_tenant_type")
+        self.assertEqual(tenant_type_field.fk_pk, "tenant_type_code")
+        self.assertIsNone(tenant_type_field.choices)
+
+    def test_tenant_type_baseline_migration_adds_legacy_columns_before_seed(self):
+        migration = importlib.import_module("masterdata.migrations.0012_tenant_type_baseline")
+        events = []
+
+        class FakeSchemaEditor:
+            connection = SimpleNamespace(
+                vendor="postgresql",
+                ops=SimpleNamespace(quote_name=lambda value: f'"{value}"'),
+            )
+
+            def execute(self, sql, params=None):
+                events.append(("execute", " ".join(str(sql).split())))
+
+        def relation_exists(_schema_editor, _schema, relation):
+            return relation in {"ref_tenant_type", "tenant"}
+
+        def record_seed(_schema_editor, _schema_sql):
+            events.append(("seed", None))
+
+        with (
+            patch.object(migration, "_schema_name", return_value="public"),
+            patch.object(migration, "_relation_exists", side_effect=relation_exists),
+            patch.object(migration, "_seed_baseline_tenant_types", side_effect=record_seed),
+            patch.object(migration, "_migrate_tenant_rows"),
+            patch.object(migration, "_retire_legacy_tenant_types"),
+        ):
+            migration._forwards(None, FakeSchemaEditor())
+
+        description_column_index = next(
+            index
+            for index, event in enumerate(events)
+            if event[0] == "execute"
+            and "ALTER TABLE \"public\".ref_tenant_type ADD COLUMN IF NOT EXISTS description text"
+            in event[1]
+        )
+        seed_index = next(index for index, event in enumerate(events) if event[0] == "seed")
+        self.assertLess(description_column_index, seed_index)
 
     @patch("masterdata.views.get_record", return_value=({"id": 7, "code": "TEST_ROLE", "name": "Test Role"}, []))
     @patch("masterdata.views.create_record", return_value=(7, []))
@@ -212,6 +293,164 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("code", response.data["errors"])
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.can_manage_tenant_types", return_value=False)
+    @patch("masterdata.views.resolve_tenant_context")
+    def test_tenant_type_create_requires_context_guard(
+        self,
+        _mock_context,
+        _mock_can_manage,
+        mock_create_record,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/tenant_types/",
+            {
+                "tenant_type_code": "UTILITY",
+                "tenant_type_name": "Utility",
+                "description": "Lifeline operators.",
+                "display_order": 70,
+                "status_code": "A",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal(
+                [PERM_MASTERDATA_ADVANCED_CREATE, PERM_MASTERDATA_TENANT_TYPE_MANAGE]
+            ),
+        )
+
+        response = views.master_list_create(request, "tenant_types")
+
+        self.assertEqual(response.status_code, 403)
+        mock_create_record.assert_not_called()
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.can_manage_tenant_types", return_value=True)
+    @patch("masterdata.views.resolve_tenant_context")
+    def test_tenant_type_create_rejects_non_baseline_code(
+        self,
+        _mock_context,
+        _mock_can_manage,
+        mock_create_record,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/tenant_types/",
+            {
+                "tenant_type_code": "PRIVATE_SECTOR",
+                "tenant_type_name": "Private Sector",
+                "status_code": "A",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal(
+                [PERM_MASTERDATA_ADVANCED_CREATE, PERM_MASTERDATA_TENANT_TYPE_MANAGE]
+            ),
+        )
+
+        response = views.master_list_create(request, "tenant_types")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("tenant_type_code", response.data["errors"])
+        mock_create_record.assert_not_called()
+
+    @patch("masterdata.views.get_record", return_value=({"tenant_type_code": "UTILITY"}, []))
+    @patch("masterdata.views.create_record", return_value=("UTILITY", []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    @patch("masterdata.views.can_manage_tenant_types", return_value=True)
+    @patch("masterdata.views.resolve_tenant_context")
+    def test_tenant_type_create_allows_missing_baseline_code(
+        self,
+        _mock_context,
+        _mock_can_manage,
+        _mock_check_uniqueness,
+        mock_create_record,
+        _mock_get_record,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/tenant_types/",
+            {
+                "tenant_type_code": "utility",
+                "tenant_type_name": "Utility",
+                "description": "Lifeline operators.",
+                "display_order": 70,
+                "status_code": "A",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal(
+                [PERM_MASTERDATA_ADVANCED_CREATE, PERM_MASTERDATA_TENANT_TYPE_MANAGE]
+            ),
+        )
+
+        response = views.master_list_create(request, "tenant_types")
+
+        self.assertEqual(response.status_code, 201)
+        created_payload = mock_create_record.call_args.args[1]
+        self.assertEqual(created_payload["tenant_type_code"], "UTILITY")
+
+    @patch("masterdata.views.inactivate_record")
+    @patch("masterdata.views.check_dependencies", return_value=(["Tenants (2 records)"], []))
+    @patch("masterdata.views.can_manage_tenant_types", return_value=True)
+    @patch("masterdata.views.resolve_tenant_context")
+    def test_tenant_type_inactivate_blocks_when_in_use(
+        self,
+        _mock_context,
+        _mock_can_manage,
+        _mock_check_dependencies,
+        mock_inactivate_record,
+    ):
+        request = self.factory.post("/api/v1/masterdata/tenant_types/UTILITY/inactivate", {}, format="json")
+        force_authenticate(
+            request,
+            user=self._principal(
+                [
+                    PERM_MASTERDATA_ADVANCED_EDIT,
+                    PERM_MASTERDATA_ADVANCED_INACTIVATE,
+                    PERM_MASTERDATA_TENANT_TYPE_MANAGE,
+                ]
+            ),
+        )
+
+        response = views.master_inactivate(request, "tenant_types", "UTILITY")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["blocking"], ["Tenants (2 records)"])
+        mock_inactivate_record.assert_not_called()
+
+    @patch("masterdata.views.update_record")
+    @patch("masterdata.views.check_dependencies", return_value=(["Tenants (2 records)"], []))
+    @patch("masterdata.views.can_manage_tenant_types", return_value=True)
+    @patch("masterdata.views.resolve_tenant_context")
+    def test_tenant_type_patch_inactivate_blocks_when_in_use(
+        self,
+        _mock_context,
+        _mock_can_manage,
+        _mock_check_dependencies,
+        mock_update_record,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/tenant_types/UTILITY",
+            {"status_code": "I"},
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal(
+                [PERM_MASTERDATA_ADVANCED_EDIT, PERM_MASTERDATA_TENANT_TYPE_MANAGE]
+            ),
+        )
+
+        response = views.master_detail_update(request, "tenant_types", "UTILITY")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["blocking"], ["Tenants (2 records)"])
+        mock_update_record.assert_not_called()
 
     @patch("masterdata.services.validation.check_composite_uniqueness", return_value=(False, []))
     def test_permission_uniqueness(self, _mock_check_composite_uniqueness):

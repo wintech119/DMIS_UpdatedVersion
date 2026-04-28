@@ -75,7 +75,7 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       field: 'ifrc_code',
       label: 'IFRC Code',
       type: 'text',
-      hint: 'Full IFRC product code used as the governed item reference.',
+      hint: "Full IFRC product code used as the mapped item's canonical code.",
       placeholder: '(set on creation; locked once saved)',
       required: true,
       maxLength: 30,

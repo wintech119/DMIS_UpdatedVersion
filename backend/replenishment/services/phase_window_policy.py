@@ -90,9 +90,8 @@ def _coerce_existing_or_default_hours(
 
 def _is_authoritative_phase_window_tenant(tenant: dict[str, Any]) -> bool:
     tenant_type = _normalize_tenant_code(tenant.get("tenant_type"))
-    return (
-        tenant_type in {"NATIONAL", "NATIONAL_LEVEL"}
-        and is_phase_window_authority_tenant_code(tenant.get("tenant_code"))
+    return tenant_type == "NATIONAL" and is_phase_window_authority_tenant_code(
+        tenant.get("tenant_code")
     )
 
 
