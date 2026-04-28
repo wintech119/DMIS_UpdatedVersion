@@ -307,6 +307,33 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
         self.assertIn('"status_code" = %s', sql)
         self.assertEqual(params, [2, "A"])
 
+    def test_warehouse_lookup_can_filter_by_managing_tenant(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [(5, "Kingston Hub", 2)]
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+
+        with (
+            patch("masterdata.services.data_access._is_sqlite", return_value=False),
+            patch("masterdata.services.data_access._schema_name", return_value="public"),
+            patch("masterdata.services.data_access.connection", connection),
+        ):
+            rows, warnings = data_access_service.get_lookup(
+                "warehouses",
+                tenant_id=2,
+            )
+
+        self.assertEqual(
+            rows,
+            [{"value": 5, "label": "Kingston Hub", "tenant_id": 2}],
+        )
+        self.assertEqual(warnings, [])
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("tenant_id = %s", sql)
+        self.assertEqual(params, ["A", 2])
+
     @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
     @patch(
         "masterdata.views.get_record",
@@ -477,6 +504,40 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("agency_id", response.data["errors"])
+        mock_create_record.assert_not_called()
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.check_warehouse_managed_by_tenant", return_value=(False, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    def test_user_create_rejects_assigned_warehouse_outside_primary_tenant(
+        self,
+        _mock_tenant_fk,
+        mock_check_warehouse_tenant,
+        mock_create_record,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "assigned_warehouse_id": 20,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["errors"]["assigned_warehouse_id"],
+            "Assigned Warehouse must be active and managed by the selected Tenant.",
+        )
+        mock_check_warehouse_tenant.assert_called_once_with(20, 2)
         mock_create_record.assert_not_called()
 
     @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
@@ -655,6 +716,126 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("tenant_id", response.data["errors"])
+        mock_update_record.assert_not_called()
+
+    @patch("masterdata.views.update_record")
+    @patch("masterdata.views.check_warehouse_managed_by_tenant", return_value=(False, []))
+    @patch(
+        "masterdata.views.iam_data_access.count_active_primary_tenant_memberships",
+        return_value=1,
+    )
+    @patch(
+        "masterdata.views.iam_data_access.has_active_primary_tenant_membership",
+        return_value=True,
+    )
+    @patch(
+        "masterdata.views.get_record",
+        return_value=({"user_id": 42, "primary_tenant_id": 1}, []),
+    )
+    def test_user_edit_rejects_assigned_warehouse_outside_primary_tenant(
+        self,
+        mock_get_record,
+        mock_has_primary,
+        mock_count_primary,
+        mock_check_warehouse_tenant,
+        mock_update_record,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/user/42",
+            {"assigned_warehouse_id": 20},
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT]),
+        )
+
+        response = views.master_detail_update(request, "user", "42")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["errors"]["assigned_warehouse_id"],
+            "Assigned Warehouse must be active and managed by the selected Tenant.",
+        )
+        mock_get_record.assert_called_once_with("user", 42)
+        mock_has_primary.assert_called_once_with(1, 42)
+        mock_count_primary.assert_called_once_with(42)
+        mock_check_warehouse_tenant.assert_called_once_with(20, 1)
+        mock_update_record.assert_not_called()
+
+    @patch("masterdata.views.update_record")
+    @patch("masterdata.views.check_warehouse_managed_by_tenant")
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships")
+    @patch(
+        "masterdata.views.iam_data_access.has_active_primary_tenant_membership",
+        return_value=False,
+    )
+    @patch(
+        "masterdata.views.get_record",
+        return_value=({"user_id": 42, "primary_tenant_id": 1}, []),
+    )
+    def test_user_edit_rejects_assigned_warehouse_without_active_primary_membership(
+        self,
+        mock_get_record,
+        mock_has_primary,
+        mock_count_primary,
+        mock_check_warehouse_tenant,
+        mock_update_record,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/user/42",
+            {"assigned_warehouse_id": 20},
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT]),
+        )
+
+        response = views.master_detail_update(request, "user", "42")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["errors"]["assigned_warehouse_id"],
+            "Assigned Warehouse requires an active primary Tenant membership.",
+        )
+        mock_get_record.assert_called_once_with("user", 42)
+        mock_has_primary.assert_called_once_with(1, 42)
+        mock_count_primary.assert_not_called()
+        mock_check_warehouse_tenant.assert_not_called()
+        mock_update_record.assert_not_called()
+
+    @patch("masterdata.views.update_record")
+    @patch("masterdata.views.check_warehouse_managed_by_tenant")
+    @patch(
+        "masterdata.views.get_record",
+        return_value=({"user_id": 42, "primary_tenant_id": None}, []),
+    )
+    def test_user_edit_rejects_assigned_warehouse_without_primary_tenant(
+        self,
+        mock_get_record,
+        mock_check_warehouse_tenant,
+        mock_update_record,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/user/42",
+            {"assigned_warehouse_id": 20},
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT]),
+        )
+
+        response = views.master_detail_update(request, "user", "42")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["errors"]["assigned_warehouse_id"],
+            "Assigned Warehouse requires an active primary Tenant membership.",
+        )
+        mock_get_record.assert_called_once_with("user", 42)
+        mock_check_warehouse_tenant.assert_not_called()
         mock_update_record.assert_not_called()
 
     def test_user_list_returns_primary_tenant_from_membership(self):

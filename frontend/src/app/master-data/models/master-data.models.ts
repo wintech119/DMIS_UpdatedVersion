@@ -49,6 +49,12 @@ export interface MasterFieldConfig {
   options?: { value: string; label: string }[];
   /** For 'lookup' type: which table_key to fetch dropdown data from */
   lookupTable?: string;
+  /** For dependent lookups: source form field whose value filters the options */
+  lookupDependsOn?: string;
+  /** Help text shown before the dependent source field has a value */
+  lookupBlockedHint?: string;
+  /** Help text shown when the selected dependency has no matching options */
+  lookupEmptyHint?: string;
   /** For optional lookup fields: render a selectable option that writes null */
   noneOptionLabel?: string;
   /** Optional read/display field for detail pages */

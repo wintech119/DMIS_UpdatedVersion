@@ -1,5 +1,25 @@
 # Current Task Plan
 
+## User Warehouse Update Guard Fix - 2026-04-28
+
+Risk score: 5 / Low-Medium using the architecture-review rubric.
+Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 0, operational impact 1.
+
+1. Completed: inspected current user update validation path and existing tenant/warehouse helpers.
+2. Completed: enforced primary-tenant warehouse validation when updating user assigned warehouses.
+3. Completed: added focused backend regression coverage.
+4. Completed: ran targeted backend verification and completed architecture-review closeout.
+
+## Tenant-Filtered User Warehouse Assignment - 2026-04-28
+
+Risk score: 6 / Low-Medium using the architecture-review rubric.
+Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 1, operational impact 1.
+
+1. Completed: inspect current user form lookup and backend create/update validation paths.
+2. Completed: implement tenant-filtered warehouse lookup and backend tenant/warehouse guard.
+3. Completed: add focused frontend/backend regression tests.
+4. Completed: run targeted verification and architecture-review closeout.
+
 ## Tenant-First Warehouse Ownership - 2026-04-28
 
 Risk score: 7 / Medium using the architecture-review rubric.

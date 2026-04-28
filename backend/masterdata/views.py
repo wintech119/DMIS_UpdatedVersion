@@ -62,6 +62,7 @@ from masterdata.services.data_access import (
     _safe_rollback,
     _schema_name,
     activate_record,
+    check_warehouse_managed_by_tenant,
     check_dependencies,
     check_fk_exists,
     create_record,
@@ -283,6 +284,73 @@ def _verify_user_primary_tenant_membership(tenant_id: int, user_id: int) -> None
         raise UserPrimaryTenantMembershipError(
             "Primary tenant membership verification did not find exactly one active primary row."
         )
+
+
+def _validate_user_assigned_warehouse_tenant(
+    data: dict[str, Any],
+    tenant_id: int,
+) -> tuple[dict[str, str], list[str]]:
+    raw_warehouse_id = data.get("assigned_warehouse_id")
+    if raw_warehouse_id in (None, ""):
+        return {}, []
+
+    warehouse_id = _parse_positive_int(raw_warehouse_id)
+    if warehouse_id is None:
+        return {
+            "assigned_warehouse_id": "Assigned Warehouse must be a positive integer."
+        }, []
+
+    is_managed_by_tenant, warnings = check_warehouse_managed_by_tenant(
+        warehouse_id,
+        tenant_id,
+    )
+    if warnings:
+        return {}, warnings
+    if not is_managed_by_tenant:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse must be active and managed by the selected Tenant."
+            )
+        }, []
+    return {}, []
+
+
+def _validate_user_update_assigned_warehouse_tenant(
+    data: dict[str, Any],
+    existing_record: dict[str, Any],
+) -> tuple[dict[str, str], list[str]]:
+    if "assigned_warehouse_id" not in data or data.get("assigned_warehouse_id") in (
+        None,
+        "",
+    ):
+        return {}, []
+
+    user_id = _parse_positive_int(existing_record.get("user_id"))
+    primary_tenant_id = _parse_positive_int(existing_record.get("primary_tenant_id"))
+    if user_id is None or primary_tenant_id is None:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse requires an active primary Tenant membership."
+            )
+        }, []
+    try:
+        _verify_user_primary_tenant_membership(primary_tenant_id, user_id)
+    except UserPrimaryTenantMembershipError:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse requires an active primary Tenant membership."
+            )
+        }, []
+    except DatabaseError as exc:
+        logger.warning(
+            "Primary tenant membership validation failed for user %s: %s",
+            user_id,
+            exc,
+        )
+        _safe_rollback()
+        return {}, ["db_error"]
+
+    return _validate_user_assigned_warehouse_tenant(data, primary_tenant_id)
 
 
 def _tenant_context(request):
@@ -1425,6 +1493,21 @@ def _handle_user_create(request, cfg):
         if field.default is not None and field.name not in data:
             data[field.name] = field.default
 
+    warehouse_errors, warehouse_warnings = _validate_user_assigned_warehouse_tenant(
+        data,
+        tenant_id,
+    )
+    if warehouse_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate Assigned Warehouse for user creation.",
+                "warnings": warehouse_warnings,
+            },
+            status=500,
+        )
+    if warehouse_errors:
+        return Response({"errors": warehouse_errors}, status=400)
+
     errors = tenant_errors
     errors.update(validate_record(cfg, data, is_update=False))
     extra_errors, validation_warnings = validate_operational_master_payload(
@@ -1782,7 +1865,12 @@ def _handle_update(request, cfg, pk_value):
                 return dependency_error
 
     existing_record = None
-    if is_governed_catalog_table(cfg.key) or cfg.key in {"warehouses", "agencies"}:
+    needs_existing_record = (
+        is_governed_catalog_table(cfg.key)
+        or cfg.key in {"warehouses", "agencies"}
+        or (cfg.key == "user" and "assigned_warehouse_id" in data)
+    )
+    if needs_existing_record:
         existing_record, read_warnings = get_record(cfg.key, pk_value)
         if existing_record is None:
             if "db_error" in read_warnings:
@@ -1799,6 +1887,21 @@ def _handle_update(request, cfg, pk_value):
         )
         if tenant_errors:
             return Response({"errors": tenant_errors}, status=400)
+    if cfg.key == "user":
+        warehouse_errors, warehouse_warnings = _validate_user_update_assigned_warehouse_tenant(
+            data,
+            existing_record or {},
+        )
+        if warehouse_warnings:
+            return Response(
+                {
+                    "detail": "Failed to validate Assigned Warehouse for user update.",
+                    "warnings": warehouse_warnings,
+                },
+                status=500,
+            )
+        if warehouse_errors:
+            return Response({"errors": warehouse_errors}, status=400)
     if "warehouse_id" in data:
         scope_error = _require_warehouse_scope(request, data.get("warehouse_id"), write=True)
         if scope_error is not None:
@@ -2178,7 +2281,17 @@ def master_lookup(request, table_key: str):
         if access_error is not None:
             return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
-    items, warnings = get_lookup(cfg.key, active_only=active_only)
+    tenant_id = None
+    if cfg.key == "warehouses":
+        raw_tenant_id = request.query_params.get("tenant_id")
+        if raw_tenant_id not in (None, ""):
+            tenant_id = _parse_positive_int(raw_tenant_id)
+            if tenant_id is None:
+                return Response(
+                    {"errors": {"tenant_id": "tenant_id must be a positive integer."}},
+                    status=400,
+                )
+    items, warnings = get_lookup(cfg.key, active_only=active_only, tenant_id=tenant_id)
     return Response({"items": items, "warnings": warnings})
 
 

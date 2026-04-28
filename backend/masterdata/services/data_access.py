@@ -1981,7 +1981,10 @@ def get_summary_counts(table_key: str) -> Tuple[Dict[str, int], List[str]]:
 
 
 def get_lookup(
-    table_key: str, *, active_only: bool = True
+    table_key: str,
+    *,
+    active_only: bool = True,
+    tenant_id: Any = None,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Minimal {value, label} list for FK dropdowns.
@@ -2007,31 +2010,38 @@ def get_lookup(
     if not label_field:
         label_field = cfg.pk_field
 
-    where = ""
+    where_clauses: list[str] = []
     params: list[Any] = []
     if active_only and cfg.has_status:
-        where = f"WHERE {cfg.status_field} = %s"
+        where_clauses.append(f"{cfg.status_field} = %s")
         params.append(cfg.active_status)
+    if cfg.key == "warehouses" and tenant_id not in (None, ""):
+        where_clauses.append("tenant_id = %s")
+        params.append(tenant_id)
+    where = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     order_by_sql = label_field
     if cfg.key == "tenant_types":
         order_by_sql = "display_order, tenant_type_code"
+    select_extra_cols = ", tenant_id" if cfg.key == "warehouses" else ""
 
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT {cfg.pk_field}, {label_field}
+                SELECT {cfg.pk_field}, {label_field}{select_extra_cols}
                 FROM {schema}.{cfg.db_table}
                 {where}
                 ORDER BY {order_by_sql}
                 """,
                 params,
             )
-            rows = [
-                {"value": row[0], "label": str(row[1]) if row[1] else str(row[0])}
-                for row in cursor.fetchall()
-            ]
+            rows = []
+            for row in cursor.fetchall():
+                item = {"value": row[0], "label": str(row[1]) if row[1] else str(row[0])}
+                if cfg.key == "warehouses":
+                    item["tenant_id"] = row[2]
+                rows.append(item)
             return rows, []
     except DatabaseError as exc:
         logger.warning("get_lookup(%s) failed: %s", table_key, exc)
@@ -2040,6 +2050,41 @@ def get_lookup(
         except Exception:
             pass
         return [], ["db_error"]
+
+
+def check_warehouse_managed_by_tenant(
+    warehouse_id: Any,
+    tenant_id: Any,
+) -> Tuple[bool, List[str]]:
+    """Return whether an active warehouse is managed by the selected tenant."""
+    if _is_sqlite():
+        return True, ["db_unavailable"]
+
+    schema = _schema_name()
+    warehouse_table = f"{_quote_identifier(schema)}.{_quote_identifier('warehouse')}"
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 1
+                FROM {warehouse_table}
+                WHERE warehouse_id = %s
+                  AND tenant_id = %s
+                  AND status_code = %s
+                LIMIT 1
+                """,
+                [warehouse_id, tenant_id, "A"],
+            )
+            return cursor.fetchone() is not None, []
+    except DatabaseError as exc:
+        logger.warning(
+            "check_warehouse_managed_by_tenant(%s, %s) failed: %s",
+            warehouse_id,
+            tenant_id,
+            exc,
+        )
+        _safe_rollback()
+        return False, ["db_error"]
 
 
 def _workflow_state_tokens(*states: str) -> List[str]:

@@ -462,7 +462,7 @@
                             <mat-select [formControlName]="field.field"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                              @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                              @for (item of getLookupOptions(field); track item.value) {
                                 <mat-option [value]="item.value">{{ item.label }}</mat-option>
                               }
                             </mat-select>
@@ -472,10 +472,10 @@
                                 <mat-icon>help_outline</mat-icon>
                               </button>
                             }
-                            @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
-                              <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint>
-                            } @else if (field.hint) {
-                              <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>
+                            @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                              <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint>
+                            } @else if (getLookupHint(field); as lookupHint) {
+                              <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint>
                             }
                             @if (lookupErrors()[field.lookupTable!]) {
                               <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
@@ -1159,7 +1159,7 @@
                         <mat-select [formControlName]="field.field"
                           [attr.aria-required]="field.required || null"
                           [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                          @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                          @for (item of getLookupOptions(field); track item.value) {
                             <mat-option [value]="item.value">{{ item.label }}</mat-option>
                           }
                         </mat-select>
@@ -1174,10 +1174,10 @@
                             <mat-icon>help_outline</mat-icon>
                           </button>
                         }
-                        @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
-                          <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint>
-                        } @else if (field.hint) {
-                          <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>
+                        @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                          <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint>
+                        } @else if (getLookupHint(field); as lookupHint) {
+                          <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint>
                         }
                         @if (lookupErrors()[field.lookupTable!]) {
                           <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
@@ -1890,13 +1890,13 @@
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
                       <mat-select [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                        @for (item of lookups()[field.lookupTable!] || []; track item.value) { <mat-option [value]="item.value">{{ item.label }}</mat-option> }
+                        @for (item of getLookupOptions(field); track item.value) { <mat-option [value]="item.value">{{ item.label }}</mat-option> }
                       </mat-select>
                       @if (getFieldTooltip(field); as fieldTooltip) {
                         <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
                       }
-                      @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) { <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint> }
-                      @else if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) { <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint> }
+                      @else if (getLookupHint(field); as lookupHint) { <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint> }
                       @if (lookupErrors()[field.lookupTable!]) { <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
                       @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }

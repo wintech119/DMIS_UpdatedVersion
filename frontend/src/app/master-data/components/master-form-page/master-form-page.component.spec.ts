@@ -211,7 +211,8 @@ describe('MasterFormPageComponent', () => {
       }
       if (tableKey === 'warehouses') {
         return of([
-          { value: 20, label: 'Kingston Central Depot' },
+          { value: 20, label: 'Kingston Central Depot', tenant_id: 1 },
+          { value: 21, label: 'JDF Forward Depot', tenant_id: 2 },
         ]);
       }
       return of([]);
@@ -473,6 +474,30 @@ describe('MasterFormPageComponent', () => {
     const payload = (component as unknown as MasterFormPageComponentTestAccess)['buildPreparedFormPayload'](cfg);
     expect(payload['tenant_id']).toBe(1);
     expect(payload['agency_id']).toBeNull();
+  });
+
+  it('limits new user assigned warehouse choices to the selected tenant', () => {
+    const { component } = setup('users');
+    const cfg = component.config()!;
+    const warehouseField = cfg.formFields.find((field) => field.field === 'assigned_warehouse_id')!;
+
+    expect(warehouseField.lookupDependsOn).toBe('tenant_id');
+    expect(component.getLookupOptions(warehouseField)).toEqual([]);
+    expect(component.getLookupEmptyHint(warehouseField)).toContain('Select Tenant first');
+
+    component.form.get('tenant_id')?.setValue(1);
+
+    expect(component.getLookupOptions(warehouseField)).toEqual([
+      jasmine.objectContaining({ value: 20, label: 'Kingston Central Depot', tenant_id: 1 }),
+    ]);
+
+    component.form.get('assigned_warehouse_id')?.setValue(20);
+    component.form.get('tenant_id')?.setValue(2);
+
+    expect(component.form.get('assigned_warehouse_id')?.value).toBeNull();
+    expect(component.getLookupOptions(warehouseField)).toEqual([
+      jasmine.objectContaining({ value: 21, label: 'JDF Forward Depot', tenant_id: 2 }),
+    ]);
   });
 
   it('hides and omits create-only Tenant when editing users', () => {

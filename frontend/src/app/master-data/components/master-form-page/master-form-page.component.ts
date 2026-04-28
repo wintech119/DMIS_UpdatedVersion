@@ -557,6 +557,8 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe(() => {
       this.formStateVersion.update((version) => version + 1);
     });
+
+    this.setupUserWarehouseTenantFilter(cfg);
   }
 
   private getFieldValidators(field: MasterFieldConfig): ValidatorFn[] {
@@ -3071,6 +3073,28 @@ export class MasterFormPageComponent implements OnInit {
     return this.lookupLoading()[lookupKey] === true;
   }
 
+  private setupUserWarehouseTenantFilter(cfg: MasterTableConfig): void {
+    if (cfg.tableKey !== 'user') {
+      return;
+    }
+    const tenantControl = this.form.get('tenant_id');
+    const warehouseControl = this.form.get('assigned_warehouse_id');
+    if (!tenantControl || !warehouseControl) {
+      return;
+    }
+
+    tenantControl.valueChanges.pipe(
+      startWith(tenantControl.value),
+      pairwise(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(([previousTenant, currentTenant]) => {
+      if (!this.sameValue(previousTenant, currentTenant)) {
+        warehouseControl.setValue(null, { emitEvent: false });
+        this.formStateVersion.update((version) => version + 1);
+      }
+    });
+  }
+
   hasLookupNoneOption(field: MasterFieldConfig): boolean {
     return field.type === 'lookup'
       && !field.required
@@ -3078,8 +3102,41 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getLookupOptions(field: MasterFieldConfig): LookupItem[] {
-    const items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
+    this.formStateVersion();
+    let items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
+    if (this.shouldFilterUserWarehouseLookup(field)) {
+      const tenantId = this.form.get(field.lookupDependsOn!)?.value;
+      items = tenantId == null || tenantId === ''
+        ? []
+        : items.filter((item) => this.sameValue(item['tenant_id'], tenantId));
+    }
     return this.withLookupNoneOption(field, items);
+  }
+
+  getLookupHint(field: MasterFieldConfig): string | null {
+    this.formStateVersion();
+    if (this.shouldFilterUserWarehouseLookup(field)) {
+      const tenantId = this.form.get(field.lookupDependsOn!)?.value;
+      if (tenantId == null || tenantId === '') {
+        return field.lookupBlockedHint ?? null;
+      }
+      if (this.getLookupOptions(field).length === 0) {
+        return field.lookupEmptyHint ?? 'No options available.';
+      }
+    }
+    return field.hint ?? null;
+  }
+
+  getLookupEmptyHint(field: MasterFieldConfig): string {
+    return this.getLookupHint(field) ?? 'No options available.';
+  }
+
+  private shouldFilterUserWarehouseLookup(field: MasterFieldConfig): boolean {
+    return this.config()?.tableKey === 'user'
+      && !this.isEdit()
+      && field.field === 'assigned_warehouse_id'
+      && field.lookupTable === 'warehouses'
+      && field.lookupDependsOn === 'tenant_id';
   }
 
   getLookupOptionTrackValue(item: LookupItem): string | number {
