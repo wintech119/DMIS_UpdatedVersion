@@ -459,6 +459,40 @@
   }
 }
 
+@media (max-width: 520px) {
+  .card-list,
+  .record-card {
+    min-width: 0;
+  }
+
+  .record-card {
+    overflow: hidden;
+
+    ::ng-deep mat-card-header {
+      min-width: 0;
+      gap: 8px;
+    }
+
+    ::ng-deep mat-card-actions {
+      flex-wrap: wrap;
+    }
+  }
+
+  .card-title {
+    min-width: 0;
+  }
+
+  .ops-master-list__cell--monospace,
+  .ops-master-list__cell--identifier {
+    display: inline-block;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 480px) {
   .master-list-page {
     padding: 5px;

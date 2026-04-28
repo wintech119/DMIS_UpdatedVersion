@@ -1128,7 +1128,10 @@ def list_records(
 
     schema = _schema_name()
     warnings: List[str] = []
-    columns = ", ".join(f.name for f in cfg.fields)
+    column_names = [f.name for f in cfg.fields]
+    if table_key == "permission" and cfg.audit_update_time not in column_names:
+        column_names.append(cfg.audit_update_time)
+    columns = ", ".join(column_names)
     where_clauses: list[str] = []
     params: list[Any] = []
 
@@ -1173,8 +1176,7 @@ def list_records(
                 """,
                 params + [limit, offset],
             )
-            col_names = [f.name for f in cfg.fields]
-            rows = [dict(zip(col_names, row)) for row in cursor.fetchall()]
+            rows = [dict(zip(column_names, row)) for row in cursor.fetchall()]
 
         return rows, total, warnings
     except DatabaseError as exc:

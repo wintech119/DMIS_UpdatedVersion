@@ -563,6 +563,29 @@ export class MasterListComponent implements OnInit {
     return `${raw.slice(0, Math.max(0, column.truncate - 1))}\u2026`;
   }
 
+  getCellTitle(_column: MasterColumnConfig, value: unknown): string | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    return String(value);
+  }
+
+  getMobileTitle(cfg: MasterTableConfig, row: MasterRecord): string {
+    const firstColumn = cfg.columns[0];
+    const value = row[firstColumn.field] ?? row[cfg.pkField];
+    return this.getCellTitle(firstColumn, value) ?? '';
+  }
+
+  isIdentifierColumn(column: MasterColumnConfig): boolean {
+    return Boolean(
+      column.monospace
+      || column.semibold
+      || column.field === 'username'
+      || column.field === 'code'
+      || column.field.endsWith('_code'),
+    );
+  }
+
   getColumnPrefixIcon(column: MasterColumnConfig, value: unknown): string | null {
     if (!column.prefixIcon || value === null || value === undefined || value === '') {
       return null;
