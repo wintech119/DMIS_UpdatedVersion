@@ -1,5 +1,16 @@
 # Current Task Plan
 
+## Advanced/System Master Data Brief #6 - Frontend Many-to-Many Assignments - 2026-04-28
+
+Risk score: 7 / Medium using the architecture-review handoff rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: read the approved Brief #6 handoff, generation.ts sections 1-4, the Brief #6 design appendix, frontend implementation skill, and architecture/security review references.
+2. Completed: inspect existing master-data components, services, routes, models, and backend assignment endpoint contracts before adding new assignment files.
+3. Completed: implement the IAM assignment service and four standalone, OnPush, signal-IO assignment components.
+4. Completed: embed the panels into the flat-table detail pages and add the tenant-user roles logical deep-link route.
+5. Completed: run lint, build, tests, visual grep checks, and architecture-review closeout. Pending after commit: Playwright visual verification.
+
 ## Advanced/System Master Data Brief #1 - JWT User Auto-Provision - 2026-04-27
 
 Risk score: 8 / Medium-High using the architecture-review handoff rubric.
@@ -22,7 +33,7 @@ Axes: blast radius 2, data sensitivity 2, authority change 1, reversibility 1, e
 Risk score: 8 / Medium using the architecture-review handoff rubric.
 Axes: blast radius 2, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
 
-1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.tsx` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
+1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.ts` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
 2. Completed: implemented backend cancel, authority-preview, audit timeline, permission, and IDOR regression coverage using existing function-based DRF and operations service patterns.
 3. Completed: implemented frontend model/service contracts, apply-from-needs-list bridge route/component, wizard bridge-state ingestion, and detail audit timeline rendering without visual polish.
 4. Completed: ran required Django and Angular verification gates; manual smoke behavior is covered by automated backend/frontend probes in this worktree.

@@ -1,0 +1,191 @@
+<section class="ops-tenant-users ops-card" aria-label="Tenant users assignment panel">
+  <div class="ops-tenant-users__header">
+    <div>
+      <p class="ops-tenant-users__eyebrow">USERS IN THIS TENANT ({{ users().length }})</p>
+      <h3 class="ops-tenant-users__title">Tenant users</h3>
+    </div>
+    <button
+      mat-icon-button
+      type="button"
+      class="ops-tenant-users__icon-button"
+      (click)="loadAssignments()"
+      matTooltip="Retry loading tenant users"
+      aria-label="Retry loading tenant users"
+    >
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </div>
+
+  <div class="ops-tenant-users__toolbar" aria-label="Tenant user sorting controls">
+    <mat-form-field appearance="outline" class="ops-tenant-users__sort-field">
+      <mat-label>Sort</mat-label>
+      <mat-select [value]="sortBy()" (selectionChange)="onSortChange($event)" aria-label="Sort tenant users">
+        <mat-option value="username">Username</mat-option>
+        <mat-option value="access_level">Access level</mat-option>
+        <mat-option value="last_login">Last login</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (errorMessage()) {
+    <mat-error class="ops-tenant-users__error">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      {{ errorMessage() }}
+    </mat-error>
+  }
+
+  @if (isLoading()) {
+    <div class="ops-tenant-users__skeleton-list" aria-label="Loading tenant users" role="status" aria-live="polite">
+      @for (row of [0, 1, 2, 3, 4]; track row) {
+        <div class="ops-tenant-users__skeleton-row" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      }
+    </div>
+  } @else if (sortedUsers().length === 0) {
+    <div class="ops-tenant-users__empty" aria-label="No users in this tenant empty state">
+      <mat-icon aria-hidden="true">groups</mat-icon>
+      <strong>No users in this tenant</strong>
+      <p>Add users before assigning tenant-scoped roles or operational access.</p>
+    </div>
+  } @else {
+    <div class="ops-tenant-users__rows" aria-label="Tenant user rows">
+      @for (user of sortedUsers(); track user.user_id) {
+        <div
+          class="ops-tenant-users__row-shell"
+          [class.ops-tenant-users__row-shell--expanded]="isExpanded(user.user_id)"
+        >
+          <div
+            class="ops-tenant-users__row"
+            role="button"
+            tabindex="0"
+            [attr.aria-expanded]="isExpanded(user.user_id)"
+            [attr.aria-label]="'Expand roles for ' + user.username"
+            (click)="toggleRoles(user)"
+            (keydown)="handleRowKeydown($event, user)"
+          >
+            <div class="ops-tenant-users__avatar" aria-hidden="true">{{ avatarInitial(user) }}</div>
+            <div class="ops-tenant-users__identity">
+              <span class="ops-tenant-users__username">
+                @if (user.is_primary_tenant) {
+                  <mat-icon aria-hidden="true">star</mat-icon>
+                }
+                {{ user.username }}
+              </span>
+              <span class="ops-tenant-users__email">{{ user.email || 'No email' }}</span>
+            </div>
+            <mat-form-field
+              appearance="outline"
+              class="ops-tenant-users__access-select"
+              (click)="$event.stopPropagation()"
+            >
+              <mat-label>Access</mat-label>
+              <mat-select
+                [value]="user.access_level"
+                [disabled]="isUserSaving(user.user_id)"
+                (selectionChange)="onAccessLevelChange(user, $event.value)"
+                [attr.aria-label]="'Access level for ' + user.username"
+              >
+                @for (level of accessLevels; track level) {
+                  <mat-option [value]="level">
+                    {{ level.replace('_', ' ') }}
+                  </mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <span
+              class="ops-tenant-users__access-pill"
+              [class.ops-tenant-users__access-pill--critical]="accessTone(user.access_level) === 'critical'"
+              [class.ops-tenant-users__access-pill--warning]="accessTone(user.access_level) === 'warning'"
+              [class.ops-tenant-users__access-pill--info]="accessTone(user.access_level) === 'info'"
+              [class.ops-tenant-users__access-pill--neutral]="accessTone(user.access_level) === 'neutral'"
+            >
+              <mat-icon aria-hidden="true">{{ accessIcon(user.access_level) }}</mat-icon>
+              {{ user.access_level.replace('_', ' ') }}
+            </span>
+            <mat-slide-toggle
+              class="ops-tenant-users__primary-toggle"
+              [checked]="!!user.is_primary_tenant"
+              disabled
+              [attr.aria-label]="'Primary tenant status for ' + user.username"
+              (click)="$event.stopPropagation()"
+            >
+              Primary
+            </mat-slide-toggle>
+            <span class="ops-tenant-users__last-login">{{ formatRelative(user.last_login_at) }}</span>
+            <button
+              mat-icon-button
+              type="button"
+              class="ops-tenant-users__icon-button"
+              (click)="confirmRevoke(user); $event.stopPropagation()"
+              [disabled]="isSaving()"
+              [attr.aria-label]="'Remove ' + user.username + ' from tenant'"
+              [matTooltip]="'Remove ' + user.username"
+            >
+              <mat-icon>delete_outline</mat-icon>
+            </button>
+          </div>
+
+          @if (isExpanded(user.user_id)) {
+            <dmis-tenant-user-roles-assignment
+              [tenantId]="tenantId()"
+              [userId]="user.user_id"
+              [tenantCode]="tenantCode()"
+              [username]="user.username"
+              (changed)="changed.emit()"
+            />
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <form class="ops-tenant-users__add-form" aria-label="Add user to tenant" (ngSubmit)="addSelectedUser()">
+    <mat-form-field appearance="outline" class="ops-tenant-users__field">
+      <mat-label>Add user</mat-label>
+      <input
+        matInput
+        type="text"
+        maxlength="120"
+        [formControl]="userControl"
+        [matAutocomplete]="userAuto"
+        autocomplete="off"
+        aria-label="Search users by username or email"
+      />
+      <mat-autocomplete
+        #userAuto="matAutocomplete"
+        [displayWith]="displayUser"
+        (optionSelected)="onUserSelected($event)"
+      >
+        @for (user of availableUsers(); track user.user_id) {
+          <mat-option [value]="user">
+            {{ user.username }} - {{ user.email }}
+          </mat-option>
+        }
+      </mat-autocomplete>
+    </mat-form-field>
+    <mat-form-field appearance="outline" class="ops-tenant-users__access-add">
+      <mat-label>Access level</mat-label>
+      <mat-select [formControl]="accessControl" required aria-label="Access level for new tenant user">
+        @for (level of accessLevels; track level) {
+          <mat-option [value]="level">
+            {{ level.replace('_', ' ') }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      color="primary"
+      type="submit"
+      class="ops-tenant-users__assign-button"
+      [disabled]="!selectedUser() || isSaving()"
+    >
+      <mat-icon aria-hidden="true">person_add</mat-icon>
+      Add
+    </button>
+  </form>
+</section>

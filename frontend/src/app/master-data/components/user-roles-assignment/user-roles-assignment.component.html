@@ -1,0 +1,109 @@
+<section class="ops-assignment ops-card" aria-label="User roles assignment panel">
+  <div class="ops-assignment__header">
+    <div>
+      <p class="ops-assignment__eyebrow">ROLES ({{ roles().length }})</p>
+      <h3 class="ops-assignment__title">User roles</h3>
+    </div>
+    <button
+      mat-icon-button
+      type="button"
+      class="ops-assignment__icon-button"
+      (click)="loadAssignments()"
+      matTooltip="Retry loading roles"
+      aria-label="Retry loading user roles"
+    >
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </div>
+
+  @if (errorMessage()) {
+    <mat-error class="ops-assignment__error">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      {{ errorMessage() }}
+    </mat-error>
+  }
+
+  @if (isLoading()) {
+    <div class="ops-assignment__skeleton-list" aria-label="Loading user roles" role="status" aria-live="polite">
+      @for (row of [0, 1, 2, 3]; track row) {
+        <div class="ops-assignment__skeleton-row" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      }
+    </div>
+  } @else if (roles().length === 0) {
+    <div class="ops-assignment__empty" aria-label="No roles assigned empty state">
+      <mat-icon aria-hidden="true">lock_outline</mat-icon>
+      <strong>No roles assigned</strong>
+      <p>This user has no global roles. Assign a role before expecting inherited permissions.</p>
+      <span>Start with the least privileged role that matches their operating duty.</span>
+    </div>
+  } @else {
+    <div class="ops-assignment__rows" aria-label="Assigned user role rows">
+      @for (role of roles(); track role.role_id) {
+        <div class="ops-assignment__row" [class.ops-assignment__row--new]="isHighlighted(role.role_id)">
+          <span
+            class="ops-assignment__chip"
+            [class.ops-assignment__chip--warning]="roleTone(role) === 'warning'"
+            [class.ops-assignment__chip--neutral]="roleTone(role) === 'neutral'"
+            [matTooltip]="role.code"
+          >
+            <mat-icon aria-hidden="true">{{ roleIcon(role) }}</mat-icon>
+            <span class="ops-assignment__chip-code">{{ role.code }}</span>
+          </span>
+          <span class="ops-assignment__name">{{ role.name }}</span>
+          <span class="ops-assignment__meta">{{ formatRelative(role.assigned_at) }}</span>
+          <button
+            mat-icon-button
+            type="button"
+            class="ops-assignment__icon-button"
+            (click)="confirmRevoke(role)"
+            [disabled]="isSaving()"
+            [attr.aria-label]="'Remove role ' + role.code"
+            [matTooltip]="'Remove role ' + role.code"
+          >
+            <mat-icon>delete_outline</mat-icon>
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <form class="ops-assignment__add-form" aria-label="Assign role to user" (ngSubmit)="assignSelectedRole()">
+    <mat-form-field appearance="outline" class="ops-assignment__field">
+      <mat-label>Add role</mat-label>
+      <input
+        matInput
+        type="text"
+        maxlength="80"
+        [formControl]="roleControl"
+        [matAutocomplete]="roleAuto"
+        autocomplete="off"
+        aria-label="Search unassigned roles"
+      />
+      <mat-autocomplete
+        #roleAuto="matAutocomplete"
+        [displayWith]="displayRole"
+        (optionSelected)="onRoleSelected($event)"
+      >
+        @for (role of availableRoles(); track role.role_id) {
+          <mat-option [value]="role">
+            {{ role.code }} - {{ role.name }}
+          </mat-option>
+        }
+      </mat-autocomplete>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      color="primary"
+      type="submit"
+      class="ops-assignment__assign-button"
+      [disabled]="!selectedRole() || isSaving()"
+    >
+      <mat-icon aria-hidden="true">add_circle</mat-icon>
+      Assign
+    </button>
+  </form>
+</section>

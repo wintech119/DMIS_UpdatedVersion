@@ -1,0 +1,206 @@
+<section class="ops-assignment ops-card" aria-label="Role permissions assignment panel">
+  <div class="ops-assignment__header">
+    <div>
+      <p class="ops-assignment__eyebrow">PERMISSIONS ({{ assignedPermissions().length }})</p>
+      <h3 class="ops-assignment__title">Role permissions</h3>
+    </div>
+    <button
+      mat-icon-button
+      type="button"
+      class="ops-assignment__icon-button"
+      (click)="loadAssignments()"
+      matTooltip="Retry loading permissions"
+      aria-label="Retry loading role permissions"
+    >
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </div>
+
+  <mat-form-field appearance="outline" class="ops-assignment__search">
+    <mat-label>Search permissions</mat-label>
+    <input
+      matInput
+      type="text"
+      maxlength="80"
+      [formControl]="searchControl"
+      placeholder="Filter by resource.action"
+      aria-label="Filter permissions by resource action"
+    />
+    <mat-icon matPrefix aria-hidden="true">search</mat-icon>
+  </mat-form-field>
+
+  @if (errorMessage()) {
+    <mat-error class="ops-assignment__error">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      {{ errorMessage() }}
+    </mat-error>
+  }
+
+  @if (isLoading()) {
+    <div class="ops-assignment__permission-grid" aria-label="Loading permission assignments" role="status" aria-live="polite">
+      @for (column of ['available', 'assigned']; track column) {
+        <div class="ops-assignment__permission-column">
+          @for (row of [0, 1, 2, 3, 4, 5]; track row) {
+            <span class="ops-assignment__skeleton-chip" aria-hidden="true"></span>
+          }
+        </div>
+      }
+    </div>
+  } @else {
+    <div class="ops-assignment__permission-desktop" aria-label="Desktop permission picker">
+      <div class="ops-assignment__permission-column" aria-label="Available permissions">
+        <h4>Available</h4>
+        <div class="ops-assignment__permission-scroll">
+          @for (permission of availablePermissions(); track permission.perm_id; let index = $index) {
+            <button
+              type="button"
+              class="ops-assignment__permission-chip"
+              [class.ops-assignment__permission-chip--selected]="isAvailableSelected(permission.perm_id)"
+              [class.ops-assignment__chip--warning]="permissionTone(permission) === 'warning'"
+              [class.ops-assignment__chip--info]="permissionTone(permission) === 'info'"
+              [class.ops-assignment__chip--neutral]="permissionTone(permission) === 'neutral'"
+              (click)="toggleAvailable(permission, index, $event)"
+              [attr.aria-pressed]="isAvailableSelected(permission.perm_id)"
+              [matTooltip]="permissionLabel(permission)"
+            >
+              <mat-icon aria-hidden="true">{{ permissionIcon(permission) }}</mat-icon>
+              <span>{{ permissionLabel(permission) }}</span>
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="ops-assignment__permission-actions" aria-label="Permission bulk actions">
+        <button
+          mat-icon-button
+          type="button"
+          class="ops-assignment__icon-button"
+          (click)="assignSelectedPermissions()"
+          [disabled]="selectedAvailableIds().size === 0 || isSaving()"
+          aria-label="Assign selected permissions"
+          matTooltip="Assign selected"
+        >
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+        <button
+          mat-icon-button
+          type="button"
+          class="ops-assignment__icon-button"
+          (click)="revokeSelectedPermissions()"
+          [disabled]="selectedAssignedIds().size === 0 || isSaving()"
+          aria-label="Remove selected permissions"
+          matTooltip="Remove selected"
+        >
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+      </div>
+
+      <div class="ops-assignment__permission-column" aria-label="Assigned permissions">
+        <h4>Assigned</h4>
+        @if (filteredAssignedPermissions().length === 0) {
+          <div class="ops-assignment__empty" aria-label="No permissions yet empty state">
+            <mat-icon aria-hidden="true">key_off</mat-icon>
+            <strong>No permissions yet</strong>
+            <p>This role does not grant access until permissions are assigned.</p>
+          </div>
+        } @else {
+          <div class="ops-assignment__permission-scroll">
+            @for (permission of filteredAssignedPermissions(); track permission.perm_id; let index = $index) {
+              <div class="ops-assignment__assigned-card">
+                <button
+                  type="button"
+                  class="ops-assignment__permission-chip"
+                  [class.ops-assignment__permission-chip--selected]="isAssignedSelected(permission.perm_id)"
+                  [class.ops-assignment__chip--warning]="permissionTone(permission) === 'warning'"
+                  [class.ops-assignment__chip--info]="permissionTone(permission) === 'info'"
+                  [class.ops-assignment__chip--neutral]="permissionTone(permission) === 'neutral'"
+                  (click)="toggleAssigned(permission, index, $event)"
+                  [attr.aria-pressed]="isAssignedSelected(permission.perm_id)"
+                  [matTooltip]="permissionLabel(permission)"
+                >
+                  <mat-icon aria-hidden="true">{{ permissionIcon(permission) }}</mat-icon>
+                  <span>{{ permissionLabel(permission) }}</span>
+                </button>
+                <button
+                  mat-icon-button
+                  type="button"
+                  class="ops-assignment__icon-button"
+                  (click)="revokePermission(permission); $event.stopPropagation()"
+                  [disabled]="isSaving()"
+                  [attr.aria-label]="'Remove permission ' + permissionLabel(permission)"
+                  [matTooltip]="'Remove ' + permissionLabel(permission)"
+                >
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+                @if (hasScope(permission)) {
+                  <mat-expansion-panel class="ops-assignment__scope-panel">
+                    <mat-expansion-panel-header>
+                      <mat-panel-title>
+                        <mat-icon aria-hidden="true">tune</mat-icon>
+                        Scope JSON
+                      </mat-panel-title>
+                    </mat-expansion-panel-header>
+                    <textarea
+                      class="ops-assignment__scope-editor"
+                      readonly
+                      [value]="formatScope(permission.scope_json)"
+                      aria-label="Permission scope JSON"
+                    ></textarea>
+                  </mat-expansion-panel>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+
+    <mat-tab-group class="ops-assignment__permission-mobile" aria-label="Mobile permission picker">
+      <mat-tab label="Available">
+        <div class="ops-assignment__permission-scroll" aria-label="Available permissions">
+          @for (permission of availablePermissions(); track permission.perm_id) {
+            <button
+              type="button"
+              class="ops-assignment__permission-chip"
+              [class.ops-assignment__chip--warning]="permissionTone(permission) === 'warning'"
+              [class.ops-assignment__chip--info]="permissionTone(permission) === 'info'"
+              [class.ops-assignment__chip--neutral]="permissionTone(permission) === 'neutral'"
+              (click)="assignPermission(permission)"
+              [matTooltip]="permissionLabel(permission)"
+            >
+              <mat-icon aria-hidden="true">{{ permissionIcon(permission) }}</mat-icon>
+              <span>{{ permissionLabel(permission) }}</span>
+            </button>
+          }
+        </div>
+      </mat-tab>
+      <mat-tab [label]="'Assigned (' + assignedPermissions().length + ')'">
+        @if (filteredAssignedPermissions().length === 0) {
+          <div class="ops-assignment__empty" aria-label="No permissions yet empty state">
+            <mat-icon aria-hidden="true">key_off</mat-icon>
+            <strong>No permissions yet</strong>
+            <p>This role does not grant access until permissions are assigned.</p>
+          </div>
+        } @else {
+          <div class="ops-assignment__permission-scroll" aria-label="Assigned permissions">
+            @for (permission of filteredAssignedPermissions(); track permission.perm_id) {
+              <button
+                type="button"
+                class="ops-assignment__permission-chip"
+                [class.ops-assignment__chip--warning]="permissionTone(permission) === 'warning'"
+                [class.ops-assignment__chip--info]="permissionTone(permission) === 'info'"
+                [class.ops-assignment__chip--neutral]="permissionTone(permission) === 'neutral'"
+                (click)="revokePermission(permission)"
+                [matTooltip]="permissionLabel(permission)"
+              >
+                <mat-icon aria-hidden="true">{{ permissionIcon(permission) }}</mat-icon>
+                <span>{{ permissionLabel(permission) }}</span>
+                <mat-icon aria-hidden="true">delete_outline</mat-icon>
+              </button>
+            }
+          </div>
+        }
+      </mat-tab>
+    </mat-tab-group>
+  }
+</section>

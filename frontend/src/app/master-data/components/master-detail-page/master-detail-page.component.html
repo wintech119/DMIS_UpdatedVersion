@@ -127,6 +127,22 @@
         </section>
       }
 
+      @if (cfg.routePath === 'users' && numericPk(); as userId) {
+        <dmis-user-roles-assignment [userId]="userId" />
+      }
+
+      @if (cfg.routePath === 'roles' && numericPk(); as roleId) {
+        <dmis-role-permissions-assignment [roleId]="roleId" />
+      }
+
+      @if (cfg.routePath === 'tenants' && numericPk(); as tenantId) {
+        <dmis-tenant-users-assignment
+          [tenantId]="tenantId"
+          [tenantCode]="getRecordText(r, 'tenant_code')"
+          [deepLinkUserId]="tenantUserRoleUserId()"
+        />
+      }
+
       <!-- Audit info (only for tables with audit columns) -->
       @if (
         r['create_by_id'] || r['created_by'] || r['create_dtime'] || r['created_at'] ||

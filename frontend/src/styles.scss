@@ -76,6 +76,38 @@
   // ── Focus ring ──
   --color-focus-ring: #1565c0;
 
+  // Operations assignment aliases
+  --ops-font-sans: var(--dmis-font-sans);
+  --ops-font-mono: var(--dmis-font-mono);
+  --ops-text-xs: var(--text-xs);
+  --ops-text-sm: var(--text-sm);
+  --ops-text-base: var(--text-base);
+  --ops-text-md: var(--text-md);
+  --ops-weight-medium: var(--weight-medium);
+  --ops-weight-semibold: var(--weight-semibold);
+  --ops-tracking-wide: var(--tracking-wide);
+  --ops-card: var(--color-surface);
+  --ops-section: var(--color-surface-muted);
+  --ops-border: var(--color-border);
+  --ops-text: var(--color-text-primary);
+  --ops-text-muted: var(--color-text-secondary);
+  --ops-text-subtle: var(--color-text-tertiary);
+  --ops-primary: var(--color-accent);
+  --ops-focus: var(--color-focus-ring);
+  --ops-critical-bg: var(--color-bg-critical);
+  --ops-critical-text: var(--color-critical);
+  --ops-warning-bg: var(--color-bg-warning);
+  --ops-warning-text: var(--color-warning-text);
+  --ops-info-bg: var(--color-bg-info);
+  --ops-info-text: var(--color-info);
+  --ops-success-bg: var(--color-bg-success);
+  --ops-success-text: var(--color-success);
+  --ops-neutral-bg: var(--color-surface-muted);
+  --ops-neutral-text: var(--color-text-primary);
+  --ops-radius-md: var(--radius-card);
+  --ops-radius-sm: var(--radius-inner);
+  --ops-radius-pill: var(--radius-pill);
+
   // ── Wizard stepper tokens ──
   --color-wizard-step-done-bg: var(--color-accent);
   --color-wizard-step-done-text: #ffffff;
