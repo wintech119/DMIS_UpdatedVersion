@@ -45,8 +45,7 @@ import { Subject, combineLatest, debounceTime, distinctUntilChanged, tap } from 
 interface ResolvedColumnPill {
   label: string;
   icon: string | null;
-  tone: MasterTone | null;
-  legacyStatus: string | null;
+  tone: MasterTone;
 }
 
 @Component({
@@ -521,16 +520,15 @@ export class MasterListComponent implements OnInit {
         label: rule?.label ?? this.getPillLabel(column, normalized),
         icon: rule?.icon ?? null,
         tone: rule?.tone ?? fallbackTone,
-        legacyStatus: null,
       };
     }
 
     if (column.type === 'status') {
+      const statusPill = this.getStatusPillMeta(normalized);
       return {
         label: this.getStatusLabel(value),
-        icon: normalized === 'A' ? 'check_circle' : 'cancel',
-        tone: null,
-        legacyStatus: normalized,
+        icon: statusPill.icon,
+        tone: statusPill.tone,
       };
     }
 
@@ -539,7 +537,6 @@ export class MasterListComponent implements OnInit {
         label: this.getPillLabel(column, normalized),
         icon: null,
         tone: 'neutral',
-        legacyStatus: null,
       };
     }
 
@@ -547,7 +544,22 @@ export class MasterListComponent implements OnInit {
   }
 
   getPillClasses(pill: ResolvedColumnPill): string[] {
-    return pill.tone ? ['ops-chip', `ops-chip--${pill.tone}`] : [];
+    return [`ops-pill--${pill.tone}`];
+  }
+
+  private getStatusPillMeta(status: string): { icon: string; tone: MasterTone } {
+    switch (status) {
+      case 'A':
+        return { icon: 'check_circle', tone: 'success' };
+      case 'I':
+        return { icon: 'radio_button_unchecked', tone: 'neutral' };
+      case 'L':
+        return { icon: 'lock', tone: 'critical' };
+      case 'C':
+        return { icon: 'info', tone: 'info' };
+      default:
+        return { icon: 'help_outline', tone: 'neutral' };
+    }
   }
 
   getDisplayValue(column: MasterColumnConfig, value: unknown): string {

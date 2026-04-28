@@ -1,6 +1,6 @@
 import {
   Component, OnInit, DestroyRef, ChangeDetectionStrategy,
-  inject, signal, computed, effect,
+  ElementRef, Injector, afterNextRender, inject, signal, computed, effect, viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
@@ -116,6 +116,11 @@ interface FormFieldGroup {
   fields: MasterFieldConfig[];
 }
 
+interface ErrorSummaryLink {
+  id: string;
+  label: string;
+}
+
 interface ItemUomConversionRow {
   uom_code: string;
   conversion_factor: number | null;
@@ -154,9 +159,11 @@ export class MasterFormPageComponent implements OnInit {
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private destroyRef = inject(DestroyRef);
+  private injector = inject(Injector);
 
   config = signal<MasterTableConfig | null>(null);
   form = new FormGroup<Record<string, FormControl>>({});
+  readonly errorSummary = viewChild<ElementRef<HTMLElement>>('errorSummary');
   isEdit = signal(false);
   isLoading = signal(false);
   isSaving = signal(false);
@@ -196,6 +203,45 @@ export class MasterFormPageComponent implements OnInit {
   ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
+
+  readonly formPageTitle = computed(() => {
+    const cfg = this.config();
+    return cfg ? `${this.isEdit() ? 'Edit' : 'Create'} ${cfg.displayName}` : '';
+  });
+
+  readonly formPageSubtitle = computed(() => (
+    this.isEdit()
+      ? 'Update the fields below and save your changes'
+      : 'Fill in the details below to create a new record'
+  ));
+
+  readonly showErrorSummary = computed(() => {
+    this.formStateVersion();
+    return this.form.invalid && this.form.touched;
+  });
+
+  readonly invalidControlLinks = computed<ErrorSummaryLink[]>(() => {
+    this.formStateVersion();
+    const cfg = this.config();
+    if (!cfg || !this.form.touched) {
+      return [];
+    }
+
+    const links: ErrorSummaryLink[] = [];
+    const seenIds = new Set<string>();
+    for (const field of cfg.formFields) {
+      if (field.editOnly && !this.isEdit()) {
+        continue;
+      }
+      const control = this.form.get(field.field);
+      const id = this.getFieldDomId(field);
+      if (control?.invalid && !seenIds.has(id)) {
+        links.push({ id, label: field.label });
+        seenIds.add(id);
+      }
+    }
+    return links;
+  });
 
   // ── Item UOM Conversion state ──
   itemUomConversions = signal<ItemUomConversionRow[]>([]);
@@ -1843,18 +1889,22 @@ export class MasterFormPageComponent implements OnInit {
 
     if (this.form.hasError('invalidItemUomConversions')) {
       this.form.markAllAsTouched();
+      this.refreshFormErrorSummary();
       this.handleInvalidItemUomConversionSubmission();
       if (this.isWizardMode()) {
         this.navigateToFirstInvalidStep();
       }
+      this.focusErrorSummaryAfterRender();
       return;
     }
 
     if (!this.form.valid) {
       this.form.markAllAsTouched();
+      this.refreshFormErrorSummary();
       if (this.isWizardMode()) {
         this.navigateToFirstInvalidStep();
       }
+      this.focusErrorSummaryAfterRender();
       return;
     }
 
@@ -1878,10 +1928,12 @@ export class MasterFormPageComponent implements OnInit {
     } catch (error) {
       if (error instanceof ItemUomConversionValidationError) {
         this.form.markAllAsTouched();
+        this.refreshFormErrorSummary();
         this.handleInvalidItemUomConversionSubmission(error.details);
         if (this.isWizardMode()) {
           this.navigateToFirstInvalidStep();
         }
+        this.focusErrorSummaryAfterRender();
         return;
       }
       throw error;
@@ -1964,6 +2016,8 @@ export class MasterFormPageComponent implements OnInit {
           if (this.isWizardMode()) {
             this.navigateToFirstInvalidStep();
           }
+          this.refreshFormErrorSummary();
+          this.focusErrorSummaryAfterRender();
           return;
         }
 
@@ -1977,6 +2031,8 @@ export class MasterFormPageComponent implements OnInit {
           );
           this.applyInactiveItemControlError(inactiveItemGuard);
           this.notify.showError('Save blocked by inactive-item forward-write guard.');
+          this.refreshFormErrorSummary();
+          this.focusErrorSummaryAfterRender();
           return;
         }
 
@@ -2345,6 +2401,12 @@ export class MasterFormPageComponent implements OnInit {
     return tooltip || null;
   }
 
+  getFieldDomId(field: MasterFieldConfig | string): string {
+    const fieldName = typeof field === 'string' ? field : field.field;
+    const safeFieldName = fieldName.replace(/[^A-Za-z0-9_-]/g, '-');
+    return `master-field-${safeFieldName}`;
+  }
+
   getFieldHint(field: MasterFieldConfig): string | null {
     const currentValue = String(this.form.get(field.field)?.value ?? '').trim().toUpperCase();
     const matched = field.valueHints?.find((hint) => hint.value.trim().toUpperCase() === currentValue);
@@ -2470,6 +2532,16 @@ export class MasterFormPageComponent implements OnInit {
         control.markAsTouched();
       }
     }
+  }
+
+  private refreshFormErrorSummary(): void {
+    this.formStateVersion.update((version) => version + 1);
+  }
+
+  private focusErrorSummaryAfterRender(): void {
+    afterNextRender(() => {
+      this.errorSummary()?.nativeElement.querySelector('h2')?.focus();
+    }, { injector: this.injector });
   }
 
   private getMissingCatalogSuggestionRequirementLabels(): string[] {
