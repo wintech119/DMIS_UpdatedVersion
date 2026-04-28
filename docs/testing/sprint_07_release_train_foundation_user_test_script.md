@@ -91,7 +91,7 @@ Before executing the use case, confirm:
 
 1. Sprint 07 backend and frontend are deployed in the test environment.
 2. The tester can log in with the admin and inventory-clerk accounts.
-3. At least one valid custodian exists for warehouse creation.
+3. At least one valid tenant exists for warehouse creation.
 4. At least one parish exists for warehouse and agency setup.
 5. At least one UOM such as `EA` exists and is active.
 6. Item Master Step 3 includes the inline `Item UOM Conversions` section and the UOM repackaging UI is available in the environment.
@@ -215,7 +215,7 @@ Evidence to capture:
 2. Click `New` or `Add Warehouse`.
 3. In `Warehouse Name`, type `S07 TEST MAIN HUB`.
 4. In `Type`, select `Main Hub`.
-5. In `Custodian`, choose an available test custodian.
+5. In `Managing Tenant`, choose the tenant responsible for stocking and operating the warehouse.
 6. In `Min Stock Threshold`, type `50`.
 7. In `Address Line 1`, type `1 Test Logistics Way`.
 8. In `Address Line 2`, type `Kingston Test Block`.

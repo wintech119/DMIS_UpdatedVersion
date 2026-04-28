@@ -15,6 +15,7 @@ export const USERS_CONFIG: MasterTableConfig = {
   domain: 'advanced',
   formMode: 'page',
   searchPlaceholder: 'Search by username, email, or full name',
+  formDescription: 'Tenant is required for user creation. Legacy Agency is optional and used only for legacy workflows.',
   emptyState: {
     icon: 'person_off',
     title: 'No users yet',
@@ -25,7 +26,7 @@ export const USERS_CONFIG: MasterTableConfig = {
   columns: [
     { field: 'username', header: 'Username', type: 'text', sortable: true, monospace: true },
     { field: 'full_name', header: 'Full Name', type: 'text', sortable: true },
-    { field: 'agency_id', header: 'Agency', type: 'text', sortable: true, hideMobile: true },
+    { field: 'primary_tenant_label', header: 'Primary Tenant', type: 'text', hideMobile: true },
     { field: 'status_code', header: 'Status', type: 'status', sortable: true, toneMap: STATUS_TONES },
   ],
   formFields: [
@@ -34,10 +35,15 @@ export const USERS_CONFIG: MasterTableConfig = {
     { field: 'first_name', label: 'First Name', type: 'text', hint: 'Given name shown in user directories and assignment history.', placeholder: 'Kemar', maxLength: 100, group: 'Identity' },
     { field: 'last_name', label: 'Last Name', type: 'text', hint: 'Family name shown in user directories and assignment history.', placeholder: 'Brown', maxLength: 100, group: 'Identity' },
     { field: 'full_name', label: 'Full Name', type: 'text', hint: 'Display name others see in approvals, assignments, and audit trails.', placeholder: 'Kemar Brown', maxLength: 200, group: 'Identity', colspan: 2 },
+    { field: 'tenant_id', label: 'Tenant', type: 'lookup', lookupTable: 'tenant',
+      hint: 'Required primary tenant membership created with this user.',
+      required: true, createOnly: true, group: 'Operational', colspan: 2 },
     { field: 'assigned_warehouse_id', label: 'Assigned Warehouse', type: 'lookup', lookupTable: 'warehouses',
       hint: 'Warehouse this user manages or works from day to day.',
       group: 'Operational' },
-    { field: 'agency_id', label: 'Agency', type: 'lookup', hint: 'Agency this user represents for relief requests and distribution work.', lookupTable: 'agencies', group: 'Operational' },
+    { field: 'agency_id', label: 'Legacy Agency (optional)', type: 'lookup',
+      hint: 'Optional. Use only for legacy workflows that still depend on agency_id; tenant membership governs user access.',
+      lookupTable: 'agencies', group: 'Operational' },
     { field: 'is_active', label: 'Active', type: 'boolean', hint: 'ON allows the account to operate in DMIS; OFF disables local access.', defaultValue: true, group: 'Operational' },
     { field: 'phone', label: 'Phone', type: 'phone', hint: 'Mobile number for surge alerts and operational follow-up.', placeholder: '+1 876 555 0123', maxLength: 50, group: 'Locale' },
     { field: 'timezone', label: 'Timezone', type: 'text', required: true, maxLength: 50,

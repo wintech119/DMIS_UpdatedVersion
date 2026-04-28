@@ -105,7 +105,7 @@ After all 7 land, the verifier runs a Deploy-Readiness Review against `.gitlab-c
 2. **Seed migration** — new file in `backend/api/migrations/`. Use the next sequential number. Mirror `0003_seed_operations_request_cancel_permission.py` exactly (RunPython, raw SQL `INSERT INTO permission ... ON CONFLICT (resource, action) DO NOTHING`, then JOIN onto `role` to seed `role_permission` for `code='SYSTEM_ADMINISTRATOR'`). Reverse migration deletes the same rows.
 
 3. **TableConfig entries** for the 4 flat tables:
-   - `user` (table name `"user"` — quote-needed): pk=`user_id`, status=`status_code` with values **A/I/L** (extend status validation accordingly), `has_audit=True`, `has_version=True`. Visible fields: `username`, `email` (max 200), `first_name`, `last_name`, `full_name`, `is_active` (bool), `assigned_warehouse_id` (FK → warehouses), `agency_id` (FK → agencies), `phone`, `timezone`, `language`, `status_code`. **Excluded** from `data_fields` (never returned in payloads): `password_hash`, `password_algo`, `mfa_enabled`, `mfa_secret`, `failed_login_count`, `lock_until_at`, `last_login_at`, `login_count`, `password_changed_at`.
+   - `user` (table name `"user"` — quote-needed): pk=`user_id`, status=`status_code` with values **A/I/L** (extend status validation accordingly), `has_audit=True`, `has_version=True`. Visible fields: `username`, `email` (max 200), `first_name`, `last_name`, `full_name`, `is_active` (bool), `tenant_id` as a required create-only lookup that creates the primary `tenant_user` membership, `assigned_warehouse_id` (FK → warehouses), `agency_id` (optional legacy FK → agencies only for workflows that still depend on agency), `phone`, `timezone`, `language`, `status_code`. **Excluded** from `data_fields` (never returned in payloads): `password_hash`, `password_algo`, `mfa_enabled`, `mfa_secret`, `failed_login_count`, `lock_until_at`, `last_login_at`, `login_count`, `password_changed_at`.
    - `role`: pk=`id`, no status (`has_status=False`, `status_field=""`), `has_audit=False` (only `created_at` exists). Fields: `code` (required, max 50, regex `^[A-Z_][A-Z0-9_]*$`, unique), `name`, `description`.
    - `permission`: pk=`perm_id`, no status, has audit. Fields: `resource` (max 40), `action` (max 32). Composite uniqueness on `(resource, action)`.
    - `tenant`: pk=`tenant_id`, has status, has audit. Fields: `tenant_code` (max 20, unique), `tenant_name`, `tenant_type`, `parent_tenant_id` (FK self), `data_scope`, `pii_access`, `offline_required`, `mobile_priority`, `address1_text`, `parish_code` (FK → parishes), `contact_name`, `phone_no`, `email_text`.
@@ -246,7 +246,7 @@ Run from `backend/`:
 
 **Required changes**:
 
-1. **`users.config.ts`** — `tableKey: 'user'`, `displayName: 'Users'`, `domain: 'advanced'`, `pkField: 'user_id'`, `routePath: 'users'`, `hasStatus: true`. Fields: username, email (required, email pattern, max 200), first_name, last_name, full_name, phone, timezone, language, assigned_warehouse_id (FK → warehouses), agency_id (FK → agencies), is_active, status_code (select: A/I/L). NO password_hash field.
+1. **`users.config.ts`** — `tableKey: 'user'`, `displayName: 'Users'`, `domain: 'advanced'`, `pkField: 'user_id'`, `routePath: 'users'`, `hasStatus: true`. Fields: username, email (required, email pattern, max 200), first_name, last_name, full_name, phone, timezone, language, `tenant_id` (required create-only FK lookup → tenant that creates the primary `tenant_user` membership), assigned_warehouse_id (FK → warehouses), agency_id (optional legacy FK → agencies only for legacy workflows), is_active, status_code (select: A/I/L). NO password_hash field.
 
 2. **`roles.config.ts`** — `tableKey: 'role'`, pk=`id`, `hasStatus: false`, `domain: 'advanced'`. Fields: code (required, max 50, pattern `^[A-Z_][A-Z0-9_]*$`, uppercase, `readonlyOnEdit: true`), name, description (textarea).
 
@@ -367,7 +367,7 @@ Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max`
 
 ### 1. users — `/master-data/users`
 
-- **List columns** (4 visible, in order): `username` (monospace, primary clickable row label, sortable) → `full_name` (sortable) → `agency_id` (FK rendered as agency code/name, sortable) → `status_code` (pill, sortable). Rows have `cursor: pointer`, hover background `var(--ops-emphasis)` no layout shift, transition 180ms ease per generation.ts §1.
+- **List columns** (4 visible, in order): `username` (monospace, primary clickable row label, sortable) → `full_name` (sortable) → `primary_tenant_label` (from `tenant_user` + `tenant`) → `status_code` (pill, sortable). Rows have `cursor: pointer`, hover background `var(--ops-emphasis)` no layout shift, transition 180ms ease per generation.ts §1.
 - **Search placeholder**: `"Search by username, email, or full name"`. Backend ILIKE on those three columns case-insensitive.
 - **Status-tone mapping** (`status_code`):
   - `A` (Active) → **Success** (`#edf7ef` / `#286a36`, `check_circle`)
@@ -375,7 +375,7 @@ Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max`
   - `L` (Locked) → **Critical** (`#fdddd8` / `#8c1d13`, `lock`)
 - **Form grouping**:
   - `Identity` (colspan 2): `username` (`readonlyOnEdit: true`, hint "External Keycloak identity. Cannot rename."), `email` (required, email pattern, max 200), `first_name` (colspan 1), `last_name` (colspan 1), `full_name` (colspan 2)
-  - `Operational`: `assigned_warehouse_id` (FK lookup), `agency_id` (FK lookup), `is_active` (toggle)
+  - `Operational`: `tenant_id` (required create-only FK lookup; creates the primary `tenant_user` membership), `assigned_warehouse_id` (FK lookup), `agency_id` (optional legacy FK lookup only for workflows that still depend on agency), `is_active` (toggle)
   - `Locale`: `phone` (hint "Mobile preferred for SURGE alerts"), `timezone`, `language` (each colspan 1)
   - `Status` (edit-only): `status_code` (select; hint when L: "Locked accounts cannot log in. Reset password to unlock.")
 - **Empty state**: icon `person_off`, heading "No users yet", body "Users are auto-provisioned on first Keycloak login.", next-step `add` "Add User".

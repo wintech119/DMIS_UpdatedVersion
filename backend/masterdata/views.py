@@ -14,7 +14,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -54,6 +54,7 @@ from masterdata.permissions import (
 )
 from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.throttling import MasterDataWriteThrottle
+from masterdata.services import iam_data_access
 from masterdata.services.data_access import (
     BASELINE_TENANT_TYPE_CODES,
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
@@ -62,6 +63,7 @@ from masterdata.services.data_access import (
     _schema_name,
     activate_record,
     check_dependencies,
+    check_fk_exists,
     create_record,
     get_lookup,
     get_record,
@@ -114,6 +116,15 @@ _IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
 _IFRC_RESPONSE_CANDIDATE_LIMIT = 5
 _SCALAR_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(KG|MG|G|L|ML|KVA|KW|CM|MM|M2)$")
 _DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*(M2|FT)$")
+
+
+class UserCreateRecordError(Exception):
+    def __init__(self, warnings: list[str]):
+        self.warnings = warnings
+
+
+class UserPrimaryTenantMembershipError(Exception):
+    pass
 
 
 def _actor_id(request) -> str:
@@ -174,46 +185,104 @@ def _prepare_warehouse_write_payload(
     existing_record: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     payload = dict(data)
-    existing_tenant_id = existing_record.get("tenant_id") if existing_record else None
-    if existing_tenant_id not in (None, ""):
+    requested_supplied = "tenant_id" in payload
+    requested_raw_tenant_id = payload.get("tenant_id")
+    requested_tenant_id = None
+    if requested_supplied:
+        if requested_raw_tenant_id in (None, ""):
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
+        requested_tenant_id = _parse_positive_int(requested_raw_tenant_id)
+        if requested_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant must be a positive integer."
+            }
+
+    if existing_record is None:
+        if requested_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
         if _should_enforce_tenant_scope():
-            warehouse_id = existing_record.get("warehouse_id") if existing_record else None
+            context = _tenant_context(request)
+            if not can_access_tenant(context, requested_tenant_id, write=True):
+                return payload, {
+                    "tenant_scope": "You do not have access to create warehouses for this tenant."
+                }
+        payload["tenant_id"] = requested_tenant_id
+        return payload, {}
+
+    warehouse_id = existing_record.get("warehouse_id")
+    existing_tenant_id = _parse_positive_int(existing_record.get("tenant_id"))
+    if requested_tenant_id is None:
+        if existing_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
+        if _should_enforce_tenant_scope():
             context = _tenant_context(request)
             if not can_access_warehouse(context, _parse_positive_int(warehouse_id), write=True):
                 return payload, {
                     "tenant_scope": "You do not have access to modify this warehouse."
                 }
-        payload["tenant_id"] = existing_tenant_id
         return payload, {}
 
-    context = _tenant_context(request)
-    requested_payload_tenant_id = payload.get("tenant_id")
-    if requested_payload_tenant_id not in (None, "") and _parse_positive_int(requested_payload_tenant_id) is None:
-        return payload, {
-            "tenant_id": "tenant_id must be a positive integer."
-        }
+    if _should_enforce_tenant_scope():
+        context = _tenant_context(request)
+        if not can_access_warehouse(context, _parse_positive_int(warehouse_id), write=True):
+            return payload, {
+                "tenant_scope": "You do not have access to modify this warehouse."
+            }
+        if requested_tenant_id != existing_tenant_id and not can_access_tenant(
+            context,
+            requested_tenant_id,
+            write=True,
+        ):
+            return payload, {
+                "tenant_scope": "You do not have access to assign this warehouse to the selected tenant."
+            }
 
-    target_tenant_id = (
-        _parse_positive_int(requested_payload_tenant_id)
-        or getattr(context, "requested_tenant_id", None)
-        or context.active_tenant_id
-    )
-    if target_tenant_id is None:
-        return payload, {
-            "tenant_id": "Tenant context is required for warehouse maintenance."
-        }
-
-    if _should_enforce_tenant_scope() and not can_access_tenant(
-        context,
-        target_tenant_id,
-        write=True,
-    ):
-        return payload, {
-            "tenant_scope": "You do not have access to create warehouses for this tenant."
-        }
-
-    payload["tenant_id"] = target_tenant_id
+    payload["tenant_id"] = requested_tenant_id
     return payload, {}
+
+
+def _extract_required_user_create_tenant(data: dict[str, Any]) -> tuple[int | None, dict[str, str], list[str]]:
+    errors: dict[str, str] = {}
+    raw_tenant_id = data.pop("tenant_id", None)
+    if raw_tenant_id in (None, ""):
+        errors["tenant_id"] = "Tenant is required for user creation."
+        return None, errors, []
+
+    tenant_id = _parse_positive_int(raw_tenant_id)
+    if tenant_id is None:
+        errors["tenant_id"] = "Tenant must be a positive integer."
+        return None, errors, []
+
+    exists, warnings = check_fk_exists("tenant", "tenant_id", tenant_id)
+    if warnings:
+        return None, errors, warnings
+    if not exists:
+        errors["tenant_id"] = "Selected Tenant does not exist."
+        return None, errors, []
+    is_active, warnings = check_fk_exists("tenant", "tenant_id", tenant_id, active_only=True)
+    if warnings:
+        return None, errors, warnings
+    if not is_active:
+        errors["tenant_id"] = "Selected Tenant is inactive."
+        return None, errors, []
+    return tenant_id, errors, []
+
+
+def _verify_user_primary_tenant_membership(tenant_id: int, user_id: int) -> None:
+    if not iam_data_access.has_active_primary_tenant_membership(tenant_id, user_id):
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification found no active row."
+        )
+    if iam_data_access.count_active_primary_tenant_memberships(user_id) != 1:
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification did not find exactly one active primary row."
+        )
 
 
 def _tenant_context(request):
@@ -1249,6 +1318,8 @@ def _handle_warehouse_list(request):
 def _handle_create(request, cfg):
     if cfg.key == "items":
         return _handle_item_create(request, cfg)
+    if cfg.key == "user":
+        return _handle_user_create(request, cfg)
     if is_governed_catalog_table(cfg.key):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
@@ -1334,6 +1405,105 @@ def _handle_create(request, cfg):
     payload = {"record": record, "warnings": warnings}
     payload.update(catalog_detail_metadata(cfg.key))
     return Response(payload, status=201)
+
+
+def _handle_user_create(request, cfg):
+    data = dict(request.data or {})
+    tenant_id, tenant_errors, tenant_warnings = _extract_required_user_create_tenant(data)
+    if tenant_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate Tenant for user creation.",
+                "warnings": tenant_warnings,
+            },
+            status=500,
+        )
+    if tenant_errors:
+        return Response({"errors": tenant_errors}, status=400)
+
+    for field in cfg.data_fields:
+        if field.default is not None and field.name not in data:
+            data[field.name] = field.default
+
+    errors = tenant_errors
+    errors.update(validate_record(cfg, data, is_update=False))
+    extra_errors, validation_warnings = validate_operational_master_payload(
+        cfg.key,
+        data,
+        is_update=False,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate operational master data.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    pk_val: int | None = None
+    warnings: list[str] = []
+    try:
+        with transaction.atomic():
+            raw_pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
+            if raw_pk_val is None:
+                raise UserCreateRecordError(warnings)
+
+            pk_val = int(raw_pk_val)
+            membership_created = iam_data_access.assign_tenant_user(
+                tenant_id,
+                pk_val,
+                "STANDARD",
+                _actor_id(request),
+                is_primary_tenant=True,
+            )
+            if not membership_created:
+                raise UserPrimaryTenantMembershipError(
+                    "Primary tenant membership insert did not create a row."
+                )
+            _verify_user_primary_tenant_membership(tenant_id, pk_val)
+    except UserCreateRecordError as exc:
+        warnings = exc.warnings
+        if "db_unique_violation" in warnings:
+            return Response(
+                {
+                    "detail": "Record already exists.",
+                    "diagnostic": _warning_diagnostic_message(
+                        warnings,
+                        operation="create",
+                        target="user",
+                    ),
+                    "warnings": warnings,
+                },
+                status=409,
+            )
+        return _create_failure_response(
+            target="user",
+            warnings=warnings,
+            detail="Failed to create user.",
+        )
+    except Exception as exc:
+        logger.exception("Failed to create user with primary tenant membership: %s", exc)
+        return Response(
+            {
+                "detail": "Failed to create user with primary tenant membership.",
+                "warnings": ["primary_tenant_membership_create_failed"],
+            },
+            status=500,
+        )
+
+    record, read_warnings = get_record(cfg.key, pk_val)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="created",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
+    return Response({"record": record, "warnings": warnings}, status=201)
 
 
 def _handle_item_list(request):
@@ -1584,6 +1754,19 @@ def _handle_update(request, cfg, pk_value):
             expected_version = int(expected_version)
         except (ValueError, TypeError):
             expected_version = None
+
+    if cfg.key == "user" and "tenant_id" in data:
+        return Response(
+            {
+                "errors": {
+                    "tenant_id": (
+                        "Primary Tenant cannot be changed through the user form. "
+                        "Manage tenant membership from tenant administration."
+                    )
+                }
+            },
+            status=400,
+        )
 
     if cfg.key == "tenant_types":
         baseline_errors = _baseline_tenant_type_errors(

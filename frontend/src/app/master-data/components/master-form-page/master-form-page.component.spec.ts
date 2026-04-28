@@ -15,6 +15,7 @@ import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
 import { ITEM_CONFIG } from '../../models/table-configs/item.config';
 import { IFRC_FAMILY_CONFIG } from '../../models/table-configs/ifrc-family.config';
 import { IFRC_ITEM_REFERENCE_CONFIG } from '../../models/table-configs/ifrc-item-reference.config';
+import { WAREHOUSE_CONFIG } from '../../models/table-configs/warehouse.config';
 
 function buildBaseItemRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -197,6 +198,22 @@ describe('MasterFormPageComponent', () => {
           { value: 301, label: 'Water Treatment' },
         ]);
       }
+      if (tableKey === 'tenant') {
+        return of([
+          { value: 1, label: 'ODPEM - ODPEM National Coordination' },
+          { value: 2, label: 'JDF' },
+        ]);
+      }
+      if (tableKey === 'agencies') {
+        return of([
+          { value: 10, label: 'Legacy Agency' },
+        ]);
+      }
+      if (tableKey === 'warehouses') {
+        return of([
+          { value: 20, label: 'Kingston Central Depot' },
+        ]);
+      }
       return of([]);
     });
     masterDataService.lookupItemCategories.and.returnValue(of([
@@ -259,6 +276,30 @@ describe('MasterFormPageComponent', () => {
           record: buildIfrcReferenceRecord(),
           warnings: [],
           edit_guidance: buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+        });
+      }
+      if (tableKey === 'user') {
+        return of({
+          record: {
+            user_id: 42,
+            username: 'field.admin',
+            email: 'field.admin@example.test',
+            first_name: 'Field',
+            last_name: 'Admin',
+            full_name: 'Field Admin',
+            is_active: true,
+            assigned_warehouse_id: 20,
+            agency_id: null,
+            phone: '',
+            timezone: 'America/Jamaica',
+            language: 'en',
+            status_code: 'A',
+            primary_tenant_id: 1,
+            primary_tenant_code: 'ODPEM',
+            primary_tenant_name: 'ODPEM National Coordination',
+            primary_tenant_label: 'ODPEM - ODPEM National Coordination',
+          },
+          warnings: [],
         });
       }
       return of({ record: buildBaseItemRecord(), warnings: [] });
@@ -397,6 +438,93 @@ describe('MasterFormPageComponent', () => {
       component.config()!,
     );
     expect(payload['parent_tenant_id']).toBeNull();
+  });
+
+  it('requires Tenant for new users and keeps Legacy Agency optional', () => {
+    const { component } = setup('users');
+    const cfg = component.config()!;
+    const tenantField = cfg.formFields.find((field) => field.field === 'tenant_id');
+    const agencyField = cfg.formFields.find((field) => field.field === 'agency_id');
+    const columns = cfg.columns.map((column) => [column.field, column.header]);
+
+    expect(columns).toContain(['primary_tenant_label', 'Primary Tenant']);
+    expect(columns.some(([field]) => field === 'agency_id')).toBeFalse();
+    expect(tenantField).toEqual(jasmine.objectContaining({
+      label: 'Tenant',
+      type: 'lookup',
+      lookupTable: 'tenant',
+      required: true,
+      createOnly: true,
+    }));
+    expect(agencyField).toEqual(jasmine.objectContaining({
+      label: 'Legacy Agency (optional)',
+      lookupTable: 'agencies',
+    }));
+    expect(agencyField?.required).toBeUndefined();
+    expect(component.form.get('tenant_id')?.hasError('required')).toBeTrue();
+    expect(component.form.get('agency_id')?.hasError('required')).toBeFalse();
+
+    component.form.patchValue({
+      username: 'field.admin',
+      email: 'field.admin@example.test',
+      tenant_id: 1,
+    });
+
+    const payload = (component as unknown as MasterFormPageComponentTestAccess)['buildPreparedFormPayload'](cfg);
+    expect(payload['tenant_id']).toBe(1);
+    expect(payload['agency_id']).toBeNull();
+  });
+
+  it('hides and omits create-only Tenant when editing users', () => {
+    const { component } = setup('users', { pk: '42' });
+    const cfg = component.config()!;
+    const visibleFields = component.fieldGroups().flatMap((group) => group.fields.map((field) => field.field));
+
+    expect(component.isEdit()).toBeTrue();
+    expect(visibleFields).not.toContain('tenant_id');
+    expect(component.form.get('tenant_id')?.hasError('required')).toBeFalse();
+
+    component.form.get('tenant_id')?.setValue(2);
+    const payload = (component as unknown as MasterFormPageComponentTestAccess)['buildPreparedFormPayload'](cfg);
+
+    expect(payload['tenant_id']).toBeUndefined();
+    expect(payload['agency_id']).toBeNull();
+  });
+
+  it('uses Managing Tenant as the required warehouse owner field', () => {
+    const { component } = setup('warehouses');
+    const cfg = component.config()!;
+    const tenantField = cfg.formFields.find((field) => field.field === 'tenant_id');
+    const custodianField = cfg.formFields.find((field) => field.field === 'custodian_id');
+    const columns = cfg.columns.map((column) => [column.field, column.header]);
+
+    expect(columns).toContain(['managing_tenant_label', 'Managing Tenant']);
+    expect(tenantField).toEqual(jasmine.objectContaining({
+      label: 'Managing Tenant',
+      type: 'lookup',
+      lookupTable: 'tenant',
+      required: true,
+    }));
+    expect(tenantField?.hint).toContain('Authoritative tenant');
+    expect(custodianField).toBeUndefined();
+    expect(component.form.get('tenant_id')?.hasError('required')).toBeTrue();
+    expect(WAREHOUSE_CONFIG.formDescription).toContain('Custodian remains legacy/transitional compatibility only');
+
+    component.form.patchValue({
+      warehouse_name: 'Kingston Hub',
+      warehouse_type: 'MAIN-HUB',
+      tenant_id: 1,
+      min_stock_threshold: 50,
+      address1_text: '1 Test Logistics Way',
+      parish_code: '01',
+      contact_name: 'KEMAR BROWN',
+      phone_no: '+1 (876) 555-0123',
+      status_code: 'A',
+    });
+
+    const payload = (component as unknown as MasterFormPageComponentTestAccess)['buildPreparedFormPayload'](cfg);
+    expect(payload['tenant_id']).toBe(1);
+    expect(payload['custodian_id']).toBeUndefined();
   });
 
   it('requires an IFRC family for new items when a category is selected', () => {

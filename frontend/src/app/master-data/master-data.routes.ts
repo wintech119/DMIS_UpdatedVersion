@@ -38,7 +38,6 @@ export const MASTER_DATA_ROUTES: Routes = [
   ...pageRoutes('locations'),
   ...pageRoutes('warehouses'),
   ...pageRoutes('agencies'),
-  ...pageRoutes('custodians'),
   ...pageRoutes('donors'),
   ...pageRoutes('events'),
   ...pageRoutes('suppliers'),

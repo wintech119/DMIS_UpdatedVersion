@@ -8,6 +8,7 @@ import {
   ReactiveFormsModule,
   FormGroup,
   FormControl,
+  ValidatorFn,
   Validators,
   ValidationErrors,
 } from '@angular/forms';
@@ -230,7 +231,7 @@ export class MasterFormPageComponent implements OnInit {
     const links: ErrorSummaryLink[] = [];
     const seenIds = new Set<string>();
     for (const field of cfg.formFields) {
-      if (field.editOnly && !this.isEdit()) {
+      if (!this.isFieldVisibleForMode(field)) {
         continue;
       }
       const control = this.form.get(field.field);
@@ -376,7 +377,7 @@ export class MasterFormPageComponent implements OnInit {
     const usedKeys = new Map<string, number>();
 
     for (const f of cfg.formFields) {
-      if (f.editOnly && !this.isEdit()) {
+      if (!this.isFieldVisibleForMode(f)) {
         continue;
       }
 
@@ -501,6 +502,7 @@ export class MasterFormPageComponent implements OnInit {
       if (pkParam && pkParam !== 'new') {
         this.pk.set(pkParam);
         this.isEdit.set(true);
+        this.refreshFormModeValidators();
         this.primeGovernedEditState();
         this.loadRecord();
         return;
@@ -509,22 +511,18 @@ export class MasterFormPageComponent implements OnInit {
       this.resetStorageAssignmentState();
       this.pk.set(null);
       this.isEdit.set(false);
+      this.refreshFormModeValidators();
     });
   }
 
   private buildForm(cfg: MasterTableConfig): void {
     for (const field of cfg.formFields) {
-      const validators = [];
-      if (field.required) validators.push(Validators.required);
-      if (field.maxLength) validators.push(Validators.maxLength(field.maxLength));
-      if (field.pattern) validators.push(Validators.pattern(field.pattern));
-      if (field.type === 'email') {
-        validators.push(Validators.email);
-      }
-
       this.form.addControl(
         field.field,
-        new FormControl(this.toLookupControlValue(field, field.defaultValue ?? null), validators),
+        new FormControl(
+          this.toLookupControlValue(field, field.defaultValue ?? null),
+          this.getFieldValidators(field),
+        ),
       );
     }
 
@@ -559,6 +557,35 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe(() => {
       this.formStateVersion.update((version) => version + 1);
     });
+  }
+
+  private getFieldValidators(field: MasterFieldConfig): ValidatorFn[] {
+    const validators: ValidatorFn[] = [];
+    if (field.required && this.isFieldVisibleForMode(field)) validators.push(Validators.required);
+    if (field.maxLength) validators.push(Validators.maxLength(field.maxLength));
+    if (field.pattern) validators.push(Validators.pattern(field.pattern));
+    if (field.type === 'email') {
+      validators.push(Validators.email);
+    }
+    return validators;
+  }
+
+  private refreshFormModeValidators(): void {
+    const cfg = this.config();
+    if (!cfg) return;
+    for (const field of cfg.formFields) {
+      const control = this.form.get(field.field);
+      if (!control) continue;
+      control.setValidators(this.getFieldValidators(field));
+      control.updateValueAndValidity({ emitEvent: false });
+    }
+    this.formStateVersion.update((version) => version + 1);
+  }
+
+  private isFieldVisibleForMode(field: MasterFieldConfig): boolean {
+    if (field.editOnly && !this.isEdit()) return false;
+    if (field.createOnly && this.isEdit()) return false;
+    return true;
   }
 
   private setupItemTaxonomyState(cfg: MasterTableConfig): void {
@@ -2497,6 +2524,11 @@ export class MasterFormPageComponent implements OnInit {
     const rawData = { ...this.form.getRawValue() } as MasterRecord;
 
     for (const field of cfg.formFields) {
+      if (field.createOnly && this.isEdit()) {
+        delete rawData[field.field];
+        continue;
+      }
+
       if (this.isLookupNoneValue(field, rawData[field.field])) {
         rawData[field.field] = null;
         continue;

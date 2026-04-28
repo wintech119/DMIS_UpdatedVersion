@@ -170,6 +170,8 @@ def assign_tenant_user(
     user_id: int,
     access_level: str,
     assigned_by: Any,
+    *,
+    is_primary_tenant: bool = False,
 ) -> bool:
     actor_label = _actor_label(assigned_by)
     with connection.cursor() as cursor:
@@ -178,18 +180,58 @@ def assign_tenant_user(
             INSERT INTO tenant_user (
                 tenant_id,
                 user_id,
+                is_primary_tenant,
                 access_level,
                 assigned_by,
                 status_code,
                 create_by_id,
                 create_dtime
             )
-            VALUES (%s, %s, %s, %s, 'A', %s, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, %s, %s, %s, 'A', %s, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id) DO NOTHING
             """,
-            [tenant_id, user_id, access_level, _assigned_by_value(assigned_by), actor_label],
+            [
+                tenant_id,
+                user_id,
+                is_primary_tenant,
+                access_level,
+                _assigned_by_value(assigned_by),
+                actor_label,
+            ],
         )
         return cursor.rowcount > 0
+
+
+def has_active_primary_tenant_membership(tenant_id: int, user_id: int) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM tenant_user
+            WHERE tenant_id = %s
+              AND user_id = %s
+              AND is_primary_tenant = true
+              AND status_code = 'A'
+            LIMIT 1
+            """,
+            [tenant_id, user_id],
+        )
+        return cursor.fetchone() is not None
+
+
+def count_active_primary_tenant_memberships(user_id: int) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM tenant_user
+            WHERE user_id = %s
+              AND is_primary_tenant = true
+              AND status_code = 'A'
+            """,
+            [user_id],
+        )
+        return int(cursor.fetchone()[0])
 
 
 def revoke_tenant_user(tenant_id: int, user_id: int) -> bool:

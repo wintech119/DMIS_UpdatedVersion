@@ -14,7 +14,7 @@ This document is the canonical source for six Codex implementation briefs that, 
 **Scope confirmation**:
 - Table grouping uses `backend/masterdata/services/catalog_governance.py:38-48`:
   - **Catalog (governed, 9)**: `item_categories, ifrc_families, ifrc_item_references, items, uom, countries, currencies, parishes, events`
-  - **Operational Masters (5)**: `warehouses, agencies, custodians, donors, suppliers`
+  - **Operational Masters (future-facing, 4)**: `warehouses, agencies, donors, suppliers`; `custodians` is retained as legacy backend/config compatibility only and is not linked from normal Master Data navigation.
 - Hardening bar: critical-only today; centralized audit-log table + full negative-test matrix deferred to QA-feedback iteration.
 - Module gating: fully hidden (no stub pages).
 - Frontend config: build-time constants reusing the existing `DMIS_LOCAL_AUTH_HARNESS_BUILD` pattern at `frontend/angular.json:59`.

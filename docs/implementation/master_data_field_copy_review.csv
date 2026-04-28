@@ -144,8 +144,9 @@ user,email,Email,"Email used for login identity, alerts, and administrator conta
 user,first_name,First Name,Given name shown in user directories and assignment history.,Kemar,
 user,last_name,Last Name,Family name shown in user directories and assignment history.,Brown,
 user,full_name,Full Name,"Display name others see in approvals, assignments, and audit trails.",Kemar Brown,
+user,tenant_id,Tenant,Required primary tenant membership created with this user.,,Placeholder omitted: lookup choices are shown by the field.
 user,assigned_warehouse_id,Assigned Warehouse,Warehouse this user manages or works from day to day.,,Placeholder omitted: lookup choices are shown by the field.
-user,agency_id,Agency,Agency this user represents for relief requests and distribution work.,,Placeholder omitted: lookup choices are shown by the field.
+user,agency_id,Legacy Agency (optional),Optional legacy agency link used only by workflows that still depend on agency_id.,,Placeholder omitted: lookup choices are shown by the field.
 user,is_active,Active,ON allows the account to operate in DMIS; OFF disables local access.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
 user,phone,Phone,Mobile number for surge alerts and operational follow-up.,+1 876 555 0123,
 user,timezone,Timezone,Timezone used when displaying timestamps to this user.,America/Jamaica,
@@ -153,7 +154,7 @@ user,language,Language,Preferred interface language code for this user.,en,
 user,status_code,Status,Active users can work; inactive users are retained; locked users cannot log in.,,Placeholder omitted: status select shows lifecycle choices.
 warehouses,warehouse_name,Warehouse Name,Name responders and inventory teams see when choosing a stock hub.,Kingston Main Warehouse,
 warehouses,warehouse_type,Type,Identifies whether this hub is a main hub or sub-hub for routing.,,Placeholder omitted: select field shows configured choices.
-warehouses,custodian_id,Custodian,Custodian accountable for stock control and handover at this warehouse.,,Placeholder omitted: lookup choices are shown by the field.
+warehouses,tenant_id,Managing Tenant,"Authoritative tenant responsible for managing, stocking, and operating this warehouse.",,Placeholder omitted: lookup choices are shown by the field.
 warehouses,min_stock_threshold,Min Stock Threshold,Floor that flags warehouse stock as needing attention.,,Placeholder omitted: numeric entry should not show a sentinel value.
 warehouses,address1_text,Address Line 1,Primary address drivers and field teams use to reach this warehouse.,"12 Camp Road, Kingston",
 warehouses,address2_text,Address Line 2,"Additional address detail such as gate, building, or landmark.","Gate 2, rear loading bay",

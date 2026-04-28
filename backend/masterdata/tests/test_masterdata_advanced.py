@@ -1,4 +1,5 @@
 import importlib
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -277,6 +278,514 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
         self.assertIs(values_by_column["mfa_enabled"], False)
         self.assertEqual(values_by_column["failed_login_count"], 0)
         self.assertEqual(values_by_column["login_count"], 0)
+
+    def test_check_fk_exists_can_require_active_status(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+
+        with (
+            patch("masterdata.services.data_access._is_sqlite", return_value=False),
+            patch("masterdata.services.data_access._schema_name", return_value="public"),
+            patch("masterdata.services.data_access.connection", connection),
+        ):
+            exists, warnings = data_access_service.check_fk_exists(
+                "tenant",
+                "tenant_id",
+                2,
+                active_only=True,
+            )
+
+        self.assertTrue(exists)
+        self.assertEqual(warnings, [])
+        sql, params = cursor.execute.call_args.args
+        self.assertIn('FROM "public"."tenant"', sql)
+        self.assertIn('"tenant_id" = %s', sql)
+        self.assertIn('"status_code" = %s', sql)
+        self.assertEqual(params, [2, "A"])
+
+    @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            {
+                "user_id": 42,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+                "primary_tenant_id": 2,
+                "primary_tenant_code": "ODPEM",
+                "primary_tenant_name": "ODPEM National Coordination",
+                "primary_tenant_label": "ODPEM - ODPEM National Coordination",
+            },
+            [],
+        ),
+    )
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships", return_value=1)
+    @patch("masterdata.views.iam_data_access.has_active_primary_tenant_membership", return_value=True)
+    @patch("masterdata.views.iam_data_access.assign_tenant_user", return_value=True)
+    @patch("masterdata.views.create_record", return_value=(42, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_requires_tenant_and_creates_primary_membership(
+        self,
+        _mock_check_uniqueness,
+        _mock_tenant_fk,
+        mock_create_record,
+        mock_assign_tenant_user,
+        mock_has_primary,
+        mock_count_primary,
+        _mock_get_record,
+        _mock_atomic,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE], user_id="99"),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 201)
+        created_payload = mock_create_record.call_args.args[1]
+        self.assertNotIn("tenant_id", created_payload)
+        self.assertNotIn("agency_id", created_payload)
+        mock_assign_tenant_user.assert_called_once_with(
+            2,
+            42,
+            "STANDARD",
+            "99",
+            is_primary_tenant=True,
+        )
+        mock_has_primary.assert_called_once_with(2, 42)
+        mock_count_primary.assert_called_once_with(42)
+        self.assertEqual(response.data["record"]["primary_tenant_id"], 2)
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.iam_data_access.assign_tenant_user")
+    def test_user_create_rejects_missing_tenant(self, mock_assign_tenant_user, mock_create_record):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("tenant_id", response.data["errors"])
+        mock_create_record.assert_not_called()
+        mock_assign_tenant_user.assert_not_called()
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.check_fk_exists", return_value=(False, []))
+    def test_user_create_rejects_invalid_tenant(self, _mock_tenant_fk, mock_create_record):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 999,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["errors"]["tenant_id"], "Selected Tenant does not exist.")
+        mock_create_record.assert_not_called()
+
+    @patch("masterdata.views.iam_data_access.assign_tenant_user")
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.check_fk_exists", side_effect=[(True, []), (False, [])])
+    def test_user_create_rejects_inactive_tenant(
+        self,
+        _mock_tenant_fk,
+        mock_create_record,
+        mock_assign_tenant_user,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["errors"]["tenant_id"], "Selected Tenant is inactive.")
+        mock_create_record.assert_not_called()
+        mock_assign_tenant_user.assert_not_called()
+
+    @patch("masterdata.views.create_record")
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_fk_exists", return_value=(False, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_validates_supplied_agency_fk(
+        self,
+        _mock_check_uniqueness,
+        _mock_agency_fk,
+        _mock_tenant_fk,
+        mock_create_record,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "agency_id": 999,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("agency_id", response.data["errors"])
+        mock_create_record.assert_not_called()
+
+    @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
+    @patch("masterdata.views.get_record")
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships")
+    @patch("masterdata.views.iam_data_access.has_active_primary_tenant_membership", return_value=True)
+    @patch("masterdata.views.iam_data_access.assign_tenant_user", return_value=False)
+    @patch("masterdata.views.create_record", return_value=(42, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_rolls_back_when_membership_insert_returns_false(
+        self,
+        _mock_check_uniqueness,
+        _mock_tenant_fk,
+        _mock_create_record,
+        _mock_assign_tenant_user,
+        _mock_has_primary,
+        mock_count_primary,
+        mock_get_record,
+        _mock_atomic,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("primary_tenant_membership_create_failed", response.data["warnings"])
+        mock_count_primary.assert_not_called()
+        mock_get_record.assert_not_called()
+
+    @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
+    @patch("masterdata.views.get_record")
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships")
+    @patch("masterdata.views.iam_data_access.has_active_primary_tenant_membership", return_value=False)
+    @patch("masterdata.views.iam_data_access.assign_tenant_user", return_value=True)
+    @patch("masterdata.views.create_record", return_value=(42, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_rolls_back_when_membership_verification_finds_no_row(
+        self,
+        _mock_check_uniqueness,
+        _mock_tenant_fk,
+        _mock_create_record,
+        _mock_assign_tenant_user,
+        _mock_has_primary,
+        mock_count_primary,
+        mock_get_record,
+        _mock_atomic,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("primary_tenant_membership_create_failed", response.data["warnings"])
+        mock_count_primary.assert_not_called()
+        mock_get_record.assert_not_called()
+
+    @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
+    @patch("masterdata.views.get_record")
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships")
+    @patch("masterdata.views.iam_data_access.has_active_primary_tenant_membership")
+    @patch("masterdata.views.iam_data_access.assign_tenant_user", side_effect=RuntimeError("insert failed"))
+    @patch("masterdata.views.create_record", return_value=(42, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_rolls_back_when_membership_insert_raises(
+        self,
+        _mock_check_uniqueness,
+        _mock_tenant_fk,
+        _mock_create_record,
+        _mock_assign_tenant_user,
+        mock_has_primary,
+        mock_count_primary,
+        mock_get_record,
+        _mock_atomic,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("primary_tenant_membership_create_failed", response.data["warnings"])
+        mock_has_primary.assert_not_called()
+        mock_count_primary.assert_not_called()
+        mock_get_record.assert_not_called()
+
+    @patch("masterdata.views.transaction.atomic", side_effect=lambda: nullcontext())
+    @patch("masterdata.views.get_record")
+    @patch("masterdata.views.iam_data_access.count_active_primary_tenant_memberships", return_value=0)
+    @patch("masterdata.views.iam_data_access.has_active_primary_tenant_membership", return_value=True)
+    @patch("masterdata.views.iam_data_access.assign_tenant_user", return_value=True)
+    @patch("masterdata.views.create_record", return_value=(42, []))
+    @patch("masterdata.views.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_user_create_rolls_back_when_primary_count_is_not_exactly_one(
+        self,
+        _mock_check_uniqueness,
+        _mock_tenant_fk,
+        _mock_create_record,
+        _mock_assign_tenant_user,
+        _mock_has_primary,
+        _mock_count_primary,
+        mock_get_record,
+        _mock_atomic,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/user/",
+            {
+                "tenant_id": 2,
+                "username": "field.admin",
+                "email": "field.admin@example.test",
+            },
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE]),
+        )
+
+        response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("primary_tenant_membership_create_failed", response.data["warnings"])
+        mock_get_record.assert_not_called()
+
+    @patch("masterdata.views.update_record")
+    def test_user_edit_rejects_flat_tenant_change(self, mock_update_record):
+        request = self.factory.patch(
+            "/api/v1/masterdata/user/42",
+            {"tenant_id": 3, "first_name": "Kemar"},
+            format="json",
+        )
+        force_authenticate(
+            request,
+            user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT]),
+        )
+
+        response = views.master_detail_update(request, "user", "42")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("tenant_id", response.data["errors"])
+        mock_update_record.assert_not_called()
+
+    def test_user_list_returns_primary_tenant_from_membership(self):
+        user_row = (
+            42,
+            "field.admin",
+            "field.admin@example.test",
+            "Field",
+            "Admin",
+            "Field Admin",
+            True,
+            None,
+            None,
+            None,
+            "America/Jamaica",
+            "en",
+            "A",
+        )
+        membership_row = (
+            42,
+            2,
+            "ODPEM",
+            "ODPEM National Coordination",
+            True,
+            None,
+        )
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)
+        cursor.fetchall.side_effect = [[user_row], [membership_row]]
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+
+        with (
+            patch("masterdata.services.data_access._is_sqlite", return_value=False),
+            patch("masterdata.services.data_access._schema_name", return_value="public"),
+            patch("masterdata.services.data_access.connection", connection),
+        ):
+            rows, total, warnings = data_access_service.list_records("user")
+
+        self.assertEqual(total, 1)
+        self.assertEqual(warnings, [])
+        self.assertEqual(rows[0]["primary_tenant_id"], 2)
+        self.assertEqual(rows[0]["primary_tenant_label"], "ODPEM - ODPEM National Coordination")
+
+    def test_user_detail_returns_primary_tenant_from_membership(self):
+        cfg = TABLE_REGISTRY["user"]
+        user_values = [
+            42,
+            "field.admin",
+            "field.admin@example.test",
+            "Field",
+            "Admin",
+            "Field Admin",
+            True,
+            None,
+            None,
+            None,
+            "America/Jamaica",
+            "en",
+            "A",
+            None,
+            None,
+            1,
+        ]
+        self.assertEqual(len(user_values), len(cfg.fields) + 3)
+        membership_row = (
+            42,
+            2,
+            "ODPEM",
+            "ODPEM National Coordination",
+            True,
+            None,
+        )
+        cursor = MagicMock()
+        cursor.fetchone.return_value = tuple(user_values)
+        cursor.fetchall.return_value = [membership_row]
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+
+        with (
+            patch("masterdata.services.data_access._is_sqlite", return_value=False),
+            patch("masterdata.services.data_access._schema_name", return_value="public"),
+            patch("masterdata.services.data_access.connection", connection),
+        ):
+            record, warnings = data_access_service.get_record("user", 42)
+
+        self.assertEqual(warnings, [])
+        self.assertIsNotNone(record)
+        self.assertEqual(record["primary_tenant_id"], 2)
+        self.assertEqual(record["primary_tenant_label"], "ODPEM - ODPEM National Coordination")
+
+    def test_user_primary_tenant_display_warns_for_multiple_primary_and_fallback(self):
+        rows = [
+            {"user_id": 42},
+            {"user_id": 43},
+            {"user_id": 44},
+        ]
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            (42, 2, "ODPEM", "ODPEM National Coordination", True, "2026-01-01T00:00:00Z"),
+            (42, 3, "NEOC", "NEOC", True, "2026-01-02T00:00:00Z"),
+            (43, 5, "MLSS", "Ministry of Labour and Social Security", False, "2026-01-01T00:00:00Z"),
+        ]
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+
+        with (
+            patch("masterdata.services.data_access._schema_name", return_value="public"),
+            patch("masterdata.services.data_access.connection", connection),
+            self.assertLogs("masterdata.services.data_access", level="WARNING") as log_context,
+        ):
+            data_access_service._attach_primary_tenant_display(rows)
+
+        self.assertEqual(rows[0]["primary_tenant_id"], 2)
+        self.assertEqual(rows[1]["primary_tenant_id"], 5)
+        self.assertIsNone(rows[2]["primary_tenant_id"])
+        self.assertTrue(
+            any("multiple active primary tenant memberships" in message for message in log_context.output)
+        )
+        self.assertTrue(
+            any("active tenant memberships but no primary" in message for message in log_context.output)
+        )
+        self.assertTrue(
+            any("no active tenant membership" in message for message in log_context.output)
+        )
 
     def test_role_code_pattern_enforced(self):
         request = self.factory.post(
@@ -783,4 +1292,5 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
         self.assertTrue(created)
         sql, params = cursor.execute.call_args.args
         self.assertIn("ON CONFLICT (tenant_id, user_id) DO NOTHING", sql)
-        self.assertEqual(params[:4], [2, 7, "ADMIN", 99])
+        self.assertIn("is_primary_tenant", sql)
+        self.assertEqual(params[:5], [2, 7, False, "ADMIN", 99])

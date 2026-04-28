@@ -852,15 +852,15 @@ _register(TableConfig(
         FieldDef("email_text", max_length=100, label="Email",
                  pattern=r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
                  pattern_message="Invalid email format"),
-        FieldDef("custodian_id", required=True, db_type="int", label="Custodian",
+        FieldDef("tenant_id", required=True, db_type="int", label="Managing Tenant",
+                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
+        FieldDef("custodian_id", db_type="int", label="Legacy Custodian",
                  fk_table="custodian", fk_pk="custodian_id", fk_label="custodian_name"),
         FieldDef("min_stock_threshold", db_type="numeric", default=0,
                  label="Min Stock Threshold"),
         FieldDef("reason_desc", max_length=255, label="Reason"),
         FieldDef("status_code", required=True, max_length=1, default="A",
                  choices=["A", "I"], label="Status"),
-        FieldDef("tenant_id", db_type="int", readonly=True, label="Tenant",
-                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
     ],
     dependencies=[
         DependencyDef("inventory", "warehouse_id", "Inventory Records"),
@@ -1259,6 +1259,11 @@ def list_records(
             )
             rows = [dict(zip(column_names, row)) for row in cursor.fetchall()]
 
+        if table_key == "user":
+            _attach_primary_tenant_display(rows)
+        if table_key == "warehouses":
+            _attach_managing_tenant_display(rows, warnings)
+
         return rows, total, warnings
     except DatabaseError as exc:
         logger.warning("list_records(%s) failed: %s", table_key, exc)
@@ -1313,7 +1318,14 @@ def get_record(
                 return None, []
 
             col_names = [f.name for f in cfg.fields] + extra_cols
-            return dict(zip(col_names, row)), []
+            record = dict(zip(col_names, row))
+            if table_key == "user":
+                _attach_primary_tenant_display([record])
+            if table_key == "warehouses":
+                warnings: list[str] = []
+                _attach_managing_tenant_display([record], warnings)
+                return record, warnings
+            return record, []
     except DatabaseError as exc:
         logger.warning("get_record(%s, %s) failed: %s", table_key, pk_value, exc)
         try:
@@ -1321,6 +1333,201 @@ def get_record(
         except Exception:
             pass
         return None, ["db_error"]
+
+
+def _primary_tenant_label(tenant_code: Any, tenant_name: Any) -> str | None:
+    code = str(tenant_code or "").strip()
+    name = str(tenant_name or "").strip()
+    if code and name and code != name:
+        return f"{code} - {name}"
+    if name:
+        return name
+    if code:
+        return code
+    return None
+
+
+def _empty_primary_tenant_display() -> dict[str, Any]:
+    return {
+        "primary_tenant_id": None,
+        "primary_tenant_code": None,
+        "primary_tenant_name": None,
+        "primary_tenant_label": None,
+    }
+
+
+def _empty_managing_tenant_display() -> dict[str, Any]:
+    return {
+        "managing_tenant_id": None,
+        "managing_tenant_code": None,
+        "managing_tenant_name": None,
+        "managing_tenant_label": None,
+    }
+
+
+def _attach_managing_tenant_display(
+    rows: list[dict[str, Any]],
+    warnings: list[str],
+) -> None:
+    tenant_ids: set[int] = set()
+    for row in rows:
+        row.update(_empty_managing_tenant_display())
+        raw_tenant_id = row.get("tenant_id")
+        if raw_tenant_id in (None, ""):
+            continue
+        try:
+            tenant_id = int(raw_tenant_id)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Warehouse %s has invalid tenant_id=%r for managing tenant display.",
+                row.get("warehouse_id"),
+                raw_tenant_id,
+            )
+            continue
+        if tenant_id <= 0:
+            logger.warning(
+                "Warehouse %s has non-positive tenant_id=%r for managing tenant display.",
+                row.get("warehouse_id"),
+                raw_tenant_id,
+            )
+            continue
+        row["managing_tenant_id"] = tenant_id
+        tenant_ids.add(tenant_id)
+
+    if not tenant_ids:
+        return
+
+    schema = _schema_name()
+    tenant_table = f"{_quote_identifier(schema)}.{_quote_identifier('tenant')}"
+    placeholders = ", ".join(["%s"] * len(tenant_ids))
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT tenant_id, tenant_code, tenant_name
+                FROM {tenant_table}
+                WHERE tenant_id IN ({placeholders})
+                """,
+                sorted(tenant_ids),
+            )
+            tenant_rows = cursor.fetchall()
+    except DatabaseError as exc:
+        logger.warning("managing tenant lookup failed for warehouse rows: %s", exc)
+        _safe_rollback()
+        warnings.append("warehouse_tenant_lookup_failed")
+        return
+
+    by_tenant_id = {
+        int(tenant_row[0]): {
+            "managing_tenant_id": tenant_row[0],
+            "managing_tenant_code": tenant_row[1],
+            "managing_tenant_name": tenant_row[2],
+            "managing_tenant_label": _primary_tenant_label(tenant_row[1], tenant_row[2]),
+        }
+        for tenant_row in tenant_rows
+        if tenant_row[0] is not None
+    }
+
+    for row in rows:
+        tenant_id = row.get("managing_tenant_id")
+        if tenant_id is None:
+            continue
+        tenant_display = by_tenant_id.get(int(tenant_id))
+        if tenant_display is None:
+            logger.warning(
+                "Warehouse %s references missing managing tenant_id=%s.",
+                row.get("warehouse_id"),
+                tenant_id,
+            )
+            continue
+        row.update(tenant_display)
+
+
+def _attach_primary_tenant_display(rows: list[dict[str, Any]]) -> None:
+    user_ids = sorted({
+        int(row["user_id"])
+        for row in rows
+        if row.get("user_id") not in (None, "")
+    })
+    if not user_ids:
+        return
+
+    for row in rows:
+        row.update(_empty_primary_tenant_display())
+
+    schema = _schema_name()
+    placeholders = ", ".join(["%s"] * len(user_ids))
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    tu.user_id,
+                    tu.tenant_id,
+                    t.tenant_code,
+                    t.tenant_name,
+                    tu.is_primary_tenant,
+                    tu.assigned_at
+                FROM {schema}.tenant_user tu
+                JOIN {schema}.tenant t ON t.tenant_id = tu.tenant_id
+                WHERE tu.user_id IN ({placeholders})
+                  AND tu.status_code = 'A'
+                ORDER BY
+                    tu.user_id,
+                    CASE WHEN tu.is_primary_tenant THEN 0 ELSE 1 END,
+                    tu.assigned_at ASC NULLS LAST,
+                    tu.tenant_id ASC
+                """,
+                user_ids,
+            )
+            membership_rows = cursor.fetchall()
+    except DatabaseError as exc:
+        logger.warning("primary tenant lookup failed for user rows: %s", exc)
+        _safe_rollback()
+        return
+
+    by_user_id: dict[int, list[tuple[Any, ...]]] = {}
+    for membership in membership_rows:
+        by_user_id.setdefault(int(membership[0]), []).append(membership)
+
+    for row in rows:
+        user_id = int(row["user_id"])
+        memberships = by_user_id.get(user_id, [])
+        if not memberships:
+            logger.warning(
+                "User %s has no active tenant membership for primary tenant display.",
+                user_id,
+            )
+            continue
+
+        primary_memberships = [
+            membership
+            for membership in memberships
+            if bool(membership[4])
+        ]
+        if len(primary_memberships) > 1:
+            chosen = primary_memberships[0]
+            logger.warning(
+                "User %s has multiple active primary tenant memberships; using tenant_id=%s.",
+                user_id,
+                chosen[1],
+            )
+        elif primary_memberships:
+            chosen = primary_memberships[0]
+        else:
+            chosen = memberships[0]
+            logger.warning(
+                "User %s has active tenant memberships but no primary; using tenant_id=%s as fallback.",
+                user_id,
+                chosen[1],
+            )
+
+        row.update({
+            "primary_tenant_id": chosen[1],
+            "primary_tenant_code": chosen[2],
+            "primary_tenant_name": chosen[3],
+            "primary_tenant_label": _primary_tenant_label(chosen[2], chosen[3]),
+        })
 
 
 def _normalize_field_value(fd: FieldDef, value: Any) -> Any:
@@ -2166,18 +2373,35 @@ def check_composite_uniqueness(
 
 
 def check_fk_exists(
-    fk_table: str, fk_pk: str, value: Any
+    fk_table: str,
+    fk_pk: str,
+    value: Any,
+    *,
+    active_only: bool = False,
+    status_field: str = "status_code",
+    active_status: str = "A",
 ) -> Tuple[bool, List[str]]:
     """Check that a foreign key value exists in the referenced table."""
     if _is_sqlite():
         return True, ["db_unavailable"]
 
     schema = _schema_name()
+    qualified_table = f"{_quote_identifier(schema)}.{_quote_identifier(fk_table)}"
+    where_clauses = [f"{_quote_identifier(fk_pk)} = %s"]
+    params: list[Any] = [value]
+    if active_only:
+        where_clauses.append(f"{_quote_identifier(status_field)} = %s")
+        params.append(active_status)
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                f"SELECT 1 FROM {schema}.{fk_table} WHERE {fk_pk} = %s LIMIT 1",
-                [value],
+                f"""
+                SELECT 1
+                FROM {qualified_table}
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
             )
             return cursor.fetchone() is not None, []
     except DatabaseError as exc:

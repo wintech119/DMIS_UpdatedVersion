@@ -504,17 +504,17 @@ class WarehouseViewDispatchTests(SimpleTestCase):
     ):
         request = self.factory.post(
             "/api/v1/masterdata/warehouses/",
-            {"warehouse_name": "Renamed"},
+            {"warehouse_name": "Renamed", "tenant_id": "2"},
             format="json",
         )
         request.user = self.user
 
         payload, errors = views._prepare_warehouse_write_payload(
             request,
-            {"warehouse_name": "Renamed"},
+            {"warehouse_name": "Renamed", "tenant_id": "2"},
         )
 
-        self.assertEqual(payload, {"warehouse_name": "Renamed"})
+        self.assertEqual(payload, {"warehouse_name": "Renamed", "tenant_id": "2"})
         self.assertEqual(
             errors["tenant_scope"],
             "You do not have access to create warehouses for this tenant.",
@@ -579,18 +579,11 @@ class WarehouseViewDispatchTests(SimpleTestCase):
         self.assertEqual(payload, {"warehouse_name": "Renamed", "tenant_id": "abc"})
         self.assertEqual(
             errors["tenant_id"],
-            "tenant_id must be a positive integer.",
+            "Managing Tenant must be a positive integer.",
         )
 
-    @patch(
-        "masterdata.views.resolve_tenant_context",
-        return_value=SimpleNamespace(requested_tenant_id=7, active_tenant_id=None),
-    )
-    @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
-    def test_prepare_warehouse_write_payload_uses_requested_context_tenant_when_active_missing(
+    def test_prepare_warehouse_write_payload_requires_payload_tenant_on_create(
         self,
-        _mock_roles,
-        _mock_context,
     ):
         request = self.factory.post(
             "/api/v1/masterdata/warehouses/",
@@ -599,14 +592,64 @@ class WarehouseViewDispatchTests(SimpleTestCase):
         )
         request.user = self.user
 
-        with patch("masterdata.views.can_access_tenant", return_value=True):
-            payload, errors = views._prepare_warehouse_write_payload(
-                request,
-                {"warehouse_name": "Renamed"},
-            )
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"warehouse_name": "Renamed"},
+        )
 
-        self.assertEqual(payload["tenant_id"], 7)
+        self.assertEqual(payload, {"warehouse_name": "Renamed"})
+        self.assertEqual(
+            errors["tenant_id"],
+            "Managing Tenant is required for warehouse maintenance.",
+        )
+
+    def test_prepare_warehouse_write_payload_preserves_existing_tenant_when_omitted(self):
+        request = self.factory.patch(
+            "/api/v1/masterdata/warehouses/5",
+            {"warehouse_name": "Renamed"},
+            format="json",
+        )
+        request.user = self.user
+
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"warehouse_name": "Renamed"},
+            existing_record={"warehouse_id": 5, "tenant_id": 7},
+        )
+
+        self.assertEqual(payload, {"warehouse_name": "Renamed"})
         self.assertEqual(errors, {})
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch("masterdata.views._tenant_context", return_value=SimpleNamespace())
+    @patch("masterdata.views.can_access_tenant", return_value=False)
+    @patch("masterdata.views.can_access_warehouse", return_value=True)
+    def test_prepare_warehouse_write_payload_rejects_unauthorized_tenant_owner_change(
+        self,
+        mock_can_access_warehouse,
+        mock_can_access_tenant,
+        _mock_tenant_context,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/warehouses/5",
+            {"tenant_id": "9"},
+            format="json",
+        )
+        request.user = self.user
+
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"tenant_id": "9"},
+            existing_record={"warehouse_id": 5, "tenant_id": 7},
+        )
+
+        self.assertEqual(payload, {"tenant_id": "9"})
+        self.assertEqual(
+            errors["tenant_scope"],
+            "You do not have access to assign this warehouse to the selected tenant.",
+        )
+        mock_can_access_warehouse.assert_called_once()
+        mock_can_access_tenant.assert_called_once_with(SimpleNamespace(), 9, write=True)
 
 
 class Sprint07MigrationTests(SimpleTestCase):

@@ -1,5 +1,37 @@
 # Current Task Plan
 
+## Tenant-First Warehouse Ownership - 2026-04-28
+
+Risk score: 7 / Medium using the architecture-review rubric.
+Axes: blast radius 2, data sensitivity 1, authority change 1, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: inspected the current warehouse/custodian backend registry, view guard, Angular config, routes, access service, tests, and canonical architecture/security references.
+2. Completed: implement backend tenant-first warehouse ownership, managing-tenant display enrichment, and regression coverage.
+3. Completed: update Angular warehouse form/list config, remove custodian from normal navigation/access, and update focused frontend tests.
+4. Completed: update ADR/docs/field-copy references and confirm backlog references.
+5. Completed: run targeted backend/frontend verification and architecture-review closeout.
+
+## Inactive Tenant User Create Fix - 2026-04-28
+
+Risk score: 5 / Low-Medium using the architecture-review rubric.
+Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 0, operational impact 1.
+
+1. Completed: inspected current tenant-first user creation and existing FK/status validation helpers.
+2. Completed: rejected inactive tenants before primary tenant membership assignment.
+3. Completed: added focused backend regression coverage.
+4. Completed: ran targeted backend verification and completed architecture-review closeout.
+
+## Tenant-First User Creation - 2026-04-28
+
+Risk score: 8 / Medium using the architecture-review rubric.
+Axes: blast radius 2, data sensitivity 2, authority change 1, reversibility 1, external surface 1, operational impact 1.
+
+1. Completed: inspect current Advanced/System user create, tenant membership, frontend form, and docs/backlog references.
+2. Completed: implement atomic user creation with required tenant membership and primary-tenant read model guards.
+3. Completed: update frontend Users create/edit form behavior and focused Angular tests.
+4. Completed: update architecture, implementation, field-copy, requirements, and backlog wording.
+5. Completed: run targeted backend/frontend verification and complete review closeout.
+
 ## Tenant Type Review Fixes - 2026-04-28
 
 Risk score: 5 / Low-Medium using the architecture-review rubric.

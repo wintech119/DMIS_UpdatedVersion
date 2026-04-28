@@ -44,7 +44,6 @@ export const MASTER_DOMAIN_DEFINITIONS: MasterDomainDefinition[] = [
       'locations',
       'warehouses',
       'agencies',
-      'custodians',
       'donors',
       'suppliers',
     ],

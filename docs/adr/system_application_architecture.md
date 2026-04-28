@@ -164,6 +164,18 @@ The data tier owns:
 
 Tenant records must reference this table through `tenant.tenant_type`; duplicate hard-coded check constraints or frontend-only option lists are not authoritative. Tenant-type administration is a restricted Advanced/System capability, and the Django backend remains the enforcement point for baseline-only codes, write authorization, tenant-context checks, and in-use inactivation blocking.
 
+### Tenant-First User Creation
+
+Advanced/System user creation is tenant-first. Creating a user requires a tenant and must atomically create exactly one active primary `tenant_user` membership in the same database transaction; a membership failure invalidates the whole create.
+
+`agency_id` remains optional legacy compatibility only and must not drive new user provisioning. Primary Tenant display is read from `tenant_user` plus `tenant`, and the flat user edit form cannot change primary tenant membership.
+
+### Tenant-First Warehouse Ownership
+
+Warehouse ownership and management are tenant-first. `warehouse.tenant_id` is the authoritative managing tenant for create, edit, list, and detail behavior, and warehouse tenant ownership changes must be authorized against both the current warehouse and the target tenant.
+
+`custodian_id` remains only a legacy/transitional compatibility field for older workflows and data. Custodian maintenance is not a future-facing Master Data setup path and must not be linked from normal Master Data navigation or operational cards.
+
 ### Coordination tier
 
 Redis and the worker plane own:

@@ -65,6 +65,8 @@ export interface MasterFieldConfig {
   colspan?: 1 | 2 | 4;
   /** Hide from create forms while keeping the control available for edit payloads */
   editOnly?: boolean;
+  /** Hide from edit forms while keeping the control available for create payloads */
+  createOnly?: boolean;
   /** Optional help text rendered below the field */
   hint?: string;
   /** Value-specific help text, used when a select value needs operational context */

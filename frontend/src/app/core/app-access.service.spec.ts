@@ -124,17 +124,26 @@ describe('AppAccessService', () => {
     expect(sysadmin.canAccessMasterRoutePath('warehouses')).toBeTrue();
   });
 
-  it('keeps legacy custodians inside operational masters while gating create/edit by RBAC', () => {
+  it('denies custodians as a normal route while retaining legacy classification', () => {
     const access = setup({
       roles: ['LOGISTICS_MANAGER'],
-      permissions: ['masterdata.view', 'masterdata.create'],
+      permissions: ['masterdata.view', 'masterdata.create', 'masterdata.edit'],
       tenantContext: buildTenantContext(),
     });
 
-    expect(access.canAccessMasterRoutePath('custodians')).toBeTrue();
     expect(access.isLegacyMasterRoutePath('custodians')).toBeTrue();
-    expect(access.canCreateMasterRoutePath('custodians')).toBeTrue();
+    expect(access.canAccessMasterRoutePath('custodians')).toBeFalse();
+    expect(access.canCreateMasterRoutePath('custodians')).toBeFalse();
     expect(access.canEditMasterRoutePath('custodians')).toBeFalse();
+    expect(access.canToggleMasterStatus('custodians', true)).toBeFalse();
+
+    const sysadmin = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['masterdata.view', 'masterdata.create', 'masterdata.edit'],
+      tenantContext: null,
+    });
+
+    expect(sysadmin.canAccessMasterRoutePath('custodians')).toBeFalse();
   });
 
   it('limits tenant-type writes to system admins with the dedicated permission and approved tenant context', () => {

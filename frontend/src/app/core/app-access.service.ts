@@ -13,6 +13,9 @@ const PERM_MASTERDATA_ADVANCED_EDIT = 'masterdata.advanced.edit';
 const PERM_MASTERDATA_ADVANCED_INACTIVATE = 'masterdata.advanced.inactivate';
 const PERM_MASTERDATA_TENANT_TYPE_MANAGE = 'masterdata.tenant_type.manage';
 const TENANT_TYPE_ROUTE_PATH = 'tenant-types';
+const HIDDEN_LEGACY_MASTER_ROUTE_PATHS = new Set([
+  'custodians',
+]);
 
 const GLOBAL_MASTER_ROUTE_PATHS = new Set([
   'item-categories',
@@ -31,7 +34,6 @@ const OPERATIONAL_MASTER_ROUTE_PATHS = new Set([
   'locations',
   'warehouses',
   'agencies',
-  'custodians',
   'donors',
   'suppliers',
 ]);
@@ -277,6 +279,9 @@ export class AppAccessService {
   }
 
   canAccessMasterRoutePath(routePath: string): boolean {
+    if (HIDDEN_LEGACY_MASTER_ROUTE_PATHS.has(routePath)) {
+      return false;
+    }
     if (GLOBAL_MASTER_ROUTE_PATHS.has(routePath)) {
       return this.canAccessGlobalMasters();
     }
