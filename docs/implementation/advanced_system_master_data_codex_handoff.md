@@ -262,7 +262,7 @@ Run from `backend/`:
 
 **Design anchors (read first, in order)**:
 1. `frontend/src/lib/prompts/generation.tsx` — DMIS_GENERATION_PROMPT, **the canonical token + pattern source**. Read sections 1 (Visual Identity / Status Tones), 2 (Component Architecture — signals-first, OnPush, standalone), 3 (Styling Rules — only `var(--ops-*)` tokens, kebab-BEM, no `!important`), 4 (Page Layout Patterns). Every config decision (column choice, status pill mapping, form grouping, hint copy) must align with this file. The 4 configs are data-only — they do NOT carry inline styling — but the data choices determine what the existing `master-list` and `master-form-page` shells render, so config decisions ARE design decisions.
-2. §"Design Spec Appendix (for Brief #5)" below — per-table list columns, search placeholder, status-tone mapping, form grouping, empty-state copy, mobile column collapse. **The appendix is the source of truth for column choices, sort defaults, and tone mappings.** This appendix was produced by a Claude-Code-side `ui-ux-pro-max` design pre-pass; Codex does not need to invoke any skill — just follow the appendix verbatim.
+2. §"Design Spec Appendix (for Brief #5)" below — per-table list columns, search placeholder, status-tone mapping, form grouping, empty-state copy, mobile column collapse. **The appendix is the source of truth for column choices, sort defaults, and tone mappings.** Codex MAY additionally invoke its own `ui-ux-pro-max` skill for cross-checks or to enrich any decision the appendix leaves underspecified, but the appendix is canonical when there's a conflict. Document any skill-derived additions in the brief's Reporting section.
 3. Reference configs: `frontend/src/app/master-data/models/table-configs/agencies.config.ts` and `warehouses.config.ts` — copy their TypeScript shape (imports, type signatures, field-grouping idiom). These already comply with generation.tsx.
 
 **Constraints**:
@@ -280,7 +280,7 @@ Run from `backend/`:
 - Navigating to `/master-data?domain=advanced` as sysadmin shows 4 cards (users/roles/permissions/tenants), each clickable to a working list page.
 - Each list page renders the columns specified in the appendix in the specified order, with the specified status-tone pills.
 - Each form page renders the field groups specified in the appendix with `readonlyOnEdit` correctly applied to the canonical-key fields.
-- After Codex commits, **Claude Code performs a Playwright MCP visual verification** (see §"Post-Brief-#5 Visual Verification" below) — Codex does not need to run Playwright; just commit and report.
+- After Codex commits, **Codex runs a Playwright MCP visual verification** (see §"Post-Brief-#5 Visual Verification (Playwright MCP)" below). Codex has access to both `ui-ux-pro-max` and `mcp__playwright__*` tools in its sandbox; Claude Code only sees a verification summary.
 
 **Reporting**: diff per file, mapping of each config's columns/groups back to the appendix (one line per table: "users → columns L1-L4 per appendix §1, form groups Identity/Operational/Locale/Status per appendix §1"), any deviations from the appendix or generation.tsx, sandbox blockers.
 
@@ -426,25 +426,25 @@ Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max`
 
 ---
 
-## Post-Brief-#5 Visual Verification (Claude Code via Playwright MCP)
+## Post-Brief-#5 Visual Verification (Playwright MCP)
 
-**Owner**: Claude Code (not Codex). Codex's deliverable is the committed code; Claude Code's deliverable is the visual verification report.
+**Owner**: Codex — runs immediately after committing the Brief #5 configs. Codex has access to `mcp__playwright__*` tools and the `ui-ux-pro-max` skill in its sandbox.
 
-**Prerequisite**: Brief #5 commit on the branch + dev server running on `http://localhost:4200` with `--configuration development` (so `DMIS_REPLENISHMENT_ENABLED=true` keeps replenishment dashboard reachable in local-harness; advanced-domain pages render via the existing `master-list` and `master-form-page` shells).
+**Prerequisite**: Brief #5 commit on the branch + dev server running on `http://localhost:4200` with `--configuration development` (so `DMIS_REPLENISHMENT_ENABLED=true`; advanced-domain pages render via the existing `master-list` and `master-form-page` shells). If `node_modules` is missing, the supply-chain hold prevents `npm install`/`npm ci` — Codex must report this as a Playwright blocker rather than installing.
 
-**Steps** (Claude Code executes via `mcp__playwright__*` tools when the MCP is connected; if disconnected, the user runs the equivalent in a real browser and posts back screenshots):
+**Steps**:
 
-1. **Navigate** to `http://localhost:4200/master-data?domain=advanced` as `local_system_admin_tst` (the `dev-user.interceptor.ts` adds the `X-DMIS-Local-User` header automatically in the `development` build).
-2. **Snapshot** the master-home cards. Assert: 4 cards render — Users, Roles, Permissions, Tenants — each with the icon and route specified by the appendix's empty-state metadata.
-3. For each table (`users`, `roles`, `permissions`, `tenants`):
-   - **Navigate** to `/master-data/<routePath>`.
-   - **Snapshot** the list page. Assert: column count + order match appendix; status pills render per appendix tone mapping (verify text + icon presence, not just color); search placeholder text matches; row hover does not shift layout (compare snapshots before and after hover).
-   - **Click** the "+ Add" button. **Snapshot** the form. Assert: form groups render in appendix order with appendix labels; `readonlyOnEdit` fields are correctly disabled in edit mode (test by navigating to an existing record's edit view).
-   - **Resize** to 375px width. **Snapshot**. Assert: only the appendix-specified mobile columns remain; no horizontal scroll.
-4. **Console + network tap** during each navigation: assert no `console.error`, no 4xx/5xx network responses on the listed endpoints.
-5. **Compile a verification report**: pass/fail per assertion, screenshots of each page at desktop + mobile widths, list of any tone-mapping or column-order deviations.
-
-**Out-of-band**: if Playwright MCP is unavailable at the time, Claude Code documents this as a "deferred to user" verification item. The user can perform the same manual inspection. Either way, this step does not block dispatching Brief #6.
+1. **Start dev server in background**: `cd frontend && npm start` (or `npx ng serve --configuration development`). Wait until `http://localhost:4200/` returns 200.
+2. **Navigate** via `mcp__playwright__browser_navigate` to `http://localhost:4200/master-data?domain=advanced`. The `dev-user.interceptor.ts` adds the `X-DMIS-Local-User` header automatically in the `development` build with a `local_system_admin_tst` default; if the harness picker UI prompts, select `local_system_admin_tst`.
+3. **Snapshot** (`mcp__playwright__browser_snapshot`) the master-home cards. Assert: 4 cards render — Users, Roles, Permissions, Tenants — each with the icon and route specified by the appendix's empty-state metadata.
+4. For each table (`users`, `roles`, `permissions`, `tenants`):
+   - Navigate to `/master-data/<routePath>`.
+   - Snapshot the list page. Assert: column count + order match the appendix; status pills render per appendix tone mapping (verify text + icon presence, not just color); search placeholder text matches; row hover does not shift layout (compare snapshots before and after `mcp__playwright__browser_hover`).
+   - Click the "+ Add" button via `mcp__playwright__browser_click`. Snapshot the form. Assert: form groups render in appendix order with appendix labels; `readonlyOnEdit` fields are correctly disabled in edit mode (test by also navigating to an existing record's edit view).
+   - Resize to 375px width via `mcp__playwright__browser_resize`. Snapshot. Assert: only the appendix-specified mobile columns remain; no horizontal scroll.
+5. **Console + network tap**: `mcp__playwright__browser_console_messages` — assert no `console.error`. `mcp__playwright__browser_network_requests` — assert no 4xx/5xx on `/api/v1/masterdata/{user,role,permission,tenant}/` endpoints.
+6. **Tear down**: stop the dev server background process.
+7. **Report**: pass/fail per assertion, paste base64 (or file paths) of screenshots for each page at desktop (1280×800) + mobile (375×812) widths, list of any tone-mapping or column-order deviations from the appendix. If Playwright MCP is unavailable in Codex's sandbox at the time of execution, document the blocker and skip — does not block Brief #6 dispatch.
 
 ---
 
