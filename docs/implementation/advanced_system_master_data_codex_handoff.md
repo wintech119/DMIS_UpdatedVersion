@@ -260,9 +260,16 @@ Run from `backend/`:
 
 7. **`nav-config.ts`** — remove the standalone `disabled: true` "User Management" entry from `MANAGEMENT_SECTION`. The existing "Advanced/System" sub-entry under "Master Data" already covers it.
 
+**Design anchors (read first, in order)**:
+1. `frontend/src/lib/prompts/generation.tsx` — DMIS_GENERATION_PROMPT, **the canonical token + pattern source**. Read sections 1 (Visual Identity / Status Tones), 2 (Component Architecture — signals-first, OnPush, standalone), 3 (Styling Rules — only `var(--ops-*)` tokens, kebab-BEM, no `!important`), 4 (Page Layout Patterns). Every config decision (column choice, status pill mapping, form grouping, hint copy) must align with this file. The 4 configs are data-only — they do NOT carry inline styling — but the data choices determine what the existing `master-list` and `master-form-page` shells render, so config decisions ARE design decisions.
+2. §"Design Spec Appendix (for Brief #5)" below — per-table list columns, search placeholder, status-tone mapping, form grouping, empty-state copy, mobile column collapse. **The appendix is the source of truth for column choices, sort defaults, and tone mappings.** This appendix was produced by a Claude-Code-side `ui-ux-pro-max` design pre-pass; Codex does not need to invoke any skill — just follow the appendix verbatim.
+3. Reference configs: `frontend/src/app/master-data/models/table-configs/agencies.config.ts` and `warehouses.config.ts` — copy their TypeScript shape (imports, type signatures, field-grouping idiom). These already comply with generation.tsx.
+
 **Constraints**:
-- No styling changes — existing `master-list` and `master-form-page` already comply with `frontend/src/lib/prompts/generation.tsx`.
-- Read `frontend/src/lib/prompts/generation.tsx` once to confirm form-field grouping conventions; mirror `agencies.config.ts`/`warehouses.config.ts` field-grouping.
+- No styling changes; configs are data-only. The existing `master-list` and `master-form-page` shells render them through generation.tsx-compliant CSS.
+- Status-tone mapping (per generation.tsx §1 Status Tones table): every status pill must include color + text + icon (Material ligature name). Never color-only.
+- Column choices, sort defaults, search placeholders, form grouping, hint copy, and empty-state copy must match the §"Design Spec Appendix (for Brief #5)" verbatim.
+- ui-ux-pro-max critical rules (already enforced by the master-list shell, but verify config doesn't bypass): cursor-pointer on rows, ≥44×44px touch targets, skeleton loaders not spinners (handled by shell), hover state without layout shift, contrast ≥4.5:1 on every status pill (the appendix's tone mappings comply).
 - Each config file ≤ 80 lines.
 - Reuse existing `MasterDataService`.
 
@@ -270,9 +277,12 @@ Run from `backend/`:
 - `cd frontend && npm run lint` clean.
 - `cd frontend && npm run build` succeeds.
 - `cd frontend && npx ng build --configuration development` succeeds.
-- Navigating to `/master-data?domain=advanced` as sysadmin shows 4 cards (users/roles/permissions/tenants).
+- Navigating to `/master-data?domain=advanced` as sysadmin shows 4 cards (users/roles/permissions/tenants), each clickable to a working list page.
+- Each list page renders the columns specified in the appendix in the specified order, with the specified status-tone pills.
+- Each form page renders the field groups specified in the appendix with `readonlyOnEdit` correctly applied to the canonical-key fields.
+- After Codex commits, **Claude Code performs a Playwright MCP visual verification** (see §"Post-Brief-#5 Visual Verification" below) — Codex does not need to run Playwright; just commit and report.
 
-**Reporting**: diff per file, screenshots/structure of the 4 list pages (text descriptions if no preview), deviations.
+**Reporting**: diff per file, mapping of each config's columns/groups back to the appendix (one line per table: "users → columns L1-L4 per appendix §1, form groups Identity/Operational/Locale/Status per appendix §1"), any deviations from the appendix or generation.tsx, sandbox blockers.
 
 ---
 
@@ -348,6 +358,93 @@ Run from `frontend/`:
 **Constraints**: do NOT run `npm install` / `npm ci` (supply-chain hold per `CLAUDE.md`). Report missing `node_modules` as a blocker.
 
 **Reporting**: pass/fail per command, new warnings vs baseline, 5-line summary of bundle-size delta, sandbox blockers.
+
+---
+
+## Design Spec Appendix (for Brief #5)
+
+Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max` design pre-pass. The appendix is the source of truth for column choices, sort defaults, search placeholders, status-tone mappings, form grouping, and empty-state copy. Status tones reference generation.tsx §1 (warm-neutral palette + color+text+icon Status Tones table). All Material icon names are ligature-based (no emoji per ui-ux-pro-max common rule).
+
+### 1. users — `/master-data/users`
+
+- **List columns** (4 visible, in order): `username` (monospace, primary clickable row label, sortable) → `full_name` (sortable) → `agency_id` (FK rendered as agency code/name, sortable) → `status_code` (pill, sortable). Rows have `cursor: pointer`, hover background `var(--ops-emphasis)` no layout shift, transition 180ms ease per generation.tsx §1.
+- **Search placeholder**: `"Search by username, email, or full name"`. Backend ILIKE on those three columns case-insensitive.
+- **Status-tone mapping** (`status_code`):
+  - `A` (Active) → **Success** (`#edf7ef` / `#286a36`, `check_circle`)
+  - `I` (Inactive) → **Neutral** (`#e2dfd7` / `#37352F`, `radio_button_unchecked`)
+  - `L` (Locked) → **Critical** (`#fdddd8` / `#8c1d13`, `lock`)
+- **Form grouping**:
+  - `Identity` (colspan 2): `username` (`readonlyOnEdit: true`, hint "External Keycloak identity. Cannot rename."), `email` (required, email pattern, max 200), `first_name` (colspan 1), `last_name` (colspan 1), `full_name` (colspan 2)
+  - `Operational`: `assigned_warehouse_id` (FK lookup), `agency_id` (FK lookup), `is_active` (toggle)
+  - `Locale`: `phone` (hint "Mobile preferred for SURGE alerts"), `timezone`, `language` (each colspan 1)
+  - `Status` (edit-only): `status_code` (select; hint when L: "Locked accounts cannot log in. Reset password to unlock.")
+- **Empty state**: icon `person_off`, heading "No users yet", body "Users are auto-provisioned on first Keycloak login.", next-step `add` "Add User".
+- **Mobile <520px**: 3 columns — `username`, `full_name`, `status_code`.
+
+### 2. roles — `/master-data/roles`
+
+- **List columns** (3 visible, in order): `code` (monospace, font-weight 600, primary clickable row label, sortable) → `name` (sortable) → `description` (truncated 80 chars, ellipsis, not sortable). Row height ~52px for ~12 rows per 1080p viewport. No status pill (table has no `status_code`).
+- **Search placeholder**: `"Search by code or name"`. Backend ILIKE on both.
+- **Status-tone mapping** by privilege class (rendered on the `code` chip):
+  - `SYSTEM_ADMINISTRATOR` → **Warning** (`#fde8b1` / `#6e4200`, `shield`)
+  - codes starting with `NATIONAL_` → **Info** (`#eef4ff` / `#17447f`, `language`)
+  - all others → **Neutral** (`var(--ops-emphasis)` / `var(--ops-ink)`, no icon)
+- **Form grouping** (single section):
+  - `Identity`: `code` (colspan 2, monospace, uppercase auto-transform, `readonlyOnEdit: true`, hint "Canonical role key. Cannot be changed."), `name` (colspan 2), `description` (textarea, colspan 4, 3 rows)
+- **Empty state**: icon `assignment_ind`, heading "No roles defined", body "Roles bundle permissions. Create one before assigning users.", next-step `add` "Add Role".
+- **Mobile <520px**: 2 columns — `code`, `name`.
+
+### 3. permissions — `/master-data/permissions`
+
+- **List columns** (3 visible, in order): `resource` (monospace, font-weight 500, sortable, primary clickable row label) → `action` (monospace pill, sortable) → `update_dtime` (relative time, right-aligned, `--ops-ink-muted`, sortable). ~80-120 permissions paginated 25/page.
+- **Search placeholder**: `"Search by resource or action (e.g. masterdata.advanced)"`. Backend ILIKE on `resource || '.' || action`.
+- **Status-tone mapping** on the `action` pill (no `status_code` exists):
+  - `view` / `read` / `list` → **Neutral** (`var(--ops-emphasis)` / `var(--ops-ink)`)
+  - `create` / `edit` / `update` → **Info** (`#eef4ff` / `#17447f`, `edit`)
+  - `delete` / `inactivate` / `purge` → **Critical** (`#fdddd8` / `#8c1d13`, `delete_outline`)
+  - `approve` / `dispatch` / `act_cross_tenant` → **Warning** (`#fde8b1` / `#6e4200`, `gavel`)
+- **Form grouping** (single section):
+  - `Definition`: `resource` (colspan 2, max 40, `readonlyOnEdit: true`, hint "Dot-namespaced area, e.g. `masterdata.advanced`"), `action` (colspan 2, max 32, `readonlyOnEdit: true`, hint "Verb. Common: view, create, edit, inactivate, approve, act_cross_tenant")
+  - Both fields readonly-on-edit because `(resource, action)` is the composite uniqueness key referenced by every `role_permission` row.
+- **Empty state**: icon `key`, heading "No permissions defined", body "Permissions are seeded by migrations. Manual additions are rare.", next-step `add` "Add Permission" (de-emphasized button).
+- **Mobile <520px**: 2 columns — `resource`, `action`.
+
+### 4. tenants — `/master-data/tenants`
+
+- **List columns** (5 visible, in order): `tenant_code` (monospace, font-weight 600, primary clickable row label, sortable) → `tenant_name` (sortable) → `tenant_type` (pill, sortable) → `parent_tenant_id` (FK rendered as parent's `tenant_code` with leading `subdirectory_arrow_right` if non-null, not sortable) → `status_code` (pill, sortable). Hierarchy hint via parent column gives org-structure context without a tree view.
+- **Search placeholder**: `"Search by code, name, or parent tenant"`. Backend ILIKE across `tenant_code`, `tenant_name`, and resolved parent `tenant_code`.
+- **Status-tone mapping** — two pills per row:
+  - `tenant_type`: `NEOC` → **Critical** (`#fdddd8` / `#8c1d13`, `crisis_alert`); `NATIONAL_LEVEL` → **Warning** (`#fde8b1` / `#6e4200`, `account_balance`); `AGENCY` → **Info** (`#eef4ff` / `#17447f`, `apartment`); `SHELTER` → **Success** (`#edf7ef` / `#286a36`, `home`); `OTHER` → **Neutral**.
+  - `status_code` (A/I): Success / Neutral with `check_circle` / `radio_button_unchecked` (matches user-table convention).
+- **Form grouping**:
+  - `Identity` (colspan 4): `tenant_code` (`readonlyOnEdit: true`, monospace, max 20), `tenant_name`, `tenant_type` (select), `parent_tenant_id` (FK self-lookup, hint "Leave empty for top-level. Cycles will be rejected.")
+  - `Data Governance`: `data_scope`, `pii_access`, `offline_required` (toggle), `mobile_priority` (toggle)
+  - `Contact`: `address1_text` (colspan 4), `parish_code` (FK), `contact_name`, `phone_no`, `email_text` (email pattern)
+  - `Status` (edit-only): `status_code`
+- **Empty state**: icon `domain`, heading "No tenants configured", body "At least one tenant is required for any user to operate. Start with the NEOC root tenant.", next-step `add` "Add Tenant".
+- **Mobile <520px**: 3 columns — `tenant_code`, `tenant_type`, `status_code`.
+
+---
+
+## Post-Brief-#5 Visual Verification (Claude Code via Playwright MCP)
+
+**Owner**: Claude Code (not Codex). Codex's deliverable is the committed code; Claude Code's deliverable is the visual verification report.
+
+**Prerequisite**: Brief #5 commit on the branch + dev server running on `http://localhost:4200` with `--configuration development` (so `DMIS_REPLENISHMENT_ENABLED=true` keeps replenishment dashboard reachable in local-harness; advanced-domain pages render via the existing `master-list` and `master-form-page` shells).
+
+**Steps** (Claude Code executes via `mcp__playwright__*` tools when the MCP is connected; if disconnected, the user runs the equivalent in a real browser and posts back screenshots):
+
+1. **Navigate** to `http://localhost:4200/master-data?domain=advanced` as `local_system_admin_tst` (the `dev-user.interceptor.ts` adds the `X-DMIS-Local-User` header automatically in the `development` build).
+2. **Snapshot** the master-home cards. Assert: 4 cards render — Users, Roles, Permissions, Tenants — each with the icon and route specified by the appendix's empty-state metadata.
+3. For each table (`users`, `roles`, `permissions`, `tenants`):
+   - **Navigate** to `/master-data/<routePath>`.
+   - **Snapshot** the list page. Assert: column count + order match appendix; status pills render per appendix tone mapping (verify text + icon presence, not just color); search placeholder text matches; row hover does not shift layout (compare snapshots before and after hover).
+   - **Click** the "+ Add" button. **Snapshot** the form. Assert: form groups render in appendix order with appendix labels; `readonlyOnEdit` fields are correctly disabled in edit mode (test by navigating to an existing record's edit view).
+   - **Resize** to 375px width. **Snapshot**. Assert: only the appendix-specified mobile columns remain; no horizontal scroll.
+4. **Console + network tap** during each navigation: assert no `console.error`, no 4xx/5xx network responses on the listed endpoints.
+5. **Compile a verification report**: pass/fail per assertion, screenshots of each page at desktop + mobile widths, list of any tone-mapping or column-order deviations.
+
+**Out-of-band**: if Playwright MCP is unavailable at the time, Claude Code documents this as a "deferred to user" verification item. The user can perform the same manual inspection. Either way, this step does not block dispatching Brief #6.
 
 ---
 
