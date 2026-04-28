@@ -524,6 +524,7 @@
                               @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
                             </mat-label>
                             <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                              [placeholder]="field.placeholder || ''"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                             <mat-datepicker-toggle matIconSuffix [for]="picker"></mat-datepicker-toggle>
@@ -572,7 +573,7 @@
                             <mat-icon matPrefix>phone</mat-icon>
                             <input matInput type="tel" [formControlName]="field.field"
                               [maxlength]="field.maxLength || null"
-                              placeholder="+1 (XXX) XXX-XXXX"
+                              [placeholder]="field.placeholder || '+1 (XXX) XXX-XXXX'"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                             @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
@@ -1909,7 +1910,7 @@
                   @case ('date') {
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
-                      <input matInput [matDatepicker]="picker" [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      <input matInput [matDatepicker]="picker" [formControlName]="field.field" [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                       <mat-datepicker-toggle matIconSuffix [for]="picker" /><mat-datepicker #picker />
                       @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
@@ -1931,7 +1932,7 @@
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
                       <mat-icon matPrefix>phone</mat-icon>
-                      <input matInput type="tel" [formControlName]="field.field" [maxlength]="field.maxLength || null" placeholder="+1 (XXX) XXX-XXXX" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      <input matInput type="tel" [formControlName]="field.field" [maxlength]="field.maxLength || null" [placeholder]="field.placeholder || '+1 (XXX) XXX-XXXX'" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                       @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
                       @if (form.get(field.field)?.hasError('pattern')) { <mat-error role="alert">{{ field.patternMessage || 'Invalid phone format' }}</mat-error> }

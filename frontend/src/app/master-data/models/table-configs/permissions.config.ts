@@ -31,10 +31,10 @@ export const PERMISSIONS_CONFIG: MasterTableConfig = {
     { field: 'update_dtime', header: 'Updated', type: 'date', hideMobile: true },
   ],
   formFields: [
-    { field: 'resource', label: 'Resource', type: 'text', required: true, maxLength: 40, readonlyOnEdit: true,
-      hint: 'Dot-namespaced area, e.g. `masterdata.advanced`', group: 'Definition', colspan: 2 },
+    { field: 'resource', label: 'Resource', type: 'text', hint: 'System area this permission controls for roles and access checks.', placeholder: '(set on creation; locked once saved)', required: true, maxLength: 40, readonlyOnEdit: true, group: 'Definition', colspan: 2 },
     { field: 'action', label: 'Action', type: 'text', required: true, maxLength: 32, readonlyOnEdit: true,
-      hint: 'Verb. Common: view, create, edit, inactivate, approve, act_cross_tenant',
+      hint: 'Action this permission grants within the selected resource.',
+      placeholder: '(set on creation; locked once saved)',
       group: 'Definition', colspan: 2 },
   ],
 };

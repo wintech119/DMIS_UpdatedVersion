@@ -30,11 +30,14 @@ export const ROLES_CONFIG: MasterTableConfig = {
   ],
   formFields: [
     { field: 'code', label: 'Code', type: 'text', required: true, maxLength: 50, uppercase: true,
+      hint: 'Canonical role key used by RBAC and route access checks.',
+      placeholder: '(set on creation; locked once saved)',
       readonlyOnEdit: true, pattern: '^[A-Z_][A-Z0-9_]*$',
-      patternMessage: 'Only uppercase letters, digits, and underscores are allowed.',
-      hint: 'Canonical role key. Cannot be changed.', group: 'Identity', colspan: 2 },
+      patternMessage: 'Only uppercase letters, digits, and underscores are allowed.', group: 'Identity', colspan: 2 },
     { field: 'name', label: 'Name', type: 'text', required: true, maxLength: 100,
+      hint: 'Readable role name shown to administrators when assigning access.',
+      placeholder: 'Logistics Manager',
       group: 'Identity', colspan: 2 },
-    { field: 'description', label: 'Description', type: 'textarea', group: 'Identity', colspan: 4 },
+    { field: 'description', label: 'Description', type: 'textarea', hint: 'Operational scope this role grants, for access review.', placeholder: 'Approves needs lists and manages warehouse stock', group: 'Identity', colspan: 4 },
   ],
 };

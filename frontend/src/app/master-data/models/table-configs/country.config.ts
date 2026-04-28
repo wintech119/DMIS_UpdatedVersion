@@ -15,9 +15,10 @@ export const COUNTRY_CONFIG: MasterTableConfig = {
     { field: 'status_code', header: 'Status', type: 'status', sortable: true },
   ],
   formFields: [
-    { field: 'country_name', label: 'Country Name', type: 'text', required: true, maxLength: 80 },
-    { field: 'currency_code', label: 'Currency', type: 'lookup', lookupTable: 'currencies' },
+    { field: 'country_name', label: 'Country Name', type: 'text', hint: 'Country name used for donor, supplier, and procurement records.', placeholder: 'Jamaica', required: true, maxLength: 80 },
+    { field: 'currency_code', label: 'Currency', type: 'lookup', hint: 'Default currency teams expect when this country is selected.', lookupTable: 'currencies' },
     { field: 'status_code', label: 'Status', type: 'select', required: true, defaultValue: 'A',
+      hint: 'Active countries appear in lookups; inactive countries stay for existing records.',
       options: [
         { value: 'A', label: 'Active' },
         { value: 'I', label: 'Inactive' },
