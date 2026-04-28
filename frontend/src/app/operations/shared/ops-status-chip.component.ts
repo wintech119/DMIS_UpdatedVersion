@@ -15,7 +15,7 @@ import { MatIconModule } from '@angular/material/icon';
  *   WCAG 2.2 AA 2.5.5; pairs status colour with a leading `check_circle`
  *   icon when `checkmark` is true to satisfy the "status colour always
  *   paired with text + icon" rule from
- *   `frontend/src/lib/prompts/generation.tsx` §"Status chips".
+ *   `frontend/src/lib/prompts/generation.ts` §"Status chips".
  */
 export type OpsStatusChipSize = 'sm' | 'md' | 'lg';
 

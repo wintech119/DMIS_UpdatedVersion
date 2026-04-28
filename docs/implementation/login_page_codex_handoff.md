@@ -26,7 +26,7 @@ This document is the canonical source for **five Codex implementation briefs** t
 
 Codex must load these files into working memory before executing any brief. Treat them as the design and architectural ground truth.
 
-1. **`frontend/src/lib/prompts/generation.tsx`** — the canonical DMIS component-generation prompt. Read these sections at minimum:
+1. **`frontend/src/lib/prompts/generation.ts`** — the canonical DMIS component-generation prompt. Read these sections at minimum:
    - **§1 Visual Identity — "Notion for disaster ops"** (~L20–66): warm-neutral palette, NEVER cold grays; status tones with **both** colour AND text/icon backup; system-font typography stack; spacing/radius tokens; interactions including `prefers-reduced-motion` mandate.
    - **§2 Component Architecture** (~L68–103): `standalone: true`, `ChangeDetectionStrategy.OnPush`, signals-based reactivity preferred over RxJS, `aria-label` on every section/landmark, `focus-visible` styling on every interactive element, **skeleton loaders preferred over spinners**.
    - **§3 Styling Rules** (~L105–145): use CSS custom properties from `frontend/src/styles.scss`; class naming `ops-{block}__{element}--{modifier}` BEM-like (the auth pages use `auth-{element}` — keep that local convention); responsive breakpoints; SCSS rules.
@@ -308,7 +308,7 @@ In `backend/.env.example`, immediately AFTER the existing `# LOCAL_AUTH_HARNESS_
 - `frontend/src/app/auth/auth-pages.component.spec.ts` (create)
 
 **Patterns to mirror (read first)**:
-- `frontend/src/lib/prompts/generation.tsx` §1 (palette, status tones, typography), §2 (component architecture: standalone, OnPush, signals, aria-label, focus-visible, skeleton-not-spinner), §3 (CSS custom properties, BEM-like class naming).
+- `frontend/src/lib/prompts/generation.ts` §1 (palette, status tones, typography), §2 (component architecture: standalone, OnPush, signals, aria-label, focus-visible, skeleton-not-spinner), §3 (CSS custom properties, BEM-like class naming).
 - `frontend/src/styles.scss:1-90` — the canonical `--color-*`, `--text-*`, `--weight-*`, `--leading-*`, `--tracking-*`, `--radius-*`, `--page-padding`, `--color-focus-ring` token sheet. Every value used in this brief must be a `var(--*)` reference from this file.
 - `frontend/src/styles.scss:293-310` — global `:focus-visible` outline rule. Note the gradient-pill problem the box-shadow technique solves.
 - `frontend/src/styles.scss:325-356` — global mobile rules (44 px touch targets, etc.).
@@ -395,7 +395,7 @@ Codex MUST find and reuse, not invent:
 | `.sr-only` utility | `frontend/src/styles.scss:313-323` | Brief #4 (reuse for screen-reader-only labels) |
 | Global `:focus-visible` outline | `frontend/src/styles.scss:293-310` | Brief #4 (the box-shadow technique on solid-fill buttons supplements this) |
 | Global mobile rules (44 px touch targets) | `frontend/src/styles.scss:325-356` | Brief #4 (CTA inherits) |
-| `DMIS_GENERATION_PROMPT` design system | `frontend/src/lib/prompts/generation.tsx` | All briefs (cite §1, §2, §3, §6, §7, §8) |
+| `DMIS_GENERATION_PROMPT` design system | `frontend/src/lib/prompts/generation.ts` | All briefs (cite §1, §2, §3, §6, §7, §8) |
 | Existing guard spec pattern | `frontend/src/app/core/app-access.guard.spec.ts` | Brief #3 |
 | Existing handoff-doc shape | `docs/implementation/master_data_production_readiness_codex_handoff.md` | Brief #2 |
 
@@ -419,7 +419,7 @@ Codex MUST find and reuse, not invent:
 | `frontend/angular.json` | read-only — do not modify (existing `define` + `fileReplacements` are correct) |
 | `frontend/public/auth-config.json` | read-only — keep `enabled: false` placeholder (deploy-time replacement only) |
 | `frontend/src/styles.scss` | read-only — token sheet is ground truth |
-| `frontend/src/lib/prompts/generation.tsx` | read-only — design-system spec |
+| `frontend/src/lib/prompts/generation.ts` | read-only — design-system spec |
 
 ## Out of scope (do NOT do)
 

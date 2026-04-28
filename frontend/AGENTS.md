@@ -58,7 +58,7 @@
 - Keep backend authorization authoritative; frontend checks remain UX-only.
 - `appAccessGuard` plus an `accessKey` in route `data` is mandatory on every protected route; backend authorization remains authoritative, and the guard is UX-only.
 - Prefer centralized auth, HTTP, and failure-handling patterns over screen-specific exceptions.
-- Treat `frontend/src/lib/prompts/generation.tsx` as the canonical DMIS component-generation prompt for the warm-neutral palette, status tones, typography, spacing, and radius tokens; new components must cite it instead of duplicating or drifting those values.
+- Treat `frontend/src/lib/prompts/generation.ts` as the canonical DMIS component-generation prompt for the warm-neutral palette, status tones, typography, spacing, and radius tokens; new components must cite it instead of duplicating or drifting those values.
 - Call out any deviation from the target Angular + Django + OIDC + Redis + async-worker architecture.
 - If the architecture review returns `Misaligned`, do not treat the work as complete.
 

@@ -30,14 +30,14 @@ This file is duplicated across the three frontend skills; the pre-commit drift h
 - `npm start` uses `ng serve` against this proxy.
 
 ## Design-system surface (canonical)
-- **`frontend/src/lib/prompts/generation.tsx`** — the canonical DMIS component-generation prompt. Encodes the design system (warm-neutral palette, status tones, typography, spacing, radius), coding patterns, and quality standards for any new Angular component. Local-only reference (not shipped in the production bundle). Cite this file when generating, reviewing, or refactoring components; do not duplicate or drift its tokens.
-- `frontend/src/styles.scss` — global tokens and theme entry that align with `generation.tsx`.
+- **`frontend/src/lib/prompts/generation.ts`** — the canonical DMIS component-generation prompt. Encodes the design system (warm-neutral palette, status tones, typography, spacing, radius), coding patterns, and quality standards for any new Angular component. Local-only reference (not shipped in the production bundle). Cite this file when generating, reviewing, or refactoring components; do not duplicate or drift its tokens.
+- `frontend/src/styles.scss` — global tokens and theme entry that align with `generation.ts`.
 - `frontend/src/app/operations/shared/operations-theme.scss` — module-specific theme.
 - `frontend/src/app/shared/dmis-step-tracker/dmis-step-tracker.component.scss` — shared component styling.
 - ESLint frontend config — selector prefix rules (`app-*` element, `dmis-*` element; `app*` / `dmis*` attribute).
 - Angular Material is integrated through `styles.scss`.
 
-If `generation.tsx` is absent, do not pull UI rules from `main` by default. Use `frontend/src/styles.scss` in the current worktree for runtime tokens, consult mirrored skill docs in `../docs` or the current branch for prompt/component rules, and allow cross-branch retrieval only when an explicit approved doc or flag authorizes it.
+If `generation.ts` is absent, do not pull UI rules from `main` by default. Use `frontend/src/styles.scss` in the current worktree for runtime tokens, consult mirrored skill docs in `../docs` or the current branch for prompt/component rules, and allow cross-branch retrieval only when an explicit approved doc or flag authorizes it.
 
 ## Build / test commands
 - `npm start` — `ng serve` with proxy
@@ -68,5 +68,5 @@ If `generation.tsx` is absent, do not pull UI rules from `main` by default. Use 
 - Do NOT bypass the service layer with direct `HttpClient` use in components.
 - Do NOT add a route without `appAccessGuard` + `accessKey`.
 - Do NOT hardcode tokens or feature flags into `environment.ts` (frontend bundle is public).
-- Do NOT duplicate or drift the design tokens defined in `frontend/src/lib/prompts/generation.tsx` (warm-neutral palette, status tones, typography, spacing, radius). Cite the file rather than reinventing values.
+- Do NOT duplicate or drift the design tokens defined in `frontend/src/lib/prompts/generation.ts` (warm-neutral palette, status tones, typography, spacing, radius). Cite the file rather than reinventing values.
 - Do NOT regress to NgModules where standalone components are the convention.

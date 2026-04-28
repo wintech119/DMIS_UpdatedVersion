@@ -1306,7 +1306,7 @@ button.ops-chip.ops-chip--active:focus-visible {
 
 // Tone modifiers for guidance timeline dots so queue pages don't inline
 // `style="background: #..."`. Hex values mirror the PFQ stage palette and
-// the tokens defined in `generation.tsx`.
+// the tokens defined in `generation.ts`.
 .ops-timeline__dot--info     { background: #17447f; }
 .ops-timeline__dot--warning  { background: #b54708; }
 .ops-timeline__dot--success  { background: #286a36; }
@@ -2035,7 +2035,7 @@ button.ops-chip.ops-chip--active:focus-visible {
   }
 }
 
-/* ── Wizard / form section (frontend/src/lib/prompts/generation.tsx
+/* ── Wizard / form section (frontend/src/lib/prompts/generation.ts
    §"Standard wizard / form page structure" L272–295 — Form density:
    panel padding 16px 20px, panel gap 14px, intro margin-bottom 12px,
    --radius-card hairline border on --ops-card surface).

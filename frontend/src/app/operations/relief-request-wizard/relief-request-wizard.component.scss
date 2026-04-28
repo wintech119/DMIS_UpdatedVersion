@@ -85,7 +85,7 @@
   color: var(--color-text-secondary);
 }
 
-// ── Context strip (generation.tsx §"Compact context strip pattern") ───
+// ── Context strip (generation.ts §"Compact context strip pattern") ───
 .ops-form-section--context {
   display: flex;
   flex-wrap: wrap;
@@ -131,7 +131,7 @@
   }
 }
 
-// ── Origin-mode picker (generation.tsx §"Standard wizard / form page
+// ── Origin-mode picker (generation.ts §"Standard wizard / form page
 // structure" L272–289 — radiogroup with role/aria-checked) ────────────
 .ops-form-section--origin {
   gap: 16px;
@@ -265,7 +265,7 @@
 // while a textarea (notes field) is being edited so it doesn't compete
 // with the on-screen keyboard. Safe-area inset keeps the strip clear of
 // the iOS home indicator. Top border + ops-card surface satisfies the
-// generation.tsx "ops-form-actions: separated by border-top" guidance
+// generation.ts "ops-form-actions: separated by border-top" guidance
 // without adding an upward shadow token.
 .request-wizard-actions {
   position: sticky;

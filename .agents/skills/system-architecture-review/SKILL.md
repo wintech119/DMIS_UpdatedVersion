@@ -58,8 +58,8 @@ Always use these references in this order:
 Repo-local supporting references (load only when relevant):
 - `.claude/CLAUDE.md` - Coding standards, input validation, rate-limiting policy, IDOR rules
 - `frontend/AGENTS.md` and `backend/AGENTS.md` - Local rules and exemptions
-- `frontend/src/lib/prompts/generation.tsx` - Frontend visual and component-pattern source of truth (the DMIS component-generation prompt encoding the design system, status tones, typography, signals-first patterns, and accessibility rules)
-- Runtime design-system surface where `generation.tsx` rules are wired into code (cite these alongside the spec):
+- `frontend/src/lib/prompts/generation.ts` - Frontend visual and component-pattern source of truth (the DMIS component-generation prompt encoding the design system, status tones, typography, signals-first patterns, and accessibility rules)
+- Runtime design-system surface where `generation.ts` rules are wired into code (cite these alongside the spec):
   - `frontend/src/styles.scss` - global token definitions / theme entry (Angular Material theming integrated here)
   - `frontend/src/app/operations/shared/operations-theme.scss` - module-specific theme tokens
   - `frontend/src/app/shared/dmis-step-tracker/` - the only shared component today; reference implementation for the prompt's component patterns
@@ -97,7 +97,7 @@ Use this skill for low-medium and higher risk work touching any of the following
 - workflow logic, approvals, dispatch, receipt, audit trails, exports, waybills, or durable artifacts
 - deployment, ingress, readiness, liveness, observability, backup, restore, rollback, or HA posture
 - API contracts (`/api/v1/**`), persistence strategy, architecture docs, or Flask migration and decommissioning
-- frontend route structure, lazy module boundaries, shared component reuse (`frontend/src/app/shared/`), or design-system tokens (`generation.tsx` for the spec; `frontend/src/styles.scss` and `frontend/src/app/operations/shared/operations-theme.scss` for the runtime token definitions)
+- frontend route structure, lazy module boundaries, shared component reuse (`frontend/src/app/shared/`), or design-system tokens (`generation.ts` for the spec; `frontend/src/styles.scss` and `frontend/src/app/operations/shared/operations-theme.scss` for the runtime token definitions)
 - dependency or supply-chain changes (new package, version bump on a security-sensitive dep, license change)
 
 ## Risk Scoring Rubric
@@ -125,7 +125,7 @@ This mandatory review can be skipped only for:
 
 - typo-only documentation edits
 - comment-only edits
-- isolated styling changes with no architecture, behavior, or security impact (and that conform to `frontend/src/lib/prompts/generation.tsx` and the runtime tokens in `frontend/src/styles.scss` / `frontend/src/app/operations/shared/operations-theme.scss`)
+- isolated styling changes with no architecture, behavior, or security impact (and that conform to `frontend/src/lib/prompts/generation.ts` and the runtime tokens in `frontend/src/styles.scss` / `frontend/src/app/operations/shared/operations-theme.scss`)
 - isolated tests that do not alter behavior, contracts, or controls
 - dependency updates that are non-security and have a documented compatibility matrix
 
@@ -247,7 +247,7 @@ If the change lacks a required gate, the review is `Conditionally Aligned` with 
 ### 4. Pre-commit and pre-PR Claude Code hooks (recommended)
 DMIS can wire automated checks into the Claude Code harness via `.claude/settings.json` hooks. When reviewing repo health, recommend missing hooks. Examples to suggest:
 
-- **PreToolUse on Write/Edit** - Block direct edits to `docs/adr/system_application_architecture.md`, `docs/security/**`, `frontend/src/lib/prompts/generation.tsx` (the design-system spec), and the runtime design-system surface (`frontend/src/styles.scss`, `frontend/src/app/operations/shared/operations-theme.scss`, `frontend/src/app/shared/dmis-step-tracker/**`, `frontend/eslint.config.js`) without an explicit confirmation prompt
+- **PreToolUse on Write/Edit** - Block direct edits to `docs/adr/system_application_architecture.md`, `docs/security/**`, `frontend/src/lib/prompts/generation.ts` (the design-system spec), and the runtime design-system surface (`frontend/src/styles.scss`, `frontend/src/app/operations/shared/operations-theme.scss`, `frontend/src/app/shared/dmis-step-tracker/**`, `frontend/eslint.config.js`) without an explicit confirmation prompt
 - **PostToolUse on Edit (backend/**.py)** - Run `python manage.py check` and surface failures
 - **PostToolUse on Edit (frontend/**)** - Run `npm run lint` and surface failures
 - **Stop hook** - Run a fast architecture lint pass (e.g., grep for forbidden imports, dev-only auth flags) before declaring the task done
@@ -269,8 +269,8 @@ Claude Code and Codex have characteristic drift patterns. Check for them explici
 
 ### Claude Code drift risks
 - Inventing imports, helpers, or component selectors that do not exist in the codebase
-- Reintroducing deprecated patterns (e.g., NgModules, `*ngIf`/`*ngFor`, decorator-based `@Input`/`@Output`) when `frontend/src/lib/prompts/generation.tsx` requires standalone + `input()`/`output()` signals
-- Hard-coding visual values that drift from `generation.tsx` tokens (defined as CSS custom properties in `frontend/src/styles.scss` and module themes such as `frontend/src/app/operations/shared/operations-theme.scss`)
+- Reintroducing deprecated patterns (e.g., NgModules, `*ngIf`/`*ngFor`, decorator-based `@Input`/`@Output`) when `frontend/src/lib/prompts/generation.ts` requires standalone + `input()`/`output()` signals
+- Hard-coding visual values that drift from `generation.ts` tokens (defined as CSS custom properties in `frontend/src/styles.scss` and module themes such as `frontend/src/app/operations/shared/operations-theme.scss`)
 - Adding dependencies without checking the supply-chain hold (`axios`)
 - Skipping accessibility (missing ARIA, no focus-visible, missing alt text, missing `prefers-reduced-motion`)
 - Using `innerHTML` with interpolated user content

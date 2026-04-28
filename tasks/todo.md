@@ -1,5 +1,15 @@
 # Current Task Plan
 
+## Canonical Generation Prompt Review Fixes - 2026-04-28
+
+Risk score: 2 / Low by total, architecture-review triggered by blast radius 2 because canonical prompt and skill docs shape future frontend implementation.
+Axes: blast radius 2, data sensitivity 0, authority change 0, reversibility 0, external surface 0, operational impact 0.
+
+1. Completed: verified the cited prompt and workflow-reference review findings against the current tree before editing.
+2. Completed: corrected the prompt's Material tooltip, route-param, and required signal-input guidance.
+3. Completed: updated tracked `.agents/skills` references from the old `.tsx` prompt path to `frontend/src/lib/prompts/generation.ts`.
+4. Completed: ran focused grep verification for stale paths and invalid snippets, then completed the architecture-review closeout with `npm run lint` evidence.
+
 ## Advanced/System Master Data Brief #6 - Frontend Many-to-Many Assignments - 2026-04-28
 
 Risk score: 7 / Medium using the architecture-review handoff rubric.

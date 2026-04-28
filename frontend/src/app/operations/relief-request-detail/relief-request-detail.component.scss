@@ -24,7 +24,7 @@
 
 // ── Intake context strip ──────────────────────────────────────────────
 // Compact read-only metadata row: request mode + tenant/agency IDs.
-// See frontend/src/lib/prompts/generation.tsx §4 information hierarchy.
+// See frontend/src/lib/prompts/generation.ts §4 information hierarchy.
 .ops-context-strip {
   display: flex;
   flex-wrap: wrap;

@@ -12,7 +12,7 @@ Each brief is self-contained — Codex does not need any conversation context to
 1. JWT auth path auto-creates a `user` row on first successful validation when none exists (Keycloak remains source of identity).
 2. Four flat tables (`user, role, permission, tenant`) reachable via the existing config-driven masterdata CRUD pattern, gated by new `masterdata.advanced.{view,create,edit,inactivate}` permissions seeded onto `SYSTEM_ADMINISTRATOR`.
 3. Four nested junction-table endpoints under `/api/v1/masterdata/...` for many-to-many assignment.
-4. Four bespoke Angular standalone components for the same junctions, anchored by `frontend/src/lib/prompts/generation.tsx` and the per-component design specs in §"Design Spec Appendix".
+4. Four bespoke Angular standalone components for the same junctions, anchored by `frontend/src/lib/prompts/generation.ts` and the per-component design specs in §"Design Spec Appendix".
 5. Sidenav "Advanced/System" entry becomes a working link.
 
 **Pipeline-safety note**: This work adds endpoints under `/api/v1/masterdata/`. The existing `validate_runtime_module_configuration` only gates `replenishment` and `operations` — `masterdata` is always registered. No GitLab pipeline rewiring required. The `replenishment-export-audit-migration` pre-deploy job is unaffected.
@@ -28,7 +28,7 @@ Backend first, frontend second. Each brief becomes its own commit so the verifie
 3. **Brief #3** — Backend: Junction-table endpoints (user_role, role_permission, tenant_user, user_tenant_role)
 4. **Brief #4** — Backend verification (with regression detection via `git stash`)
 5. **Brief #5** — Frontend: Advanced-domain table configs + routes
-6. **Brief #6** — Frontend: Many-to-many assignment components (anchored by `generation.tsx` + Design Spec Appendix below)
+6. **Brief #6** — Frontend: Many-to-many assignment components (anchored by `generation.ts` + Design Spec Appendix below)
 7. **Brief #7** — Frontend verification
 
 After all 7 land, the verifier runs a Deploy-Readiness Review against `.gitlab-ci.yml` and the architecture docs.
@@ -261,13 +261,13 @@ Run from `backend/`:
 7. **`nav-config.ts`** — remove the standalone `disabled: true` "User Management" entry from `MANAGEMENT_SECTION`. The existing "Advanced/System" sub-entry under "Master Data" already covers it.
 
 **Design anchors (read first, in order)**:
-1. `frontend/src/lib/prompts/generation.tsx` — DMIS_GENERATION_PROMPT, **the canonical token + pattern source**. Read sections 1 (Visual Identity / Status Tones), 2 (Component Architecture — signals-first, OnPush, standalone), 3 (Styling Rules — only `var(--ops-*)` tokens, kebab-BEM, no `!important`), 4 (Page Layout Patterns). Every config decision (column choice, status pill mapping, form grouping, hint copy) must align with this file. The 4 configs are data-only — they do NOT carry inline styling — but the data choices determine what the existing `master-list` and `master-form-page` shells render, so config decisions ARE design decisions.
+1. `frontend/src/lib/prompts/generation.ts` — DMIS_GENERATION_PROMPT, **the canonical token + pattern source**. Read sections 1 (Visual Identity / Status Tones), 2 (Component Architecture — signals-first, OnPush, standalone), 3 (Styling Rules — only `var(--ops-*)` tokens, kebab-BEM, no `!important`), 4 (Page Layout Patterns). Every config decision (column choice, status pill mapping, form grouping, hint copy) must align with this file. The 4 configs are data-only — they do NOT carry inline styling — but the data choices determine what the existing `master-list` and `master-form-page` shells render, so config decisions ARE design decisions.
 2. §"Design Spec Appendix (for Brief #5)" below — per-table list columns, search placeholder, status-tone mapping, form grouping, empty-state copy, mobile column collapse. **The appendix is the source of truth for column choices, sort defaults, and tone mappings.** Codex MAY additionally invoke its own `ui-ux-pro-max` skill for cross-checks or to enrich any decision the appendix leaves underspecified, but the appendix is canonical when there's a conflict. Document any skill-derived additions in the brief's Reporting section.
-3. Reference configs: `frontend/src/app/master-data/models/table-configs/agencies.config.ts` and `warehouses.config.ts` — copy their TypeScript shape (imports, type signatures, field-grouping idiom). These already comply with generation.tsx.
+3. Reference configs: `frontend/src/app/master-data/models/table-configs/agencies.config.ts` and `warehouses.config.ts` — copy their TypeScript shape (imports, type signatures, field-grouping idiom). These already comply with generation.ts.
 
 **Constraints**:
-- No styling changes; configs are data-only. The existing `master-list` and `master-form-page` shells render them through generation.tsx-compliant CSS.
-- Status-tone mapping (per generation.tsx §1 Status Tones table): every status pill must include color + text + icon (Material ligature name). Never color-only.
+- No styling changes; configs are data-only. The existing `master-list` and `master-form-page` shells render them through generation.ts-compliant CSS.
+- Status-tone mapping (per generation.ts §1 Status Tones table): every status pill must include color + text + icon (Material ligature name). Never color-only.
 - Column choices, sort defaults, search placeholders, form grouping, hint copy, and empty-state copy must match the §"Design Spec Appendix (for Brief #5)" verbatim.
 - ui-ux-pro-max critical rules (already enforced by the master-list shell, but verify config doesn't bypass): cursor-pointer on rows, ≥44×44px touch targets, skeleton loaders not spinners (handled by shell), hover state without layout shift, contrast ≥4.5:1 on every status pill (the appendix's tone mappings comply).
 - Each config file ≤ 80 lines.
@@ -282,13 +282,13 @@ Run from `backend/`:
 - Each form page renders the field groups specified in the appendix with `readonlyOnEdit` correctly applied to the canonical-key fields.
 - After Codex commits, **Codex runs a Playwright MCP visual verification** (see §"Post-Brief-#5 Visual Verification (Playwright MCP)" below). Codex has access to both `ui-ux-pro-max` and `mcp__playwright__*` tools in its sandbox; Claude Code only sees a verification summary.
 
-**Reporting**: diff per file, mapping of each config's columns/groups back to the appendix (one line per table: "users → columns L1-L4 per appendix §1, form groups Identity/Operational/Locale/Status per appendix §1"), any deviations from the appendix or generation.tsx, sandbox blockers.
+**Reporting**: diff per file, mapping of each config's columns/groups back to the appendix (one line per table: "users → columns L1-L4 per appendix §1, form groups Identity/Operational/Locale/Status per appendix §1"), any deviations from the appendix or generation.ts, sandbox blockers.
 
 ---
 
 ## Codex Brief #6 — Frontend: Many-to-many assignment components
 
-**Goal**: 4 bespoke standalone Angular components for the junction endpoints from Brief #3, embedded as sections on the corresponding flat-table detail pages. Anchor on `frontend/src/lib/prompts/generation.tsx` (DMIS_GENERATION_PROMPT) and the per-component design specs in §"Design Spec Appendix" below.
+**Goal**: 4 bespoke standalone Angular components for the junction endpoints from Brief #3, embedded as sections on the corresponding flat-table detail pages. Anchor on `frontend/src/lib/prompts/generation.ts` (DMIS_GENERATION_PROMPT) and the per-component design specs in §"Design Spec Appendix" below.
 
 **Files to create**:
 - `frontend/src/app/master-data/components/user-roles-assignment/user-roles-assignment.component.ts` + `.html` + `.scss`
@@ -300,8 +300,8 @@ Run from `backend/`:
 **Files to modify**: embed each component on its parent detail page (`/master-data/users/<id>`, `/master-data/roles/<id>`, `/master-data/tenants/<id>`, `/master-data/tenants/<id>/users/<uid>/roles`) — wrap or extend `master-form-page` to render the assignment section below the flat-table form.
 
 **Design anchors (read first)**:
-- `frontend/src/lib/prompts/generation.tsx` — read sections 1 (Visual Identity), 2 (Component Architecture), 3 (Styling Rules), 4 (Page Layout Patterns) before writing any code file.
-- §"Design Spec Appendix" below — per-component layout, status tones, empty/loading/error treatment, mobile breakpoint behavior, interaction model. Treat the appendix as the source of layout/interaction truth; treat `generation.tsx` as the source of token/pattern truth.
+- `frontend/src/lib/prompts/generation.ts` — read sections 1 (Visual Identity), 2 (Component Architecture), 3 (Styling Rules), 4 (Page Layout Patterns) before writing any code file.
+- §"Design Spec Appendix" below — per-component layout, status tones, empty/loading/error treatment, mobile breakpoint behavior, interaction model. Treat the appendix as the source of layout/interaction truth; treat `generation.ts` as the source of token/pattern truth.
 
 **`iam-assignment.service.ts`** signature:
 ```ts
@@ -327,8 +327,8 @@ revokeTenantUserRole(tenantId: number, userId: number, roleId: number): Observab
 - Every interactive element keyboard-accessible with `:focus-visible` styling. Touch targets ≥44×44px.
 - Every `<section>` and landmark gets an `aria-label`.
 - Cursor `pointer` on all clickable elements.
-- Loading: skeleton rows (per generation.tsx §2), NEVER a spinner.
-- Status tones with color + text + icon backup (per generation.tsx §1 Status Tones table).
+- Loading: skeleton rows (per generation.ts §2), NEVER a spinner.
+- Status tones with color + text + icon backup (per generation.ts §1 Status Tones table).
 - Honor `@media (prefers-reduced-motion: reduce)` — disable transforms/transitions when set.
 - No emoji icons; only Material `<mat-icon>` ligature-based.
 - Reuse `appAccessMatchGuard` / `masterDataAccessGuard` on the parent route — components themselves do not re-check.
@@ -341,7 +341,7 @@ revokeTenantUserRole(tenantId: number, userId: number, roleId: number): Observab
   - `grep -E "color: #[0-9a-fA-F]{3,6};|background: #[0-9a-fA-F]{3,6};" frontend/src/app/master-data/components/*-assignment/**/*.scss` → 0 matches (no hardcoded colors).
   - `grep -c "@Input\(\)\|@Output\(\)" frontend/src/app/master-data/components/*-assignment/**/*.ts` → 0 (signals-first IO).
 
-**Reporting**: diff per file, signature of `iam-assignment.service.ts`, four design-spec sections that were followed (one paragraph each: layout decision, status-tone usage, empty/loading/error treatment, mobile behavior), deviations from spec or generation.tsx, sandbox blockers.
+**Reporting**: diff per file, signature of `iam-assignment.service.ts`, four design-spec sections that were followed (one paragraph each: layout decision, status-tone usage, empty/loading/error treatment, mobile behavior), deviations from spec or generation.ts, sandbox blockers.
 
 ---
 
@@ -363,11 +363,11 @@ Run from `frontend/`:
 
 ## Design Spec Appendix (for Brief #5)
 
-Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max` design pre-pass. The appendix is the source of truth for column choices, sort defaults, search placeholders, status-tone mappings, form grouping, and empty-state copy. Status tones reference generation.tsx §1 (warm-neutral palette + color+text+icon Status Tones table). All Material icon names are ligature-based (no emoji per ui-ux-pro-max common rule).
+Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max` design pre-pass. The appendix is the source of truth for column choices, sort defaults, search placeholders, status-tone mappings, form grouping, and empty-state copy. Status tones reference generation.ts §1 (warm-neutral palette + color+text+icon Status Tones table). All Material icon names are ligature-based (no emoji per ui-ux-pro-max common rule).
 
 ### 1. users — `/master-data/users`
 
-- **List columns** (4 visible, in order): `username` (monospace, primary clickable row label, sortable) → `full_name` (sortable) → `agency_id` (FK rendered as agency code/name, sortable) → `status_code` (pill, sortable). Rows have `cursor: pointer`, hover background `var(--ops-emphasis)` no layout shift, transition 180ms ease per generation.tsx §1.
+- **List columns** (4 visible, in order): `username` (monospace, primary clickable row label, sortable) → `full_name` (sortable) → `agency_id` (FK rendered as agency code/name, sortable) → `status_code` (pill, sortable). Rows have `cursor: pointer`, hover background `var(--ops-emphasis)` no layout shift, transition 180ms ease per generation.ts §1.
 - **Search placeholder**: `"Search by username, email, or full name"`. Backend ILIKE on those three columns case-insensitive.
 - **Status-tone mapping** (`status_code`):
   - `A` (Active) → **Success** (`#edf7ef` / `#286a36`, `check_circle`)
@@ -450,7 +450,7 @@ Per-table config-design specifications produced by Claude Code's `ui-ux-pro-max`
 
 ## Design Spec Appendix (for Brief #6)
 
-Per-component layout, tone, state, mobile, and interaction specifications produced by the `ui-ux-pro-max` design pre-pass. Each spec is the source of truth for layout/interaction; `generation.tsx` is the source of truth for tokens/patterns.
+Per-component layout, tone, state, mobile, and interaction specifications produced by the `ui-ux-pro-max` design pre-pass. Each spec is the source of truth for layout/interaction; `generation.ts` is the source of truth for tokens/patterns.
 
 ### Component 1 — `user-roles-assignment`
 
@@ -504,7 +504,7 @@ Per-component layout, tone, state, mobile, and interaction specifications produc
 - Master-data UI shell — `frontend/src/app/master-data/components/master-list/`, `master-form-page/`, `master-detail-page/`
 - `MasterDataService` — `frontend/src/app/master-data/services/master-data.service.ts`
 - `masterDataAccessGuard`, `MasterDataAccessService.isSystemAdmin()` — `frontend/src/app/master-data/guards/`, `services/master-data-access.service.ts`
-- **DMIS_GENERATION_PROMPT** — `frontend/src/lib/prompts/generation.tsx` (canonical design system reference; Brief #6 components MUST anchor on this)
+- **DMIS_GENERATION_PROMPT** — `frontend/src/lib/prompts/generation.ts` (canonical design system reference; Brief #6 components MUST anchor on this)
 
 ## Phase 2 Outline (separate plan, not in scope here)
 
