@@ -23,6 +23,65 @@ _ORDER_BY_PATTERN = re.compile(
 )
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
+BASELINE_TENANT_TYPES: tuple[dict[str, Any], ...] = (
+    {
+        "tenant_type_code": "NATIONAL",
+        "tenant_type_name": "National Coordination",
+        "description": "ODPEM and NEOC national coordination functions.",
+        "display_order": 10,
+    },
+    {
+        "tenant_type_code": "MILITARY",
+        "tenant_type_name": "Military",
+        "description": "Jamaica Defence Force and other approved military coordination tenants.",
+        "display_order": 20,
+    },
+    {
+        "tenant_type_code": "SOCIAL_SERVICES",
+        "tenant_type_name": "Social Services",
+        "description": "MLSS and social-services coordination entities.",
+        "display_order": 30,
+    },
+    {
+        "tenant_type_code": "PARISH",
+        "tenant_type_name": "Parish",
+        "description": "Parish Councils and parish disaster offices.",
+        "display_order": 40,
+    },
+    {
+        "tenant_type_code": "COMMUNITY",
+        "tenant_type_name": "Community",
+        "description": "Community-level entities or distribution points under a parent tenant.",
+        "display_order": 50,
+    },
+    {
+        "tenant_type_code": "NGO",
+        "tenant_type_name": "NGO",
+        "description": "Aid organizations and humanitarian NGOs.",
+        "display_order": 60,
+    },
+    {
+        "tenant_type_code": "UTILITY",
+        "tenant_type_name": "Utility",
+        "description": "JPS, NWC, NWA, telecoms, and similar lifeline operators.",
+        "display_order": 70,
+    },
+    {
+        "tenant_type_code": "SHELTER_OPERATOR",
+        "tenant_type_name": "Shelter Operator",
+        "description": "Organizations directly managing shelters.",
+        "display_order": 80,
+    },
+    {
+        "tenant_type_code": "PARTNER",
+        "tenant_type_name": "Partner",
+        "description": "Other approved platform agencies and entities.",
+        "display_order": 90,
+    },
+)
+BASELINE_TENANT_TYPE_CODES = frozenset(
+    row["tenant_type_code"] for row in BASELINE_TENANT_TYPES
+)
 
 _FORWARD_WRITE_BLOCK_ALWAYS_TABLES = {"inventory", "itembatch", "item_location"}
 _FORWARD_WRITE_STATE_TABLES = {
@@ -50,6 +109,11 @@ _WORKFLOW_STATE_ALIASES = {
     "CREATE": "DRAFT",
     "CREATED": "DRAFT",
 }
+
+
+def _legacy_user_name(value: object) -> str:
+    text = str(value or "").strip() or "KEYCLOAK_USER"
+    return text[:20]
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +375,7 @@ class TableConfig:
         audit_update_time: str = "update_dtime",
         default_order: str = "",
         dependencies: list[DependencyDef] | None = None,
+        unique_together: list[tuple[str, ...]] | None = None,
         active_status: str = "A",
         inactive_status: str = "I",
         has_audit: bool = True,
@@ -330,6 +395,7 @@ class TableConfig:
         self.audit_update_time = audit_update_time
         self.default_order = default_order or pk_field
         self.dependencies = dependencies or []
+        self.unique_together = unique_together or []
         self.active_status = active_status
         self.inactive_status = inactive_status
         self.has_audit = has_audit
@@ -341,6 +407,17 @@ class TableConfig:
             raise ValueError(
                 f"lookup_label {self.lookup_label!r} is not defined on table {self.key!r}"
             )
+        for unique_group in self.unique_together:
+            missing_fields = [
+                field_name
+                for field_name in unique_group
+                if field_name not in self._field_map
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"unique_together {unique_group!r} contains undefined field(s) "
+                    f"on table {self.key!r}: {', '.join(missing_fields)}"
+                )
         self._pk_def: FieldDef | None = next((f for f in fields if f.pk), None)
 
     def field(self, name: str) -> FieldDef | None:
@@ -363,10 +440,16 @@ class TableConfig:
         """Fields that appear in create/update payloads (excludes auto-PK, audit, version)."""
         exclude: set[str] = set()
         if self.has_audit:
-            exclude.update({
-                self.audit_create_user, self.audit_create_time,
-                self.audit_update_user, self.audit_update_time,
-            })
+            exclude.update(
+                audit_field
+                for audit_field in (
+                    self.audit_create_user,
+                    self.audit_create_time,
+                    self.audit_update_user,
+                    self.audit_update_time,
+                )
+                if audit_field
+            )
         if self.has_version:
             exclude.add(self.version_field)
         return [f for f in self.fields if not f.auto_pk and f.name not in exclude]
@@ -382,6 +465,135 @@ TABLE_REGISTRY: Dict[str, TableConfig] = {}
 def _register(cfg: TableConfig) -> TableConfig:
     TABLE_REGISTRY[cfg.key] = cfg
     return cfg
+
+
+_register(TableConfig(
+    key="user",
+    db_table='"user"',
+    pk_field="user_id",
+    display_name="Users",
+    default_order="username",
+    lookup_label="username",
+    audit_create_user="",
+    audit_update_user="",
+    fields=[
+        FieldDef("user_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("username", unique=True, max_length=60, searchable=True, label="Username"),
+        FieldDef("email", required=True, unique=True, max_length=200, searchable=True, label="Email"),
+        FieldDef("first_name", max_length=100, searchable=True, label="First Name"),
+        FieldDef("last_name", max_length=100, searchable=True, label="Last Name"),
+        FieldDef("full_name", max_length=200, searchable=True, label="Full Name"),
+        FieldDef("is_active", db_type="boolean", default=True, label="Active"),
+        FieldDef("assigned_warehouse_id", db_type="int", label="Assigned Warehouse",
+                 fk_table="warehouse", fk_pk="warehouse_id", fk_label="warehouse_name"),
+        FieldDef("agency_id", db_type="int", label="Agency",
+                 fk_table="agency", fk_pk="agency_id", fk_label="agency_name"),
+        FieldDef("phone", max_length=50, label="Phone"),
+        FieldDef("timezone", required=True, max_length=50, default="America/Jamaica", label="Timezone"),
+        FieldDef("language", required=True, max_length=10, default="en", label="Language"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I", "L"], label="Status"),
+    ],
+))
+
+_register(TableConfig(
+    key="role",
+    db_table="role",
+    pk_field="id",
+    display_name="Roles",
+    status_field="",
+    has_audit=False,
+    has_version=False,
+    default_order="code",
+    lookup_label="code",
+    fields=[
+        FieldDef("id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("code", required=True, unique=True, uppercase=True,
+                 max_length=50, searchable=True, label="Code",
+                 pattern=r"^[A-Z_][A-Z0-9_]*$",
+                 pattern_message="Only uppercase letters, digits, and underscores are allowed."),
+        FieldDef("name", required=True, max_length=100, searchable=True, label="Name"),
+        FieldDef("description", db_type="text", label="Description"),
+    ],
+))
+
+_register(TableConfig(
+    key="permission",
+    db_table="permission",
+    pk_field="perm_id",
+    display_name="Permissions",
+    status_field="",
+    default_order="resource",
+    unique_together=[("resource", "action")],
+    lookup_label="resource",
+    fields=[
+        FieldDef("perm_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("resource", required=True, max_length=40, searchable=True, label="Resource"),
+        FieldDef("action", required=True, max_length=32, searchable=True, label="Action"),
+    ],
+))
+
+_register(TableConfig(
+    key="tenant_types",
+    db_table="ref_tenant_type",
+    pk_field="tenant_type_code",
+    display_name="Tenant Types",
+    default_order="display_order",
+    lookup_label="tenant_type_name",
+    fields=[
+        FieldDef("tenant_type_code", pk=True, required=True, unique=True,
+                 uppercase=True, max_length=30, searchable=True, label="Code",
+                 pattern=r"^[A-Z_][A-Z0-9_]*$",
+                 pattern_message="Only uppercase letters, digits, and underscores are allowed."),
+        FieldDef("tenant_type_name", required=True, max_length=120,
+                 searchable=True, label="Name"),
+        FieldDef("description", db_type="text", label="Description"),
+        FieldDef("display_order", db_type="int", default=90, label="Display Order"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("tenant", "tenant_type", "Tenants"),
+    ],
+))
+
+_register(TableConfig(
+    key="tenant",
+    db_table="tenant",
+    pk_field="tenant_id",
+    display_name="Tenants",
+    default_order="tenant_code",
+    lookup_label="tenant_name",
+    fields=[
+        FieldDef("tenant_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("tenant_code", required=True, unique=True, uppercase=True,
+                 max_length=20, searchable=True, label="Tenant Code"),
+        FieldDef("tenant_name", required=True, uppercase=True,
+                 max_length=120, searchable=True, label="Tenant Name"),
+        FieldDef("tenant_type", required=True, max_length=20, label="Tenant Type",
+                 fk_table="ref_tenant_type", fk_pk="tenant_type_code",
+                 fk_label="tenant_type_name"),
+        FieldDef("parent_tenant_id", db_type="int", label="Parent Tenant",
+                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
+        FieldDef("data_scope", max_length=50, default="OWN_DATA", label="Data Scope",
+                 choices=["OWN_DATA", "PARISH_DATA", "REGIONAL_DATA", "NATIONAL_DATA"]),
+        FieldDef("pii_access", max_length=20, default="NONE", label="PII Access",
+                 choices=["NONE", "AGGREGATED", "LIMITED", "MASKED", "FULL"]),
+        FieldDef("offline_required", db_type="boolean", default=False, label="Offline Required"),
+        FieldDef("mobile_priority", max_length=10, default="LOW", label="Mobile Priority",
+                 choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+        FieldDef("address1_text", max_length=255, label="Address Line 1"),
+        FieldDef("parish_code", uppercase=True, max_length=2, label="Parish",
+                 fk_table="parish", fk_pk="parish_code", fk_label="parish_name"),
+        FieldDef("contact_name", max_length=50, searchable=True, label="Contact Name"),
+        FieldDef("phone_no", max_length=20, label="Phone"),
+        FieldDef("email_text", max_length=100, label="Email",
+                 pattern=r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
+                 pattern_message="Invalid email format"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+))
 
 
 # ── Item Categories ───────────────────────────────────────────────────────
@@ -640,15 +852,15 @@ _register(TableConfig(
         FieldDef("email_text", max_length=100, label="Email",
                  pattern=r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
                  pattern_message="Invalid email format"),
-        FieldDef("custodian_id", required=True, db_type="int", label="Custodian",
+        FieldDef("tenant_id", required=True, db_type="int", label="Managing Tenant",
+                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
+        FieldDef("custodian_id", db_type="int", label="Legacy Custodian",
                  fk_table="custodian", fk_pk="custodian_id", fk_label="custodian_name"),
         FieldDef("min_stock_threshold", db_type="numeric", default=0,
                  label="Min Stock Threshold"),
         FieldDef("reason_desc", max_length=255, label="Reason"),
         FieldDef("status_code", required=True, max_length=1, default="A",
                  choices=["A", "I"], label="Status"),
-        FieldDef("tenant_id", db_type="int", readonly=True, label="Tenant",
-                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
     ],
     dependencies=[
         DependencyDef("inventory", "warehouse_id", "Inventory Records"),
@@ -997,7 +1209,10 @@ def list_records(
 
     schema = _schema_name()
     warnings: List[str] = []
-    columns = ", ".join(f.name for f in cfg.fields)
+    column_names = [f.name for f in cfg.fields]
+    if table_key == "permission" and cfg.audit_update_time not in column_names:
+        column_names.append(cfg.audit_update_time)
+    columns = ", ".join(column_names)
     where_clauses: list[str] = []
     params: list[Any] = []
 
@@ -1042,8 +1257,12 @@ def list_records(
                 """,
                 params + [limit, offset],
             )
-            col_names = [f.name for f in cfg.fields]
-            rows = [dict(zip(col_names, row)) for row in cursor.fetchall()]
+            rows = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+
+        if table_key == "user":
+            _attach_primary_tenant_display(rows)
+        if table_key == "warehouses":
+            _attach_managing_tenant_display(rows, warnings)
 
         return rows, total, warnings
     except DatabaseError as exc:
@@ -1068,10 +1287,16 @@ def get_record(
     # Include audit + version columns if present
     extra_cols: list[str] = []
     if cfg.has_audit:
-        extra_cols.extend([
-            cfg.audit_create_user, cfg.audit_create_time,
-            cfg.audit_update_user, cfg.audit_update_time,
-        ])
+        extra_cols.extend(
+            audit_field
+            for audit_field in (
+                cfg.audit_create_user,
+                cfg.audit_create_time,
+                cfg.audit_update_user,
+                cfg.audit_update_time,
+            )
+            if audit_field
+        )
     if cfg.has_version:
         extra_cols.append(cfg.version_field)
     all_cols = columns
@@ -1093,7 +1318,14 @@ def get_record(
                 return None, []
 
             col_names = [f.name for f in cfg.fields] + extra_cols
-            return dict(zip(col_names, row)), []
+            record = dict(zip(col_names, row))
+            if table_key == "user":
+                _attach_primary_tenant_display([record])
+            if table_key == "warehouses":
+                warnings: list[str] = []
+                _attach_managing_tenant_display([record], warnings)
+                return record, warnings
+            return record, []
     except DatabaseError as exc:
         logger.warning("get_record(%s, %s) failed: %s", table_key, pk_value, exc)
         try:
@@ -1101,6 +1333,201 @@ def get_record(
         except Exception:
             pass
         return None, ["db_error"]
+
+
+def _primary_tenant_label(tenant_code: Any, tenant_name: Any) -> str | None:
+    code = str(tenant_code or "").strip()
+    name = str(tenant_name or "").strip()
+    if code and name and code != name:
+        return f"{code} - {name}"
+    if name:
+        return name
+    if code:
+        return code
+    return None
+
+
+def _empty_primary_tenant_display() -> dict[str, Any]:
+    return {
+        "primary_tenant_id": None,
+        "primary_tenant_code": None,
+        "primary_tenant_name": None,
+        "primary_tenant_label": None,
+    }
+
+
+def _empty_managing_tenant_display() -> dict[str, Any]:
+    return {
+        "managing_tenant_id": None,
+        "managing_tenant_code": None,
+        "managing_tenant_name": None,
+        "managing_tenant_label": None,
+    }
+
+
+def _attach_managing_tenant_display(
+    rows: list[dict[str, Any]],
+    warnings: list[str],
+) -> None:
+    tenant_ids: set[int] = set()
+    for row in rows:
+        row.update(_empty_managing_tenant_display())
+        raw_tenant_id = row.get("tenant_id")
+        if raw_tenant_id in (None, ""):
+            continue
+        try:
+            tenant_id = int(raw_tenant_id)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Warehouse %s has invalid tenant_id=%r for managing tenant display.",
+                row.get("warehouse_id"),
+                raw_tenant_id,
+            )
+            continue
+        if tenant_id <= 0:
+            logger.warning(
+                "Warehouse %s has non-positive tenant_id=%r for managing tenant display.",
+                row.get("warehouse_id"),
+                raw_tenant_id,
+            )
+            continue
+        row["managing_tenant_id"] = tenant_id
+        tenant_ids.add(tenant_id)
+
+    if not tenant_ids:
+        return
+
+    schema = _schema_name()
+    tenant_table = f"{_quote_identifier(schema)}.{_quote_identifier('tenant')}"
+    placeholders = ", ".join(["%s"] * len(tenant_ids))
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT tenant_id, tenant_code, tenant_name
+                FROM {tenant_table}
+                WHERE tenant_id IN ({placeholders})
+                """,
+                sorted(tenant_ids),
+            )
+            tenant_rows = cursor.fetchall()
+    except DatabaseError as exc:
+        logger.warning("managing tenant lookup failed for warehouse rows: %s", exc)
+        _safe_rollback()
+        warnings.append("warehouse_tenant_lookup_failed")
+        return
+
+    by_tenant_id = {
+        int(tenant_row[0]): {
+            "managing_tenant_id": tenant_row[0],
+            "managing_tenant_code": tenant_row[1],
+            "managing_tenant_name": tenant_row[2],
+            "managing_tenant_label": _primary_tenant_label(tenant_row[1], tenant_row[2]),
+        }
+        for tenant_row in tenant_rows
+        if tenant_row[0] is not None
+    }
+
+    for row in rows:
+        tenant_id = row.get("managing_tenant_id")
+        if tenant_id is None:
+            continue
+        tenant_display = by_tenant_id.get(int(tenant_id))
+        if tenant_display is None:
+            logger.warning(
+                "Warehouse %s references missing managing tenant_id=%s.",
+                row.get("warehouse_id"),
+                tenant_id,
+            )
+            continue
+        row.update(tenant_display)
+
+
+def _attach_primary_tenant_display(rows: list[dict[str, Any]]) -> None:
+    user_ids = sorted({
+        int(row["user_id"])
+        for row in rows
+        if row.get("user_id") not in (None, "")
+    })
+    if not user_ids:
+        return
+
+    for row in rows:
+        row.update(_empty_primary_tenant_display())
+
+    schema = _schema_name()
+    placeholders = ", ".join(["%s"] * len(user_ids))
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    tu.user_id,
+                    tu.tenant_id,
+                    t.tenant_code,
+                    t.tenant_name,
+                    tu.is_primary_tenant,
+                    tu.assigned_at
+                FROM {schema}.tenant_user tu
+                JOIN {schema}.tenant t ON t.tenant_id = tu.tenant_id
+                WHERE tu.user_id IN ({placeholders})
+                  AND tu.status_code = 'A'
+                ORDER BY
+                    tu.user_id,
+                    CASE WHEN tu.is_primary_tenant THEN 0 ELSE 1 END,
+                    tu.assigned_at ASC NULLS LAST,
+                    tu.tenant_id ASC
+                """,
+                user_ids,
+            )
+            membership_rows = cursor.fetchall()
+    except DatabaseError as exc:
+        logger.warning("primary tenant lookup failed for user rows: %s", exc)
+        _safe_rollback()
+        return
+
+    by_user_id: dict[int, list[tuple[Any, ...]]] = {}
+    for membership in membership_rows:
+        by_user_id.setdefault(int(membership[0]), []).append(membership)
+
+    for row in rows:
+        user_id = int(row["user_id"])
+        memberships = by_user_id.get(user_id, [])
+        if not memberships:
+            logger.warning(
+                "User %s has no active tenant membership for primary tenant display.",
+                user_id,
+            )
+            continue
+
+        primary_memberships = [
+            membership
+            for membership in memberships
+            if bool(membership[4])
+        ]
+        if len(primary_memberships) > 1:
+            chosen = primary_memberships[0]
+            logger.warning(
+                "User %s has multiple active primary tenant memberships; using tenant_id=%s.",
+                user_id,
+                chosen[1],
+            )
+        elif primary_memberships:
+            chosen = primary_memberships[0]
+        else:
+            chosen = memberships[0]
+            logger.warning(
+                "User %s has active tenant memberships but no primary; using tenant_id=%s as fallback.",
+                user_id,
+                chosen[1],
+            )
+
+        row.update({
+            "primary_tenant_id": chosen[1],
+            "primary_tenant_code": chosen[2],
+            "primary_tenant_name": chosen[3],
+            "primary_tenant_label": _primary_tenant_label(chosen[2], chosen[3]),
+        })
 
 
 def _normalize_field_value(fd: FieldDef, value: Any) -> Any:
@@ -1301,11 +1728,34 @@ def create_record(
             columns.append(fd.name)
             values.append(fd.default)
 
+    if table_key == "user":
+        username = data.get("username") or data.get("email")
+        hidden_defaults = {
+            "password_hash": "",
+            "user_name": _legacy_user_name(username),
+            "password_algo": "argon2id",
+            "mfa_enabled": False,
+            "failed_login_count": 0,
+            "login_count": 0,
+        }
+        for column_name, value in hidden_defaults.items():
+            columns.append(column_name)
+            values.append(value)
+
     # Audit columns
     if cfg.has_audit:
-        columns.extend([cfg.audit_create_user, cfg.audit_create_time,
-                         cfg.audit_update_user, cfg.audit_update_time])
-        values.extend([actor_id, "NOW()", actor_id, "NOW()"])
+        if cfg.audit_create_user:
+            columns.append(cfg.audit_create_user)
+            values.append(actor_id)
+        if cfg.audit_create_time:
+            columns.append(cfg.audit_create_time)
+            values.append("NOW()")
+        if cfg.audit_update_user:
+            columns.append(cfg.audit_update_user)
+            values.append(actor_id)
+        if cfg.audit_update_time:
+            columns.append(cfg.audit_update_time)
+            values.append("NOW()")
     if cfg.has_version:
         columns.append(cfg.version_field)
         values.append(1)
@@ -1411,9 +1861,11 @@ def update_record(
 
     # Audit
     if cfg.has_audit:
-        set_parts.append(f"{cfg.audit_update_user} = %s")
-        params.append(actor_id)
-        set_parts.append(f"{cfg.audit_update_time} = NOW()")
+        if cfg.audit_update_user:
+            set_parts.append(f"{cfg.audit_update_user} = %s")
+            params.append(actor_id)
+        if cfg.audit_update_time:
+            set_parts.append(f"{cfg.audit_update_time} = NOW()")
     if cfg.has_version:
         set_parts.append(f"{cfg.version_field} = {cfg.version_field} + 1")
 
@@ -1529,7 +1981,10 @@ def get_summary_counts(table_key: str) -> Tuple[Dict[str, int], List[str]]:
 
 
 def get_lookup(
-    table_key: str, *, active_only: bool = True
+    table_key: str,
+    *,
+    active_only: bool = True,
+    tenant_id: Any = None,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Minimal {value, label} list for FK dropdowns.
@@ -1555,27 +2010,38 @@ def get_lookup(
     if not label_field:
         label_field = cfg.pk_field
 
-    where = ""
+    where_clauses: list[str] = []
     params: list[Any] = []
     if active_only and cfg.has_status:
-        where = f"WHERE {cfg.status_field} = %s"
+        where_clauses.append(f"{cfg.status_field} = %s")
         params.append(cfg.active_status)
+    if cfg.key == "warehouses" and tenant_id not in (None, ""):
+        where_clauses.append("tenant_id = %s")
+        params.append(tenant_id)
+    where = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    order_by_sql = label_field
+    if cfg.key == "tenant_types":
+        order_by_sql = "display_order, tenant_type_code"
+    select_extra_cols = ", tenant_id" if cfg.key == "warehouses" else ""
 
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT {cfg.pk_field}, {label_field}
+                SELECT {cfg.pk_field}, {label_field}{select_extra_cols}
                 FROM {schema}.{cfg.db_table}
                 {where}
-                ORDER BY {label_field}
+                ORDER BY {order_by_sql}
                 """,
                 params,
             )
-            rows = [
-                {"value": row[0], "label": str(row[1]) if row[1] else str(row[0])}
-                for row in cursor.fetchall()
-            ]
+            rows = []
+            for row in cursor.fetchall():
+                item = {"value": row[0], "label": str(row[1]) if row[1] else str(row[0])}
+                if cfg.key == "warehouses":
+                    item["tenant_id"] = row[2]
+                rows.append(item)
             return rows, []
     except DatabaseError as exc:
         logger.warning("get_lookup(%s) failed: %s", table_key, exc)
@@ -1584,6 +2050,41 @@ def get_lookup(
         except Exception:
             pass
         return [], ["db_error"]
+
+
+def check_warehouse_managed_by_tenant(
+    warehouse_id: Any,
+    tenant_id: Any,
+) -> Tuple[bool, List[str]]:
+    """Return whether an active warehouse is managed by the selected tenant."""
+    if _is_sqlite():
+        return True, ["db_unavailable"]
+
+    schema = _schema_name()
+    warehouse_table = f"{_quote_identifier(schema)}.{_quote_identifier('warehouse')}"
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 1
+                FROM {warehouse_table}
+                WHERE warehouse_id = %s
+                  AND tenant_id = %s
+                  AND status_code = %s
+                LIMIT 1
+                """,
+                [warehouse_id, tenant_id, "A"],
+            )
+            return cursor.fetchone() is not None, []
+    except DatabaseError as exc:
+        logger.warning(
+            "check_warehouse_managed_by_tenant(%s, %s) failed: %s",
+            warehouse_id,
+            tenant_id,
+            exc,
+        )
+        _safe_rollback()
+        return False, ["db_error"]
 
 
 def _workflow_state_tokens(*states: str) -> List[str]:
@@ -1855,19 +2356,97 @@ def check_uniqueness(
         return True, ["db_error"]
 
 
+def check_composite_uniqueness(
+    table_key: str,
+    field_names: tuple[str, ...],
+    values: dict[str, Any],
+    exclude_pk: Any = None,
+) -> Tuple[bool, List[str]]:
+    """
+    Check if a configured field tuple is unique.
+    Field names come from TableConfig.unique_together; values stay parameterized.
+    """
+    cfg = TABLE_REGISTRY[table_key]
+    field_defs = [cfg.field(field_name) for field_name in field_names]
+    if any(fd is None for fd in field_defs):
+        logger.warning(
+            "check_composite_uniqueness(%s.%s): invalid field_names",
+            table_key,
+            ",".join(field_names),
+        )
+        return True, ["invalid_field"]
+
+    if _is_sqlite():
+        return True, ["db_unavailable"]
+
+    schema = _schema_name()
+    where_parts: list[str] = []
+    params: list[Any] = []
+    for fd in field_defs:
+        if fd is None:
+            continue
+        if fd.db_type in {"varchar", "char", "text"}:
+            where_parts.append(f"UPPER({fd.name}) = UPPER(%s)")
+        else:
+            where_parts.append(f"{fd.name} = %s")
+        params.append(values.get(fd.name))
+
+    if exclude_pk is not None:
+        where_parts.append(f"{cfg.pk_field} != %s")
+        params.append(exclude_pk)
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {schema}.{cfg.db_table}
+                WHERE {" AND ".join(where_parts)}
+                """,
+                params,
+            )
+            count = cursor.fetchone()[0]
+            return count == 0, []
+    except DatabaseError as exc:
+        logger.warning(
+            "check_composite_uniqueness(%s.%s) failed: %s",
+            table_key,
+            ",".join(field_names),
+            exc,
+        )
+        return True, ["db_error"]
+
+
 def check_fk_exists(
-    fk_table: str, fk_pk: str, value: Any
+    fk_table: str,
+    fk_pk: str,
+    value: Any,
+    *,
+    active_only: bool = False,
+    status_field: str = "status_code",
+    active_status: str = "A",
 ) -> Tuple[bool, List[str]]:
     """Check that a foreign key value exists in the referenced table."""
     if _is_sqlite():
         return True, ["db_unavailable"]
 
     schema = _schema_name()
+    qualified_table = f"{_quote_identifier(schema)}.{_quote_identifier(fk_table)}"
+    where_clauses = [f"{_quote_identifier(fk_pk)} = %s"]
+    params: list[Any] = [value]
+    if active_only:
+        where_clauses.append(f"{_quote_identifier(status_field)} = %s")
+        params.append(active_status)
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                f"SELECT 1 FROM {schema}.{fk_table} WHERE {fk_pk} = %s LIMIT 1",
-                [value],
+                f"""
+                SELECT 1
+                FROM {qualified_table}
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
             )
             return cursor.fetchone() is not None, []
     except DatabaseError as exc:

@@ -44,11 +44,12 @@ Accent (teal):           #0f766e
 
 ### Typography
 - Font stack: \`ui-sans-serif, -apple-system, "BlinkMacSystemFont", "Segoe UI", "Helvetica", sans-serif\`
-- Page title: \`clamp(1.6rem, 2.5vw, 2.2rem)\`, weight 800, tracking \`-0.04em\`
-- Section title: \`1.15rem-1.42rem\`, weight 700, tracking \`-0.02em\` to \`-0.03em\`
+- Page title: \`clamp(1.6rem, 2.5vw, 2.2rem)\`, weight 800, tracking \`-0.04em\`, **\`text-wrap: balance\`** (Baseline 2024 — distributes the title across lines without orphan words)
+- Section title: \`1.15rem-1.42rem\`, weight 700, tracking \`-0.02em\` to \`-0.03em\`, \`text-wrap: balance\`
 - Eyebrow: \`0.68-0.72rem\`, weight 700, tracking \`0.2em\`, uppercase
-- Body: \`0.92-1rem\`, weight 400, line-height 1.5-1.65
-- KPI values: \`clamp(1.5rem, 2vw, 2.2rem)\`, weight 600
+- Body: \`0.92-1rem\`, weight 400, line-height 1.5-1.65, **\`text-wrap: pretty\`** on paragraphs longer than 2 lines (Chromium-shipped; progressive enhancement — falls back gracefully to \`auto\` elsewhere)
+- KPI values: \`clamp(1.5rem, 2vw, 2.2rem)\`, weight 600, \`font-variant-numeric: tabular-nums\`
+- Use **CSS logical properties** for any new spacing (\`margin-inline\`, \`padding-block\`, \`inset-inline-start\`, \`border-inline-end\`) instead of left/right physical properties — keeps the system i18n-ready if DMIS ever ships a Spanish or French Caribbean build
 
 ### Spacing & Radius
 - Card padding: \`22px-28px\`
@@ -60,8 +61,17 @@ Accent (teal):           #0f766e
 ### Interactions
 - Hover: background shift to \`#fbfaf7\`, border becomes visible, \`translateY(-1px)\`
 - Transition: \`180ms ease\` for background, border, transform
-- Focus: \`2px solid #1565c0\` outline with \`2px\` offset
+- Focus: \`2px solid #1565c0\` outline with \`2px\` offset (WCAG 2.2 SC 2.4.7 Focus Visible)
 - Always support \`@media (prefers-reduced-motion: reduce)\` — disable transforms and transitions
+
+### Touch targets (WCAG 2.2 SC 2.5.8 — Target Size Minimum)
+- **Minimum**: every interactive element occupies at least **24×24 CSS px** of pointer-active area. Smaller hit-targets must include surrounding padding so the active region meets the minimum.
+- **Field-mobile aim**: 44×44 px on surfaces used during disaster response (Kemar in a hurricane). Icon-only buttons sized at \`min-width: 40px; min-height: 40px\` comfortably reach 44×44 with default Material icon button padding.
+- Inline icon affordances on dense rows (e.g. row chevrons, remove buttons) must reserve \`padding\` so the *clickable* area meets 24×24 even when the visible icon is 16×16.
+
+### Content on hover or focus (WCAG 2.1 SC 1.4.13)
+- Tooltips and popovers triggered by hover/focus must be **dismissible** (Esc closes), **hoverable** (the user can move the pointer onto the popover without it closing), and **persistent** (does not auto-dismiss while pointer is over trigger or content).
+- For brief, non-interactive labels, use the Angular Material \`matTooltip\` directive (for example, \`<button mat-icon-button matTooltip="Refresh data">\`). For hoverable or persistent content, build a custom CDK overlay with \`hasBackdrop="false"\` and \`backdropClass\` configured so escape and outside-click dismiss work; never invent a Material tooltip element tag or use a CSS-only \`:hover\` panel.
 
 ---
 
@@ -79,6 +89,105 @@ Accent (teal):           #0f766e
 - Template syntax: \`@for\`, \`@if\`, \`@switch\` (new Angular control flow, NOT *ngFor/*ngIf)
 - Track expressions: always provide \`track\` in \`@for\` blocks
 - Read signal inputs in templates with \`()\`: \`{{ warehouse().name }}\`, not \`{{ warehouse.name }}\`
+
+### Angular 21 reactive APIs (use these by default)
+
+The repo runs Angular 21.2.4. Generated components must reach for the modern reactive APIs before falling back to RxJS or imperative subscriptions.
+
+| API | Use for | Replaces |
+|-----|---------|----------|
+| \`signal<T>()\` | Component-local state (loading flags, current selection, form-version) | \`BehaviorSubject\` for component-local state |
+| \`computed<T>()\` | Pure derivations from other signals | RxJS \`map\` over a \`BehaviorSubject\` |
+| \`linkedSignal<T>()\` | Derived state that the user can also override (e.g. a default selection that the user can change, but that resets when its source resets) | The "\`formVersion\` cache-bust" anti-pattern |
+| \`input()\` / \`input.required<T>()\` | Component inputs, including step/dialog inputs that pass a parent \`FormGroup\` | \`@Input()\` decorator |
+| \`output()\` | Component outputs | \`@Output() EventEmitter\` |
+| \`model<T>()\` | Two-way binding (e.g. dialog editable buffers, wizard step shared state) | \`@Input()\` + \`@Output()\` pair |
+| \`httpResource<T>()\` | Read-only data fetch keyed off a signal (route id, filter signal); built-in \`value()\` / \`isLoading()\` / \`error()\` / \`reload()\` | Observable + \`subscribe\` in \`ngOnInit\` (Section 5) |
+| \`resource<T>()\` | Composed/transformed reads where the loader returns a Promise | Custom \`forkJoin\` orchestration in services |
+| \`toSignal()\` | Bridging an Observable that already exists (form \`valueChanges\`, debounced search streams) | Manual \`subscribe\` + \`signal.set\` |
+| \`effect()\` | Side-effects that should fire when signals change (URL syncing, focus, analytics) | \`subscribe\` callbacks with imperative \`if\` checks |
+| \`afterRender()\` / \`afterNextRender()\` | DOM-after work — focus an error summary, scroll into view, measure layout | \`ngAfterViewInit\` + \`setTimeout\` / \`queueMicrotask\` |
+| \`ActivatedRoute\` + \`toSignal()\` | Reading route params/query in this app (router component input binding is not enabled) | \`ActivatedRoute.snapshot.params\` |
+
+**Patterns**:
+- Route id as a signal from \`ActivatedRoute\`: \`private readonly route = inject(ActivatedRoute); readonly id = toSignal(this.route.paramMap.pipe(map(params => params.get('requestId') ?? '')), { initialValue: '' });\` then key fetches off it: \`readonly request = httpResource<ReliefRequest>(() => \\\`/api/v1/operations/requests/\${this.id()}\\\`);\`. The component re-fetches automatically when the route param changes. Do not use route params as \`input.required()\` signal inputs unless router component input binding has been explicitly enabled in \`app.config.ts\`.
+- Two-way binding to a child step: parent \`form = signal(this.fb.group(...))\`, step receives \`form = input.required<FormGroup>();\`. For editable buffers (e.g. dialog row editor), use \`model<Item>()\` so the child can write back.
+- DOM-after focus: on submit-failure, run \`afterNextRender(() => this.errorSummary()?.nativeElement.focus());\` instead of \`setTimeout\`.
+- Refresh: \`this.request.reload()\` after a successful workflow action; do not re-construct the resource.
+
+### Deferrable views (\`@defer\`) — Angular 17+
+
+Use \`@defer\` blocks to code-split non-critical UI so the initial paint stays fast. \`@defer\` ships with built-in \`@placeholder\`, \`@loading\`, and \`@error\` slots, plus trigger families (\`on idle\`, \`on viewport\`, \`on interaction\`, \`when expr\`, \`prefetch\`). Heavy detail-page surfaces (audit timeline, related-records sidebar, master-form-page taxonomy cascade) should reach for \`@defer\` rather than rendering inside the main bundle.
+
+\`\`\`html
+<!-- Audit timeline only loads when it scrolls into view; placeholder keeps layout stable -->
+@defer (on viewport; prefetch on idle) {
+  <app-ops-activity-feed [items]="auditTrail()" title="Activity" eyebrow="History" />
+} @placeholder (minimum 200ms) {
+  <dmis-skeleton-loader variant="timeline" [count]="4" />
+} @loading (after 100ms; minimum 300ms) {
+  <dmis-skeleton-loader variant="timeline" [count]="4" />
+} @error {
+  <dmis-empty-state icon="error_outline" title="Couldn't load activity"
+                    actionLabel="Retry" (action)="retryAuditTrail()" />
+}
+
+<!-- Detail-page sidebar related-records: defer until the user opens the disclosure -->
+@defer (when relatedExpanded()) {
+  <app-ops-related-records [requestId]="id()" />
+}
+
+<!-- Master-form-page taxonomy cascade: prefetch on idle so it's warm if the user opens it -->
+@defer (on interaction(taxonomyTrigger); prefetch on idle) {
+  <app-master-taxonomy-cascade [config]="cfg()" [(taxonomy)]="taxonomy" />
+}
+\`\`\`
+
+**Trigger choice rules**:
+- \`on viewport\` for below-the-fold panels (audit feed, related records).
+- \`on interaction\` for user-revealed sections (collapsed accordions, "Show details" expanders).
+- \`on idle\` for opportunistic prefetch — pair with \`on viewport\` so the bundle is warm when the user scrolls.
+- \`when signal()\` for state-driven rendering (Step 3 of a wizard appears only after Step 2 commits).
+- \`@placeholder\` and \`@loading\` are required for any heavy block — never fall back to a blank region.
+- \`@placeholder (minimum 200ms)\` prevents flicker on cached navigations.
+
+### View Transitions API — Angular Router + DOM
+
+Angular's router supports the View Transitions API natively via \`withViewTransitions()\` in \`provideRouter()\`. This produces smooth cross-fade or slide transitions between routes (queue-row → detail page, wizard step → step) without a custom animation framework.
+
+\`\`\`ts
+// app.config.ts
+provideRouter(routes,
+  withComponentInputBinding(),
+  withViewTransitions({
+    skipInitialTransition: true,
+    onViewTransitionCreated: ({ transition, from, to }) => {
+      // Skip transition when prefers-reduced-motion is on
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        transition.skipTransition();
+      }
+    },
+  }),
+)
+\`\`\`
+
+For component-level transitions (e.g. wizard step swap, async content reload), call \`document.startViewTransition(() => ...)\` directly:
+
+\`\`\`ts
+async commitStep(): Promise<void> {
+  if (!('startViewTransition' in document)) {
+    this.currentStep.set(this.currentStep() + 1);   // graceful fallback
+    return;
+  }
+  await document.startViewTransition(() => {
+    this.currentStep.set(this.currentStep() + 1);
+  }).finished;
+}
+\`\`\`
+
+- Always feature-detect — View Transitions is **Baseline-pending** (Chromium + Safari 18+; Firefox enabling). Wrap in an \`if ('startViewTransition' in document)\` so non-supporting browsers degrade to instant updates.
+- Always honor \`prefers-reduced-motion: reduce\` by calling \`transition.skipTransition()\`.
+- Pair with \`view-transition-name\` CSS on the elements you want to track across navigation (e.g. \`.pfq-row[data-id]\` → \`.relief-request-detail__hero\` keeps the row title morphing into the page title).
 
 ### Imports
 - Angular Material: import specific modules (\`MatButtonModule\`, \`MatIconModule\`) not barrel exports
@@ -141,6 +250,135 @@ border-radius: 10px;
 - No deprecated CSS (e.g., no \`-webkit-\` prefixes unless necessary)
 - Component styles go in the \`styles\` array (inline) for small components, or \`styleUrl\` for larger ones
 
+### CSS Cascade Layers (\`@layer\`) — Baseline 2022, mandatory for new theming
+
+Use \`@layer\` to make override discipline explicit and remove the \`!important\` temptation. The DMIS layer order is fixed:
+
+\`\`\`scss
+@layer reset, tokens, material, ops, srd, feature, override;
+
+// reset    — sane defaults (modern reset)
+// tokens   — CSS custom-property declarations on :root and module scopes
+// material — Angular Material's MDC token overrides
+// ops      — operations-shell.scss + operations-theme.scss feature primitives
+// srd      — Supply Replenishment Dashboard primitives
+// feature  — per-component feature classes (.pfq-*, .dqu-*, .rcv-*, .{ns}-*)
+// override — last-resort overrides documented inline; kept tiny
+\`\`\`
+
+- A selector inside \`@layer feature\` always wins over the same selector inside \`@layer material\` regardless of source order or specificity. This is the modern replacement for the older \`:host { ::ng-deep ... !important; }\` workaround.
+- Tokens declared in \`@layer tokens\` can be overridden in \`@layer ops\` or \`@layer feature\` without specificity wars.
+- Style sheets imported by Angular Material land in the implicit layer (lowest priority); declare them in \`@layer material\` if you need to override their MDC tokens.
+- Document any rule that lives in \`@layer override\` with a comment explaining why a normal-cascade fix did not work.
+
+### \`:has()\` parent-state selector (Baseline 2023)
+
+\`:has()\` lets a parent style itself based on the state of a child. Use it instead of duplicating modifier classes when the state already lives on a child element.
+
+\`\`\`scss
+// Highlight a queue row whose urgency pill says HIGH — without adding a row-level modifier
+.ops-queue-row:has(.{ns}-row__urgency--danger) {
+  --ops-queue-accent: var(--{ns}-breach);
+}
+
+// Show a "has attachments" affordance only when the row contains an attachment chip
+.{ns}-row:has([data-attachments]) .{ns}-row__attachments-icon { display: inline-flex; }
+
+// Form field that contains an invalid native input gets a softer top-of-fieldset highlight
+.ops-form-section:has(:user-invalid) { background: color-mix(in srgb, var(--ops-critical-bg) 40%, transparent); }
+
+// Sidenav list item with an active child link gets a subtle current-section indicator
+.app-nav__group:has(a[aria-current='page']) .app-nav__group-label { color: var(--ops-accent); }
+\`\`\`
+
+- \`:has()\` reduces the proliferation of modifier classes and JS-driven class toggles.
+- It does NOT replace state classes that the component owns programmatically (e.g. \`.{ns}-row--locked\`) — keep state classes when the state is computed off backend data, not off DOM presence.
+
+### Container queries (\`@container\`) — Baseline 2023
+
+Use \`@container\` for **component-level** responsive behavior. Viewport media queries are a holdover from page-level layouts; container queries let queue cards / warehouse cards / detail panels respond to **their own width**, which is what they actually care about.
+
+\`\`\`scss
+.{ns}-row {
+  container-type: inline-size;
+  container-name: queue-row;
+}
+
+@container queue-row (max-width: 640px) {
+  .{ns}-row {
+    grid-template-columns: 1fr;
+    row-gap: 0.75rem;
+  }
+  .{ns}-row__next { justify-items: stretch; }
+}
+
+// Warehouse card on the SRD: stack header meta beneath title at narrow card widths
+.srd-wh-card {
+  container-type: inline-size;
+}
+@container (max-width: 520px) {
+  .srd-wh-card__header { grid-template-columns: 1fr; }
+  .srd-wh-card__meta { justify-content: flex-start; }
+}
+\`\`\`
+
+- Pair container queries with the existing viewport breakpoints (1180 / 1100 / 900 / 640) — viewport queries still own page-level decisions like "is the sidebar visible?", and container queries own card-level decisions like "does the row stack?".
+- Container query units (\`cqw\`, \`cqi\`, \`cqb\`) are available for sizing inside the queried container if you need fluid typography keyed to card width.
+
+### Logical properties (Baseline 2022)
+
+For any new spacing, sizing, or border declaration, use logical properties instead of physical ones. This is non-disruptive on LTR layouts and unlocks RTL/i18n support without rewriting styles.
+
+| Physical | Logical |
+|----------|---------|
+| \`margin-left\` / \`margin-right\` | \`margin-inline-start\` / \`margin-inline-end\` (or \`margin-inline\` shorthand) |
+| \`padding-top\` / \`padding-bottom\` | \`padding-block-start\` / \`padding-block-end\` (or \`padding-block\` shorthand) |
+| \`border-left\` | \`border-inline-start\` |
+| \`left: 0\` / \`right: 0\` | \`inset-inline-start: 0\` / \`inset-inline-end: 0\` |
+| \`text-align: left\` | \`text-align: start\` |
+| \`width\` / \`height\` (when document-flow oriented) | \`inline-size\` / \`block-size\` |
+
+- Existing physical declarations remain valid; new code uses logical.
+- Mix carefully: do not declare both \`margin-left\` and \`margin-inline-start\` on the same selector.
+
+### \`color-mix()\` for state derivation (Baseline 2023)
+
+Stop hand-mixing hover / active / focus tints. \`color-mix()\` derives state colors from base tokens, so the design system stays single-source-of-truth.
+
+\`\`\`scss
+.ops-button {
+  background: var(--ops-ink);
+  &:hover  { background: color-mix(in srgb, var(--ops-ink) 88%, white); }
+  &:active { background: color-mix(in srgb, var(--ops-ink) 78%, white); }
+  &:focus-visible {
+    outline-color: var(--ops-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ops-accent) 22%, transparent);
+  }
+}
+\`\`\`
+
+### \`@starting-style\` for entry transitions (Baseline 2024)
+
+Use \`@starting-style\` to animate a freshly inserted element into view without a JS-driven enter class. Pairs with toast notifications, dialog backdrops, popover entrance.
+
+\`\`\`scss
+.ops-toast {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity 200ms ease, translate 200ms ease;
+  @starting-style {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+\`\`\`
+
+- Honor \`prefers-reduced-motion: reduce\` by zeroing out \`@starting-style\` differences.
+
+### Native CSS nesting — keep using SCSS nesting
+
+Native CSS nesting is Baseline 2023, but DMIS authors styles in SCSS and the build emits flattened CSS. Keep SCSS-nested syntax in source files; the SCSS compiler produces native nesting when targeting modern engines. Do NOT mix SCSS \`&\` nesting with native CSS nesting in the same block.
+
 ---
 
 ## 4. Page Layout Patterns
@@ -193,11 +431,73 @@ ops-shell
 - **\`ops-hero__trail\`** stacks vertically (column) on desktop, aligns chips right with actions below
 - On mobile (\`<768px\`), \`ops-hero__trail\` aligns start and stacks below the title
 
+### Detail page layout selection
+- **\`ops-layout--two-col\`** (\`1fr / 1fr\`) — equal-emphasis layouts where the right column is itself a primary surface (related records, large activity feed, batch list).
+- **\`ops-layout--wide-right\`** (\`minmax(0, 1.6fr) / 22rem\`) — the default for relief request / eligibility review detail. Primary document on the left, persistent sidebar on the right (status + actions + audit summary).
+- Below 1100px, both layouts collapse to a single column with the sidebar restacking after the document.
+
+### Detail page action gating (frontend is UX-only — backend remains authoritative)
+- Compute action visibility through \`computed()\` signals derived from the loaded record + permissions:
+  \`\`\`ts
+  readonly canEdit = computed(() => this.request()?.status === 'DRAFT' && this.appAccess.has('operations.requests.edit'));
+  readonly canSubmit = computed(() => this.request()?.status === 'DRAFT' && this.appAccess.has('operations.requests.submit'));
+  readonly canCancel = computed(() => /* workflow + permission */);
+  \`\`\`
+- Hidden buttons are not security — backend authorization is authoritative (every endpoint re-checks tenant + role). The frontend gating is a UX courtesy.
+
+### Idempotency keys for workflow actions (signal pattern)
+Workflow actions on detail pages (Submit, Approve, Reject, Cancel, Dispatch, Receipt confirmation) MUST send an \`Idempotency-Key\` header so a flaky network or double-click does not corrupt the audit trail. Generate a fresh key per attempt and clear on success or final failure.
+
+\`\`\`ts
+private readonly pendingSubmitKey = signal<string | null>(null);
+
+submit(): void {
+  if (this.submitting()) return;
+  const idempotencyKey = this.pendingSubmitKey() ?? crypto.randomUUID();
+  this.pendingSubmitKey.set(idempotencyKey);
+  this.submitting.set(true);
+  this.operationsService
+    .submitRequest(this.request().id, { idempotencyKey })
+    .pipe(takeUntilDestroyed(this.destroyRef))
+    .subscribe({
+      next: () => {
+        this.pendingSubmitKey.set(null);     // clear so next attempt is a new operation
+        this.submitting.set(false);
+        this.request.reload();                // httpResource refresh
+      },
+      error: () => {
+        this.submitting.set(false);
+        // KEEP pendingSubmitKey set — a retry should be the SAME operation, not a new one
+      },
+    });
+}
+\`\`\`
+
+- Use \`crypto.randomUUID()\` (browser-native; no library import needed).
+- Store the pending key as a **signal**, not an instance variable — keeps it part of the reactive state graph so derived UI (\`disabled\` while pending) stays in sync.
+- On a transient error, **keep** the key so a retry is the same logical operation. On terminal success or terminal failure (4xx that won't be retried), clear the key.
+
+### Audit timeline (workflow-step list)
+Detail pages typically render a 4-6 step audit timeline. Use \`<app-ops-activity-feed [items]="..." title="Activity" eyebrow="History">\` with each item carrying:
+- \`tone\`: one of \`'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted'\` mapping to a colored dot.
+- \`title\`: short verb-led summary ("Submitted", "Approved", "Cancelled").
+- \`subtitle\`: actor + timestamp.
+- \`note\` (optional): the reason / comment captured at the action time.
+
 ### Action button hierarchy rules
 - **Primary (filled)** = the action that moves the record forward in its workflow (submit, approve, dispatch)
 - **Secondary (stroked)** = editing, viewing related records, or utility actions (edit draft, open workspace)
 - **Destructive (stroked warn)** = reject, deny, ineligible, cancel — any action that blocks or reverses workflow
 - Never make the backward/utility action the primary button
+
+### Inline button loading state
+- While a workflow action is pending, render a leading \`<mat-spinner [diameter]="16">\` inside the button **without** changing the button width — preserve the label so the layout doesn't shift. Use \`min-width\` to lock the button at its idle width, or render a spinner overlay with \`position: absolute\`.
+- Disable the button while pending (\`[disabled]="submitting()"\`) and apply \`aria-busy="true"\` on the button so AT users hear the state change.
+- For double-submit safety pair this with the idempotency key signal pattern (Detail Page section above).
+
+### Button touch-target sizing (WCAG 2.2 SC 2.5.8)
+- Default Material \`mat-flat-button\` / \`mat-stroked-button\` heights already exceed 24×24, but **icon-only** buttons (\`mat-icon-button\`) must have at least \`min-width: 40px; min-height: 40px\` so the active region clears 24×24 with comfortable padding (and reaches 44×44 once mobile padding is applied).
+- Inline icon affordances on dense rows (chevrons, remove buttons) must reserve enough \`padding\` that the *clickable* area meets 24×24 even when the visible icon is 16×16.
 
 ### Button styling (Angular Material MDC tokens)
 
@@ -294,6 +594,69 @@ ops-shell
 - Use inline context strips for read-only data instead of card-style containers
 - Item lines: single-row inline fields with compact Material density (\`--mat-form-field-container-height: 44px\`)
 
+### Wizard step ownership (FormGroup contract)
+The parent wizard component owns the form. Step components are presentational projections.
+
+- Parent: holds \`readonly form = signal(this.fb.group({ ... }));\` (or \`linkedSignal\` if it depends on a loaded record). FormArray for repeating items lives on the parent.
+- Step: declares \`readonly form = input.required<FormGroup>();\` — a **signal input**, not an \`@Input()\` decorator. Reads controls via \`this.form().get('fieldName')\`.
+- Cross-step validators (e.g. departure < arrival, dispatch warehouse must hold all items) are **group-level validators on the parent FormGroup**.
+- Step components MUST NOT emit per-field changes. The parent reads form values for API submission.
+- When a record is finalized (e.g. dispatched), the parent calls \`this.form().disable()\` once — child steps inherit disabled state through the form tree.
+- For dialog-based row editors, prefer \`model<Item>()\` so the dialog can write back without a manual \`@Output()\`.
+
+### Form error summary on submit (WCAG 2.2 SC 3.3.1 / 3.3.3)
+When a wizard step or form fails validation on submit, render a focused error summary at the top of the form:
+
+\`\`\`html
+@if (showErrorSummary()) {
+  <div #errorSummary
+       role="alert"
+       aria-live="assertive"
+       tabindex="-1"
+       class="ops-form-error-summary">
+    <h2 class="ops-form-error-summary__title">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      We couldn't save this step
+    </h2>
+    <p class="ops-form-error-summary__copy">Fix these {{ errors().length }} issues and try again:</p>
+    <ul>
+      @for (err of errors(); track err.controlPath) {
+        <li><a [href]="'#' + err.fieldId">{{ err.label }}: {{ err.message }}</a></li>
+      }
+    </ul>
+  </div>
+}
+\`\`\`
+
+- Auto-focus the summary heading after render so AT users land on it: \`afterNextRender(() => this.errorSummary()?.nativeElement.focus())\`.
+- Each list item links to the offending field by \`id\` so click/keyboard navigation jumps the user there.
+- \`role="alert"\` + \`aria-live="assertive"\` ensures screen readers announce the failure without re-render churn.
+
+### Server-side validation reflection
+When the API returns field-level errors (\`{ errors: { fieldName: ["msg"] } }\`), the component MUST surface them through the same \`<mat-error>\` channel as client-side errors:
+
+\`\`\`ts
+const fieldErrors = response.errors ?? {};
+for (const [fieldName, messages] of Object.entries(fieldErrors)) {
+  this.form().get(fieldName)?.setErrors({ server: messages.join(' ') });
+}
+\`\`\`
+
+- Existing client-side validators continue to work (\`server\` is a separate error key).
+- \`<mat-error>\` template should branch: \`@if (control.hasError('required')) {…} @else if (control.hasError('server')) { {{ control.getError('server') }} }\`.
+- Multiple field errors should also surface in the top-of-form error summary so the user sees the full list at once.
+
+### Submit / Save Draft button states
+- Disabled when \`submitting()\` OR \`savingDraft()\` is true.
+- Render a leading \`<mat-spinner [diameter]="16">\` inside the active button while pending; do not swap labels.
+- \`aria-busy="true"\` on the button while pending.
+- The Cancel button (Section 4d Workflow Abandon Pattern) is disabled while either pending state is true.
+
+### Redundant entry rule (WCAG 2.2 SC 3.3.7)
+Don't ask the user to re-enter information they have already provided in the same session.
+- Wizard steps must NOT re-prompt for the requesting agency, event, or warehouse if those are already on the parent FormGroup. Display the current value in a read-only context strip (Section 4 Compact Context Strip pattern) and let the user edit only via a "Change" affordance.
+- Detail pages must pre-populate "reason" / "comment" fields from the most recent draft when the user re-enters cancel/reject flows in the same session.
+
 ### Compact context strip pattern
 \`\`\`html
 <div class="ops-context-strip" role="status">
@@ -321,6 +684,68 @@ ops-context-bar (elevated card, full-width above the split layout)
 - Context bar sits ABOVE the split layout, not inside a toolbar
 - Changes to the context bar reload downstream content
 - Override badge shows how many items differ from the default
+
+### Modern overlay primitives — \`<dialog>\`, \`inert\`, Popover API
+
+DMIS dialogs and overlays still go through Angular Material's \`MatDialog\` (CDK overlay) for the well-tested focus-trap and ESC handling. But a few modern primitives are now safe to use directly when CDK overlay would be overkill.
+
+#### \`inert\` attribute (Baseline 2023)
+- Apply \`[inert]="true"\` (or programmatically \`element.inert = true\`) to background page regions when a modal-like surface is open. The browser removes those regions from the focus order, hides them from AT, and disables pointer events — replacing 90% of manual focus-trap plumbing.
+- Use it on the \`ops-page-shell\` while a confirm dialog is open, on inactive wizard steps, on a list section that is currently being filtered, or on a row whose action button is showing a loading state.
+- Pair with \`aria-hidden="true"\` is **redundant** when \`inert\` is set — \`inert\` already hides from AT. Don't double up.
+
+#### Native \`<dialog>\` element (Baseline 2022)
+Use the native \`<dialog>\` element with \`showModal()\` for tiny, self-contained confirms (e.g. "Mark item as expired?") where pulling in MatDialog would be heavy. The native element delivers focus-trap, ESC-to-close, and \`::backdrop\` styling for free.
+
+\`\`\`html
+<dialog #confirmDlg class="ops-dialog" closedby="any">
+  <h2 class="ops-dialog__title">Mark item as expired?</h2>
+  <p class="ops-dialog__copy">This sets the batch status to EXPIRED and removes it from available stock.</p>
+  <form method="dialog" class="ops-dialog__actions">
+    <button type="submit" value="cancel" class="ops-button ops-button--secondary">Keep</button>
+    <button type="submit" value="confirm" class="ops-button ops-button--destructive">Mark expired</button>
+  </form>
+</dialog>
+\`\`\`
+
+\`\`\`ts
+async confirm(): Promise<boolean> {
+  this.dlg().nativeElement.showModal();
+  const result = await new Promise<string>(resolve => {
+    this.dlg().nativeElement.addEventListener('close', () => resolve(this.dlg().nativeElement.returnValue), { once: true });
+  });
+  return result === 'confirm';
+}
+\`\`\`
+
+- Default to MatDialog for any dialog that requires complex content, animations, or coordination with the router.
+- The native element is appropriate when (a) the content fits on a single screen, (b) the workflow is "ask-and-act", and (c) you want the lightest possible bundle weight.
+- Style \`::backdrop\` for the modal scrim: \`dialog::backdrop { background: color-mix(in srgb, #1a1c1c 40%, transparent); backdrop-filter: blur(2px); }\`.
+- Use the \`closedby="any"\` HTML attribute (or the equivalent \`requestClose\` JS) so ESC and backdrop-click both close the dialog without manual wiring.
+
+#### Popover API (\`popover\` attribute, Baseline 2024)
+Use the Popover API for transient, **non-modal** affordances: dropdown menus, action sheets, share sheets, "more options" panels. The platform handles top-layer rendering, light dismiss, ESC to close, and focus return — skipping CDK overlay where you don't need anchored positioning logic.
+
+\`\`\`html
+<button type="button" popovertarget="rowMenu" popovertargetaction="toggle"
+        aria-label="Row actions">
+  <mat-icon>more_vert</mat-icon>
+</button>
+
+<div id="rowMenu" popover="auto" class="ops-popover">
+  <button type="button" (click)="duplicate()">Duplicate</button>
+  <button type="button" (click)="exportRow()">Export</button>
+  <button type="button" (click)="archive()" class="ops-popover__danger">Archive</button>
+</div>
+\`\`\`
+
+- \`popover="auto"\` (default) auto-closes on outside click, ESC, or another popover opening. Use \`popover="manual"\` only when you need to control dismissal yourself.
+- The Popover API does NOT replace \`mat-menu\` for menus that are deeply integrated with reactive state or that need anchor positioning (use CSS Anchor Positioning when broadly supported).
+- Pair with \`@starting-style\` (Section 3) for the entry animation.
+
+#### View Transitions for wizard step swap and content reload
+- For step-to-step transitions in a wizard, wrap \`currentStep.set(...)\` in \`document.startViewTransition()\` (Section 2 example). Honor \`prefers-reduced-motion\` by calling \`transition.skipTransition()\`.
+- For shimmer-overlay reloads (Async content swap pattern in §4d), prefer the View Transition over a manual cross-fade where supported.
 
 ---
 
@@ -1717,15 +2142,291 @@ queue pages.
 - If the parent workspace displays a metric strip (tracking numbers, lifecycle status), step sub-components must NOT repeat the same data in their own card grids.
 - Steps should only add information that is new or specific to that step's context.
 
+### Field state UX (pristine / dirty / touched / invalid)
+Match Material's default \`mat-form-field\` behavior, then layer DMIS tokens on top:
+
+| State | Visual treatment | Helper text |
+|-------|------------------|-------------|
+| Pristine | 1px outline \`var(--ops-outline)\` | \`<mat-hint>\` always shown if defined |
+| Focused | Outline transitions to \`var(--ops-accent)\` (\`#0f766e\`); 3px focus ring \`color-mix(in srgb, var(--ops-accent) 20%, transparent)\` | Hint stays visible; live remaining-character count if \`maxLength\` is meaningful |
+| Dirty + valid | Outline returns to neutral; no positive-state tint (avoids visual noise on long forms) | Hint stays |
+| Touched + invalid | Outline \`var(--ops-critical-text)\` (\`#8c1d13\`); error icon at right end of outline | \`<mat-error>\` replaces hint (Material default — do NOT override) |
+| Disabled | Reduced opacity (\`0.62\`); cursor \`not-allowed\` | Hint dimmed |
+
+- Never tint the entire form-field background to indicate state — the warm Notion palette relies on outline emphasis.
+- Never show validation errors on \`pristine\` fields. Wait for \`touched\` (blur) so the user is not yelled at while typing.
+- For async validators, show a \`<mat-spinner [diameter]="14">\` inside the suffix region while \`status === 'PENDING'\`.
+
+### Inline error announcement
+- **Inline error**: \`<mat-error>\` below the field. Material wires \`aria-describedby\` from the input to the error so screen readers announce both label and error together.
+- **Form-level error summary on submit**: see Section 4 "Form error summary on submit" — required for any wizard step or form with more than ~3 inputs.
+- **Async / server error reflection**: see Section 4 "Server-side validation reflection" — \`setErrors({ server: msg })\` so server errors flow through the same \`<mat-error>\` channel.
+
+### Required-field markers (WCAG-safe)
+\`\`\`html
+<mat-label>
+  Reason for cancellation
+  <span class="ops-required" aria-hidden="true">*</span>
+</mat-label>
+<input matInput formControlName="reason" required aria-required="true" maxlength="500" />
+\`\`\`
+- The visual asterisk is decorative; \`aria-required="true"\` and \`required\` carry the semantic.
+- Do not rely on color alone to mark required — keep the asterisk and the \`aria-required\` attribute.
+- Material's \`required\` attribute auto-adds the asterisk; when using a custom label slot, mirror that semantic.
+
+### Hint vs error precedence
+- \`<mat-hint>\` is **always visible** when defined and the field is valid or pristine.
+- \`<mat-error>\` **replaces** the hint when the control is \`touched && invalid\` (Material handles this swap automatically — generated components must not override the floating-helper region with custom \`<div>\`s).
+- Use \`<mat-hint align="end">\` for character counts: \`{{ control.value?.length ?? 0 }}/{{ maxLength }}\`.
+
+### Inline edit affordance (Notion pattern for read-mostly fields)
+For detail pages where a single field is occasionally edited (e.g. a note, an assigned owner), avoid switching the whole record into "edit mode". Use an inline-edit affordance:
+
+\`\`\`html
+<div class="ops-inline-edit"
+     [class.ops-inline-edit--active]="editing()"
+     (click)="enterEdit()"
+     (keydown.enter)="enterEdit()"
+     tabindex="0"
+     role="button"
+     [attr.aria-label]="editing() ? 'Editing ' + label() : 'Edit ' + label() + ', current value: ' + value()">
+  @if (editing()) {
+    <mat-form-field appearance="outline" class="ops-inline-edit__field">
+      <mat-label>{{ label() }}</mat-label>
+      <input matInput
+             [formControl]="control"
+             (keydown.escape)="cancelEdit()"
+             (keydown.enter)="commitEdit(); $event.preventDefault()"
+             cdkFocusInitial />
+    </mat-form-field>
+  } @else {
+    <span class="ops-inline-edit__value">{{ value() || '— set ' + label() + ' —' }}</span>
+    <mat-icon class="ops-inline-edit__icon" aria-hidden="true">edit</mat-icon>
+  }
+</div>
+\`\`\`
+
+- Hover reveals the edit pencil; click or Enter swaps to the input.
+- Escape cancels (revert + blur). Enter commits (calls submit handler). Tab away also commits — match document-style editing expectations.
+- Always render the field label visually (do not rely on placeholder-as-label) so AT users still hear it on focus.
+
+### Form density tokens (\`--ops-form-density\`)
+Three explicit density levels keyed off a single CSS custom property on the form root:
+
+\`\`\`scss
+.ops-form-stage {
+  --ops-form-density: comfortable;       // default: roomy intake forms
+  --mat-form-field-container-height: 56px;
+}
+.ops-form-stage--compact {               // wizard steps, ops-form-items
+  --ops-form-density: compact;
+  --mat-form-field-container-height: 44px;
+}
+.ops-form-stage--dense {                 // allocation grids, batch tables
+  --ops-form-density: dense;
+  --mat-form-field-container-height: 36px;
+}
+\`\`\`
+
+- \`comfortable\` (56px row): default Material density. Use for first-time intake forms (Relief Request Wizard step 1, Master Data create).
+- \`compact\` (44px row): use for wizard steps with many inline fields and for \`ops-form-items\` line lists.
+- \`dense\` (36px row): allocation tables, batch reservation grids, repeating qty fields. Pair with \`font-size: 0.85rem\` and \`tabular-nums\` numerals.
+- Density tokens never override accessibility minimums — minimum touch target stays 24×24 (Section 1, WCAG 2.2 SC 2.5.8).
+
+### Reference-data cascade pattern (category → family → reference)
+When a form has dependent dropdowns (e.g. master-form-page item taxonomy: category → family → reference), wire them as a cascade:
+
+- Each downstream control starts disabled until its upstream value resolves.
+- On upstream change, clear the downstream value and emit a \`status === 'PENDING'\` signal that triggers a \`<mat-spinner>\` in the dependent field's suffix.
+- Debounce upstream emissions (\`300ms\`) when the upstream is a free-text search field.
+- Use \`linkedSignal\` for the dependent options so they reset cleanly when the upstream resets:
+  \`\`\`ts
+  readonly familyOptions = linkedSignal(() => {
+    const cat = this.categoryControl.value;
+    return cat ? this.taxonomyService.familiesFor(cat) : [];
+  });
+  \`\`\`
+- The submit handler must validate cross-control consistency (e.g. selected family belongs to selected category) — server may have changed the taxonomy since the form loaded.
+
+### \`mat-select\` vs native \`<select>\` decision rule
+| Use | When |
+|-----|------|
+| \`<mat-select>\` | Enumerated options ≤ 10 entries where the form needs Material styling parity (transport mode, urgency, status). |
+| Native \`<select>\` (wrapped per Section 4f) | ≥ 10 options, mobile-first surfaces, or any toolbar / scope picker. Native wins on mobile keyboards, screen readers, and on slow networks. |
+| Autocomplete (\`<input matInput [matAutocomplete]>\`) | Lookup against a large catalogue (warehouse list with > 30 entries, item lookup) where the user knows part of the name. Render \`<mat-option>\` per filtered hit; debounce 250ms. |
+
+- Never mix \`mat-select\` and native \`<select>\` on the same toolbar — one or the other.
+- Never use \`<mat-menu>\` for dropdowns that must hold a value (\`<mat-menu>\` is for transient actions, not bound state).
+
+### File upload UX
+For attachments (waybills, photos, signed receipts):
+
+\`\`\`html
+<label class="ops-file-drop"
+       [class.ops-file-drop--hover]="dragging()"
+       (dragover)="$event.preventDefault(); dragging.set(true)"
+       (dragleave)="dragging.set(false)"
+       (drop)="onDrop($event)">
+  <input type="file" [multiple]="multiple()" hidden #fileInput
+         (change)="onFiles($any($event.target).files)" />
+  <mat-icon aria-hidden="true">cloud_upload</mat-icon>
+  <span>Drag files here or <button type="button" (click)="fileInput.click()">browse</button></span>
+  <span class="ops-file-drop__hint">Max 10MB per file · PDF, PNG, JPG</span>
+</label>
+
+@if (files().length > 0) {
+  <ul class="ops-file-list" aria-label="Attached files">
+    @for (f of files(); track f.id) {
+      <li class="ops-file-list__item">
+        <mat-icon aria-hidden="true">description</mat-icon>
+        <span class="ops-file-list__name">{{ f.name }}</span>
+        <span class="ops-file-list__size">{{ f.size | dmisFileSize }}</span>
+        <button mat-icon-button type="button"
+                [attr.aria-label]="'Remove ' + f.name"
+                (click)="remove(f.id)">
+          <mat-icon>close</mat-icon>
+        </button>
+      </li>
+    }
+  </ul>
+}
+\`\`\`
+
+- Pre-check size and type on the client BEFORE upload (\`File.size\`, \`File.type\`); display inline errors next to the rejected file.
+- Backend re-validates everything — frontend rejection is purely UX courtesy.
+- Show upload progress per file via a small linear progress bar inside the list item; do not block the rest of the form.
+- The drop zone must be keyboard-reachable: the \`<label>\` wraps a hidden \`<input type="file">\` so Enter/Space activates the native file picker.
+
+### Native form-state pseudo-classes (\`:user-valid\` / \`:user-invalid\`) — Baseline 2024
+
+Native pseudo-classes that fire only AFTER the user has interacted with a control replace the manual "did the user touch this yet?" tracking that Angular forms otherwise need. Use them to style native form controls that aren't wrapped in \`<mat-form-field>\` (e.g. native \`<select>\` toolbar pickers, native file inputs, free-form textareas).
+
+\`\`\`scss
+input:user-invalid,
+select:user-invalid,
+textarea:user-invalid {
+  border-color: var(--ops-critical-text);
+  background: color-mix(in srgb, var(--ops-critical-bg) 35%, transparent);
+}
+input:user-valid,
+select:user-valid,
+textarea:user-valid {
+  border-color: color-mix(in srgb, var(--ops-accent) 60%, transparent);
+}
+\`\`\`
+
+- \`:user-invalid\` does NOT fire on a pristine control — it waits for blur (or for the form to have been submitted). This is the "don't yell while typing" rule, enforced by the platform.
+- For Angular Reactive Forms inside \`<mat-form-field>\`, keep using Angular's \`touched\` / \`dirty\` / \`invalid\` flags — Material's MDC styling pipeline reads from those, not from the native pseudo-classes.
+- The two systems can co-exist on the same page; just don't double up on the same control.
+
+### \`accent-color\` for native form controls (Baseline 2022)
+
+Tint the platform-native checkbox, radio, range, and progress controls so they match the Notion accent without rolling a custom widget:
+
+\`\`\`scss
+:root {
+  accent-color: #0f766e;   /* var(--ops-accent) */
+}
+\`\`\`
+
+- Set this once on \`:root\` (or on \`.ops-page-shell\`); it cascades to every native form control on the page.
+- Material's \`<mat-checkbox>\` / \`<mat-radio-button>\` ignore this property because they render their own SVG — they read from Material's theme tokens. \`accent-color\` is for the dozen places DMIS uses bare native controls (the SRD scope native \`<select>\` is unaffected since selects ignore it).
+
+### Auto-growing textareas — \`field-sizing: content\` (Chromium 123+; progressive enhancement)
+
+For free-text fields where the right answer is "let it grow with the content" (cancel reason, dispatch notes, override comment), use \`field-sizing: content\` so the textarea sizes to its content without a JS resize observer.
+
+\`\`\`scss
+textarea.ops-autogrow {
+  field-sizing: content;
+  min-height: 3lh;            /* keeps initial height at ~3 lines using line-height units */
+  max-height: 18lh;           /* prevents runaway growth on pasted multi-page text */
+  resize: none;               /* the user uses content to grow, not a drag-handle */
+}
+\`\`\`
+
+- Currently shipping in Chromium-based browsers; Firefox and Safari fall back to the \`min-height\` value, which is acceptable.
+- For the field-mobile profile (Kemar in a hurricane on Chrome Android), this is the cleanest pattern.
+- Pair with \`<mat-hint align="end">\` to show \`{{ value.length }}/{{ maxLength }}\` so the user has a sense of how much room is left.
+
+### Logical-unit sizing (\`lh\`, \`cap\`, \`ch\`, \`ex\`)
+
+Modern length units are now Baseline-stable. Use them where they read better than \`px\`:
+
+| Unit | Use for |
+|------|---------|
+| \`lh\` | Min/max textarea heights, line-aligned paddings on form rows |
+| \`ch\` | Max-width on body copy paragraphs (\`70ch\` for the established prose width) |
+| \`cap\` | Vertical alignment of icons against capital letters |
+| \`%\` of container query units (\`cqi\` / \`cqb\`) | Card-relative typography inside \`@container\` (Section 3) |
+
 ---
 
 ## 5. Data & Service Patterns
 
-### API calls
-- Services use \`inject(HttpClient)\` and return \`Observable<T>\`
-- Components subscribe in \`ngOnInit\` and push results into signals
-- Use \`forkJoin\` for parallel API calls, \`catchError(() => of(fallback))\` for resilience
-- Show loading skeleton during fetch, error callout on failure
+### API calls — Angular 21 baseline (\`httpResource\` / \`resource\` / \`toSignal\`)
+The repo runs Angular 21.2.4. New components and refactors should reach for the declarative reactive APIs first; \`Observable\` + manual \`subscribe\` is reserved for cases that genuinely stream or compose.
+
+**Tier 1 — \`httpResource\` (default for read-only fetches)**
+\`\`\`ts
+readonly id = input.required<string>({ alias: 'requestId' });
+
+readonly request = httpResource<ReliefRequest>(() =>
+  \`/api/v1/operations/requests/\${this.id()}\`
+);
+
+// In the template:
+//   @if (request.isLoading()) { <dmis-skeleton-loader variant="detail" /> }
+//   @else if (request.error()) { <dmis-empty-state icon="error_outline" ... /> }
+//   @else { ... bind to request.value() ... }
+\`\`\`
+
+- Built-in \`value()\`, \`isLoading()\`, \`error()\`, and \`reload()\` signals — no manual \`signal.set\` plumbing.
+- Re-fetches automatically when its keying signal (route id, filter signal) changes.
+- Pair with the signal-based router input pattern (Section 2) so the route param drives the resource.
+
+**Tier 2 — \`resource\` (composed / transformed reads)**
+Use when the loader returns a Promise and you need to derive the response before exposing it (e.g. merge two endpoints, transform a list).
+
+\`\`\`ts
+readonly queueWithCounts = resource({
+  request: () => ({ filter: this.filter(), warehouse: this.warehouse() }),
+  loader: async ({ request }) => {
+    const items = await firstValueFrom(this.svc.queue(request));
+    return enrichWithCounts(items);
+  },
+});
+\`\`\`
+
+**Tier 3 — \`toSignal()\` over an Observable (streaming or imperative composition)**
+Keep \`Observable\` + \`toSignal()\` (or manual subscribe with \`takeUntilDestroyed()\`) for:
+- Form \`valueChanges\` / \`statusChanges\` — these ARE streams.
+- Debounced searches (e.g. the IFRC suggest in master-form-page) — \`switchMap\` + \`debounceTime\` are still the right tool.
+- Long-lived event streams (websocket-style updates if added later).
+- Anything that needs RxJS error/retry operators.
+
+\`\`\`ts
+readonly filteredCatalog = toSignal(
+  this.searchTerm$.pipe(
+    debounceTime(250),
+    switchMap(term => this.catalogService.search(term).pipe(catchError(() => of([]))))
+  ),
+  { initialValue: [] }
+);
+\`\`\`
+
+**Refresh patterns**
+- \`httpResource\` / \`resource\`: \`this.request.reload()\` after a successful workflow action — never re-instantiate the resource.
+- \`toSignal\`-backed observables: emit a new request value via a separate \`Subject\` or by calling \`set\` on the signal that keys the stream.
+
+**Migration rule (don't rewrite working code)**
+- Components that already use the older "subscribe in \`ngOnInit\` → push to signal" pattern remain valid. Treat them as **acceptable** (not preferred). Refactor when the file is being edited for other reasons.
+- New components and major refactors must adopt \`httpResource\` / \`resource\` / \`toSignal\`.
+
+**Service layer rules (unchanged from prior versions)**
+- Services use \`inject(HttpClient)\` and return \`Observable<T>\` — services stay observable-first so they compose with \`httpResource\`'s underlying mechanism, RxJS operators, and error pipelines.
+- Use \`forkJoin\` for parallel calls when you need them as one composed read; otherwise prefer multiple sibling \`httpResource\` instances and a \`computed()\` that joins them.
+- Show loading skeleton during fetch (Section 4 patterns), error callout on failure with \`<dmis-empty-state icon="error_outline" actionLabel="Retry">\`.
 
 ### Filtering pattern
 \`\`\`typescript
@@ -1744,14 +2445,50 @@ readonly filteredItems = computed(() => {
 
 ---
 
-## 6. Accessibility (Non-negotiable)
+## 6. Accessibility (Non-negotiable — WCAG 2.2 AA baseline)
 
-- Status colors MUST have text/icon backup — never color-only indicators
-- \`role="list"\` / \`role="listitem"\` on custom list markup
-- \`aria-label\` on sections, toolbars, navigation regions
-- Radio groups for filters: \`role="radiogroup"\` with \`aria-label\`
-- Interactive cards: \`tabindex="0"\` + keyboard event handling
-- Reduced motion: \`@media (prefers-reduced-motion: reduce) { transition: none; }\`
+DMIS targets **WCAG 2.2 Level AA**. Every generated component must be tested against the success criteria below; cite the SC by number in code review when a fix relates to one.
+
+### Perceivable
+- **1.1.1 Non-text Content** — every \`<img>\`, \`<mat-icon>\` that conveys meaning, and decorative-only graphic has the right \`alt\` / \`aria-hidden="true"\` / \`aria-label\`.
+- **1.3.1 Info and Relationships** — semantic markup: \`<section>\`, \`<header>\`, \`<aside>\`, \`<nav>\`, \`role="list"\` / \`role="listitem"\` on custom list markup.
+- **1.4.3 Contrast (Minimum)** — body text 4.5:1, large text 3:1. The status chip palette is tuned to 7.2:1+ (Section 4 button table).
+- **1.4.11 Non-text Contrast** — focus rings, outlined controls, status dots, icon-only buttons have ≥ 3:1 against their background.
+- **1.4.13 Content on Hover or Focus** — hover/focus popovers must be hoverable, dismissible (Esc), and persistent. See Section 1 "Content on hover or focus".
+
+### Operable
+- **2.1.1 Keyboard** — every interactive element keyboard-reachable; no mouse-only paths. Custom rows use \`tabindex="0"\` + \`(keydown.enter)\` / \`(keydown.space.prevent)\` handlers.
+- **2.1.2 No Keyboard Trap** — modal dialogs (\`MatDialog\`) trap focus correctly out of the box; verify when wrapping a custom overlay.
+- **2.4.3 Focus Order** — DOM order matches visual order. Don't reorder with CSS \`order\` for primary content.
+- **2.4.7 Focus Visible** — every focusable element shows a visible 2px focus ring at 2px offset. Section 1 sets the global token; do not override per-component.
+- **2.5.7 Dragging Movements** — drag-drop file upload must offer a non-drag fallback (the visible "browse" button — Section 4b file upload pattern).
+- **2.5.8 Target Size (Minimum)** — 24×24 CSS px minimum hit area. Aim 44×44 on mobile-first surfaces. See Section 1 "Touch targets".
+
+### Understandable
+- **3.2.1 / 3.2.2 On Focus / On Input** — focusing or typing into a control does not automatically navigate or submit. Submit fires only on explicit click / Enter on a submit button.
+- **3.3.1 Error Identification** — every form error names the field and describes the problem ("Reason cannot exceed 500 characters", not "Invalid").
+- **3.3.3 Error Suggestion** — the message tells the user how to fix it when feasible.
+- **3.3.7 Redundant Entry** — don't ask for the same information twice in a session. See Section 4 "Redundant entry rule".
+- **3.3.8 Accessible Authentication (Minimum)** — Keycloak handles primary auth. Custom auth flows must NOT require cognitive function tests (e.g. transcribing a string from one box to another) without an alternative.
+
+### Robust
+- **4.1.2 Name, Role, Value** — every custom interactive uses native ARIA semantics: filters \`role="radiogroup"\` + \`role="radio"\` + \`aria-checked\`; cards \`role="button"\`; inline-edit \`role="button"\` with \`aria-label\` describing current value.
+- **4.1.3 Status Messages** — toasts and inline status updates use \`aria-live="polite"\`. Blocking errors use \`role="alert"\` (or \`aria-live="assertive"\`). Never communicate state via a hidden text node alone — AT must be able to announce it.
+
+### DMIS-specific reinforcements
+- Status colors MUST have text/icon backup — never color-only indicators (chips ship a leading dot + label).
+- \`aria-label\` on every \`<section>\`, \`<aside>\`, \`<nav>\`, and toolbar.
+- Radio groups for filters: \`role="radiogroup"\` with \`aria-label\` + per-chip \`role="radio"\` with \`aria-checked\`.
+- Interactive cards: \`tabindex="0"\` + Enter/Space keyboard handlers.
+- Reduced motion: \`@media (prefers-reduced-motion: reduce) { transition: none; transform: none; }\` — disable lift / fade transitions globally. Also use \`transition.skipTransition()\` inside \`onViewTransitionCreated\` callbacks (Section 2 View Transitions) and skip \`@starting-style\` deltas (Section 3).
+- Skip-to-content: every page renders a \`<a class="ops-skip-link" href="#main">Skip to main content</a>\` that becomes visible on focus.
+
+### Modern a11y primitives (Baseline 2023+)
+- **\`inert\` attribute** — apply to background regions while a modal-like surface is open (confirm dialog, side panel, lightbox). The browser removes them from the focus order, hides them from AT, and disables pointer events. Replaces 90% of manual focus-trap plumbing. Setting \`inert\` makes \`aria-hidden\` redundant — don't double up.
+- **Native \`<dialog>\` element** — when used with \`showModal()\` it auto-applies \`inert\` to the rest of the document. ESC, focus-trap, and \`::backdrop\` styling come for free (Section 4).
+- **Popover API (\`popover\` attribute)** — the platform handles light dismiss, ESC, focus return, and top-layer rendering for non-modal popovers (Section 4).
+- **\`<details>\` with the \`name\` attribute** (Baseline 2024) — exclusive accordion behavior without JS: assigning the same \`name="audit-section"\` to multiple \`<details>\` causes opening one to close the others.
+- **\`enterkeyhint\`** on form inputs — hint mobile keyboards which action the Enter key triggers (\`enterkeyhint="search"\`, \`"send"\`, \`"go"\`). Improves field-mobile workflows for Kemar.
 
 ---
 
@@ -1782,6 +2519,27 @@ Before considering a component complete, verify:
 - [ ] Queue list rows compose \`.ops-queue-row\`; stage colour is driven via \`--ops-queue-accent\` on the stage modifier and no feature class re-declares \`background\` / \`border\` / \`border-left\` / \`border-radius\` / \`box-shadow\` (Section 4g)
 - [ ] Cancel button opens a confirm dialog and calls a dedicated abandon-draft endpoint with Idempotency-Key
 - [ ] Signal inputs are read as functions in templates (\`warehouse()\`, not \`warehouse\`)
+- [ ] Forms meet WCAG 2.2 AA: every interactive ≥ 24×24 px (SC 2.5.8), error summary at top of form on submit failure with focus management (SC 3.3.1/3.3.3), inline errors linked via \`aria-describedby\`, required fields use \`aria-required="true"\` plus a visual marker, status updates use \`aria-live\` (SC 4.1.3)
+- [ ] Wizard step components consume the parent form via \`form = input.required<FormGroup>()\` (signal input) — NOT \`@Input()\` decorator
+- [ ] Idempotency keys for workflow actions are tracked in a \`signal<string | null>(null)\` so disabled / pending UI stays in sync — NOT instance variables
+- [ ] Data fetching: new code uses \`httpResource\` (read-only) or \`resource\` (composed) keyed off a signal. \`Observable\` + \`subscribe\` + \`signal.set\` is reserved for streams (form valueChanges, debounced searches) and pre-existing components being touched for unrelated reasons (Section 5)
+- [ ] DOM-after work (focus an error summary, scroll into view) uses \`afterNextRender\` / \`afterRender\` — NOT \`setTimeout\` or \`queueMicrotask\`
+- [ ] Detail-page action buttons gated through \`computed()\` signals (\`canSubmit\`, \`canCancel\`, \`canEdit\`) that combine record state + permissions; backend remains authoritative
+- [ ] Detail page mutating actions (Submit, Approve, Reject, Cancel, Dispatch, Receipt) send an \`Idempotency-Key\` header derived from a per-attempt signal, kept across transient failures and cleared on terminal success / failure
+- [ ] Below-the-fold and on-demand panels (audit timeline, related records, taxonomy cascade) are wrapped in \`@defer\` blocks with \`@placeholder\` and \`@loading\` slots, and use \`on viewport\` / \`on interaction\` / \`prefetch on idle\` triggers as appropriate (Section 2)
+- [ ] Component-level responsive behavior (queue rows, warehouse cards) uses \`@container\` queries with \`container-type: inline-size\`; viewport breakpoints are reserved for page-level decisions (Section 3)
+- [ ] CSS overrides land inside \`@layer\` (\`reset, tokens, material, ops, srd, feature, override\`) — \`!important\` is forbidden and never appears in new code (Section 3)
+- [ ] State-derived parent styling uses \`:has()\` instead of duplicating modifier classes when the state already lives on a child element (Section 3)
+- [ ] Hover, active, and focus-ring colors are derived via \`color-mix(in srgb, …)\` from base tokens, not hand-mixed hex values (Section 3)
+- [ ] Hero and section titles use \`text-wrap: balance\`; long body paragraphs use \`text-wrap: pretty\` as a progressive enhancement (Section 1)
+- [ ] New spacing / sizing declarations use logical properties (\`margin-inline\`, \`padding-block\`, \`inset-inline-start\`) — i18n-ready by construction (Section 1, Section 3)
+- [ ] Background regions behind a modal / side panel / loading overlay use the \`inert\` attribute; \`aria-hidden\` is NOT doubled up (Section 4, Section 6)
+- [ ] Native overlay primitives chosen appropriately: \`MatDialog\` for complex content, native \`<dialog>\` for tiny ask-and-act confirms, Popover API for non-modal action menus (Section 4)
+- [ ] Route-level transitions use \`provideRouter(..., withViewTransitions(...))\`; component-level state swaps feature-detect \`document.startViewTransition\` and honor \`prefers-reduced-motion\` (Section 2)
+- [ ] Native form controls (\`<select>\`, free-form \`<textarea>\`, file inputs) use \`:user-valid\` / \`:user-invalid\` for state styling so errors surface only after blur (Section 4b)
+- [ ] Free-text fields that should grow with content use \`field-sizing: content\` with \`min-height\`/\`max-height\` in \`lh\` units (Section 4b)
+- [ ] \`accent-color: var(--ops-accent)\` is set on \`:root\` so native checkboxes / radios / range inputs inherit the Notion accent (Section 4b)
+- [ ] Mobile inputs declare \`enterkeyhint\` so the on-screen keyboard hints the right Enter action (Section 6)
 
 ---
 
@@ -1820,4 +2578,44 @@ Before considering a component complete, verify:
 - Omitting the one-sentence \`ops-section__copy\` description under the panel title ("Search and filter requests awaiting fulfillment…") — new operators need it to orient
 - Reintroducing hero-level stage toggles (e.g. "Show Drafts") on work-pipeline queues — drafts are a filter chip, period
 - Scattering time-in-stage SLA thresholds (4h/24h/48h) as magic numbers in templates or helpers — centralize in a single \`TIME_IN_STAGE_THRESHOLDS\` constant on the component
+
+### Form / wizard / detail-page anti-patterns (codify modern Angular 21 expectations)
+
+- Using \`@Input()\` / \`@Output()\` decorators on newly generated components — use \`input()\` / \`input.required()\` / \`output()\` / \`model()\` signal functions. Wizard step components MUST receive the parent form via \`form = input.required<FormGroup>()\`
+- Using \`BehaviorSubject\` for component-local UI state (loading flags, current step, draft buffers) when a \`signal<T>()\` would express the same intent more directly. \`BehaviorSubject\` is acceptable only when the value is genuinely a stream consumed by RxJS operators
+- "\`formVersion\` cache-bust" signals that get incremented to force a \`computed()\` to re-evaluate — replace with \`linkedSignal()\` (for derived-but-mutable state that should reset when its source resets) or a properly-scoped \`effect()\`. The cache-bust pattern is a code smell that hides reactivity gaps
+- Storing idempotency keys as instance variables (\`private pendingSubmitIdempotencyKey: string | null = null\`) — store them as \`signal<string | null>(null)\` so disabled / aria-busy UI stays reactive
+- Subscribing to an Observable in \`ngOnInit\` and pushing the result into a signal manually for read-only data fetches — use \`httpResource\` / \`resource\` instead. The manual pattern remains acceptable only for streams (form \`valueChanges\`, debounced search) or for legacy components being touched for unrelated reasons
+- \`setTimeout\` / \`queueMicrotask\` to schedule DOM-after work (focus an error summary, scroll into view, measure layout) — use \`afterNextRender\` / \`afterRender\` so the work participates in the change-detection cycle and respects SSR
+- Asterisk-only required-field markers without \`aria-required="true"\` — screen readers won't announce a CSS-injected \`*\`. Use both: \`<span aria-hidden="true">*</span>\` plus \`aria-required="true"\` on the input
+- Form-field validation errors shown on \`pristine\` controls — wait for \`touched\` so the user is not yelled at while typing
+- Custom \`<div>\` helper-text region replacing \`<mat-hint>\` / \`<mat-error>\` — Material handles the swap and \`aria-describedby\` wiring; reinventing it almost always loses the semantic
+- File upload zones that lack a non-drag fallback button — WCAG 2.2 SC 2.5.7 requires a non-dragging alternative
+- Tooltips and on-hover panels that auto-dismiss when the pointer enters them — they must be hoverable, dismissible (Esc), and persistent (WCAG 1.4.13)
+- Status messages (toasts, validation summaries) communicated via DOM updates without an \`aria-live\` region or \`role="alert"\` — AT users won't hear them (WCAG 4.1.3)
+- Dialog-driven row editors that take \`@Input()\` + \`@Output()\` for the editable buffer — use \`model<T>()\` so the dialog can write back through a single two-way binding signal
+- Detail-page action visibility expressed as a long boolean expression inline in the template — extract to a \`canSubmit = computed(() => ...)\` signal so the rule is readable, testable, and reusable
+- Mixing \`mat-select\` and native \`<select>\` on the same toolbar or form section — pick one (Section 4b decision rule); inconsistency confuses keyboard / mobile users
+- Re-fetching data by re-instantiating an \`httpResource\` / \`resource\` instead of calling \`.reload()\` — the resource is meant to be long-lived and refreshed in place
+- Touch targets smaller than 24×24 CSS px on any interactive element (WCAG 2.2 SC 2.5.8) — pad the active region or increase the visible footprint; this is a baseline AA failure, not a polish item
+
+### Modern web-platform anti-patterns (2024+ baseline)
+
+- Hand-rolling a focus trap with JS \`focusin\` / \`focusout\` listeners or third-party libraries instead of using the \`inert\` attribute or native \`<dialog>\`/Popover top-layer behavior — those primitives are Baseline 2023+ and replace ~90% of focus-trap plumbing
+- \`aria-hidden="true"\` paired with \`inert\` on the same element — \`inert\` already hides from AT; doubling up is noise that future readers will misinterpret as load-bearing
+- Custom \`@keyframes\` cross-fade or slide animations for cross-route transitions when \`provideRouter(withViewTransitions(...))\` and \`document.startViewTransition()\` would express the same intent declaratively (and respect \`prefers-reduced-motion\` automatically)
+- Below-the-fold panels (audit timelines, related-record sidebars, taxonomy cascades) rendered eagerly into the main bundle when an \`@defer (on viewport; prefetch on idle)\` block would code-split them with built-in \`@placeholder\` / \`@loading\` / \`@error\` slots
+- Component-internal media queries keyed off the **viewport** (\`@media (max-width: 640px)\`) when the responsive concern is **the component's own width** — use \`@container\` queries (Baseline 2023) so a queue row that lives in a half-width sidebar reflows on its own size, not the page's
+- Modifier-class proliferation (\`.row--has-attachment\`, \`.row--has-warning\`, \`.row--has-override\`) when \`:has()\` (Baseline 2023) can read the state directly off a child element
+- Hand-mixed hover / active tints derived from the base color in a designer's head — use \`color-mix(in srgb, var(--token) 88%, white)\` so the relationship is encoded in CSS and updates when the token changes
+- \`!important\` to win a specificity fight against Material's MDC tokens — declare the override inside an \`@layer feature\` or \`@layer override\` so layer order wins regardless of source order or selector specificity
+- Physical \`margin-left\` / \`right\` / \`padding-left\` / \`right\` declarations in NEW code — use logical properties (\`margin-inline\`, \`padding-inline\`) so the system is i18n-ready without a rewrite
+- Hand-resizing a \`<textarea>\` via a \`ResizeObserver\` + JS height calculation when \`field-sizing: content\` (Chromium 123+) does it natively for the field-mobile profile and degrades cleanly elsewhere
+- Eager-validating native \`<input>\` / \`<select>\` controls before first blur — use \`:user-invalid\` / \`:user-valid\` (Baseline 2024) so the platform enforces the "don't yell while typing" rule
+- Custom-rolled native checkbox / radio styling that swaps in SVG glyphs when \`accent-color: var(--ops-accent)\` on \`:root\` (Baseline 2022) tints the platform-native widget without losing keyboard / a11y semantics
+- Custom JS exclusive-accordion logic (\`@for\` + \`open\` toggle + close-others handler) when \`<details name="audit-section">\` (Baseline 2024) gives exclusive accordion behavior natively
+- Mobile inputs without an \`enterkeyhint\` attribute — field operators paying attention to "did the keyboard say Send or Search?" deserve the platform hint
+- A \`transition\` declared without a corresponding \`@starting-style\` block when the element appears via display-none → block — the entry transition silently drops on mount; \`@starting-style\` is the supported way to express "from" values for newly inserted nodes
+- Hardcoded \`text-wrap: nowrap\` on hero titles to prevent ugly wraps when \`text-wrap: balance\` (Baseline 2024) distributes the line breaks evenly without truncation
+- Importing a runtime CSS-in-JS library to derive theme tokens at runtime — DMIS already declares all tokens as CSS custom properties; runtime libraries add bundle weight and break the \`@layer\` cascade discipline
 `;

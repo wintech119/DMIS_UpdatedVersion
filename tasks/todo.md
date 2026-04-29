@@ -1,5 +1,35 @@
 # Current Task Plan
 
+## OIDC Advanced Assignment Actor Fix - 2026-04-29
+
+Risk score: 4 / Low-Medium using the architecture-review handoff rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 0, external surface 1, operational impact 0.
+
+1. Completed: reviewed canonical architecture, security, threat, controls, readiness, and backend guidance for OIDC/RBAC/audit expectations.
+2. Completed: patched advanced master-data assignment actor handling so valid non-integer OIDC subjects do not produce HTTP 500s.
+3. Completed: added focused regression coverage for UUID actor POST/DELETE assignment flows and audit SQL parameters.
+4. Completed: ran targeted backend checks/tests and completed the architecture-review closeout.
+
+## Tenant User Access-Level Upsert Fix - 2026-04-29
+
+Risk score: 4 / Low-Medium using the architecture-review handoff rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 0, external surface 1, operational impact 0.
+
+1. Completed: reviewed canonical tenant membership, RBAC, audit, validation, and frontend/backend authority expectations before implementation.
+2. Completed: patched tenant-user assignment data access to persist access-level changes on existing memberships.
+3. Completed: added regression tests for tenant_user upsert semantics while preserving the current POST response contract.
+4. Completed: ran focused and broader backend verification, then completed architecture-review closeout.
+
+## Advanced Assignment Tenant-Scope Guard Fix - 2026-04-29
+
+Risk score: 7 / Medium using the architecture-review handoff rubric.
+Axes: blast radius 1, data sensitivity 1, authority change 2, reversibility 0, external surface 1, operational impact 0.
+
+1. Completed: verified the cited advanced assignment and user-create authorization findings against current code and canonical docs.
+2. Completed: added scoped tenant/object authorization guards only where the findings reproduce.
+3. Completed: added focused negative authorization tests for advanced handlers and user creation.
+4. Completed: ran focused and broader backend verification and completed architecture closeout.
+
 ## EP-05 Module 1 Relief Request Intake Closure - 2026-04-25
 
 Risk score: 8 / Medium using the architecture-review handoff rubric.

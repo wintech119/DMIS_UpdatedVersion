@@ -75,6 +75,35 @@ describe('MasterDataService', () => {
     referenceRequest.flush({ items: [], warnings: [] });
   });
 
+  it('keeps generic lookups backward-compatible while supporting scoped query params', () => {
+    service.lookup('warehouses').subscribe();
+
+    const unscopedRequest = httpMock.expectOne('/api/v1/masterdata/warehouses/lookup');
+    expect(unscopedRequest.request.method).toBe('GET');
+    expect(unscopedRequest.request.params.keys()).toEqual([]);
+    unscopedRequest.flush({ items: [], warnings: [] });
+
+    service.lookup('warehouses', true, { tenant_id: 2 }).subscribe();
+
+    const scopedRequest = httpMock.expectOne((request) => (
+      request.url === '/api/v1/masterdata/warehouses/lookup'
+      && request.params.get('tenant_id') === '2'
+      && !request.params.has('active_only')
+    ));
+    expect(scopedRequest.request.method).toBe('GET');
+    scopedRequest.flush({ items: [], warnings: [] });
+
+    service.lookup('warehouses', false, { tenant_id: 2 }).subscribe();
+
+    const inactiveScopedRequest = httpMock.expectOne((request) => (
+      request.url === '/api/v1/masterdata/warehouses/lookup'
+      && request.params.get('tenant_id') === '2'
+      && request.params.get('active_only') === 'false'
+    ));
+    expect(inactiveScopedRequest.request.method).toBe('GET');
+    inactiveScopedRequest.flush({ items: [], warnings: [] });
+  });
+
   it('posts to the governed IFRC authoring-assist endpoints', () => {
     service.suggestIfrcFamilyValues({ family_label: 'Water Treatment' }).subscribe();
     service.suggestIfrcReferenceValues({ ifrc_family_id: 11, reference_desc: 'Water purification tablet' }).subscribe();

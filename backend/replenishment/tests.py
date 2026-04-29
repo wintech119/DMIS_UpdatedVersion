@@ -136,6 +136,7 @@ def _ensure_legacy_reference_rows() -> None:
         CREATE TABLE IF NOT EXISTS ref_tenant_type (
             tenant_type_code VARCHAR(32) PRIMARY KEY,
             tenant_type_name VARCHAR(100),
+            display_order INTEGER,
             status_code VARCHAR(1),
             create_by_id VARCHAR(20),
             create_dtime TIMESTAMP,
@@ -316,6 +317,7 @@ def _ensure_legacy_reference_rows() -> None:
             INSERT INTO ref_tenant_type (
                 tenant_type_code,
                 tenant_type_name,
+                display_order,
                 status_code,
                 create_by_id,
                 create_dtime,
@@ -323,10 +325,10 @@ def _ensure_legacy_reference_rows() -> None:
                 update_dtime,
                 version_nbr
             )
-            VALUES (%s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
+            VALUES (%s, %s, %s, 'A', 'SYSTEM', NOW(), 'SYSTEM', NOW(), 1)
             ON CONFLICT (tenant_type_code) DO NOTHING
             """,
-            ["PARISH", "PARISH"],
+            ["PARISH", "PARISH", 40],
         ),
         (
             """
@@ -2538,13 +2540,13 @@ class NeedsListWorkflowApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=1,
             active_tenant_code="AGENCY_A",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=1,
                     tenant_code="AGENCY_A",
                     tenant_name="Agency A",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),
@@ -4726,13 +4728,13 @@ class NeedsListWorkflowApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=1,
             active_tenant_code="AGENCY_A",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=1,
                     tenant_code="AGENCY_A",
                     tenant_name="Agency A",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),
@@ -5095,13 +5097,13 @@ class NeedsListWorkflowApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=1,
             active_tenant_code="AGENCY_A",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=1,
                     tenant_code="AGENCY_A",
                     tenant_name="Agency A",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),
@@ -8601,13 +8603,13 @@ class ProcurementPermissionApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=1,
             active_tenant_code="AGENCY_A",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=1,
                     tenant_code="AGENCY_A",
                     tenant_name="Agency A",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),

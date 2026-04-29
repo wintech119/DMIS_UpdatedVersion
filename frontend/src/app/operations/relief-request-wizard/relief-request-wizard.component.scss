@@ -4,124 +4,251 @@
 }
 
 .request-wizard-page {
+  // Composes operations-theme.scss `.ops-shell` padding norms while keeping
+  // a tighter top spacing than the global `.ops-shell` (40px 32px 72px).
+  // The wizard lives inside the operations sidenav shell, which already
+  // contributes outer padding.
   max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: var(--page-padding);
+  padding: 20px var(--page-padding);
+  display: grid;
+  gap: 12px;
 }
 
-.request-wizard-header {
-  padding: 16px 20px;
+// ── Hero overrides — keep the global .ops-shell__hero but tighten the
+// title scale, eyebrow gap, and meta-row spacing so the wizard reads as
+// a tight intake form instead of a marketing landing block. The global
+// `.ops-shell` defaults are tuned for queue/dashboard pages where the
+// hero is the dominant element; in a wizard the form is the focus.
+.request-wizard-hero {
+  margin-bottom: 0;
+
+  ::ng-deep {
+    .ops-shell__eyebrow {
+      margin-bottom: 8px;
+    }
+
+    .ops-shell__title {
+      font-size: var(--text-xl);
+      font-weight: var(--weight-semibold);
+      letter-spacing: -0.01em;
+      line-height: var(--leading-tight);
+    }
+
+    .ops-shell__subtitle {
+      margin-top: 6px;
+      font-size: var(--text-sm);
+      line-height: 1.55;
+    }
+
+    .ops-shell__meta {
+      margin-top: 10px;
+      gap: 8px;
+    }
+  }
+}
+
+.request-wizard-back {
+  // Override .ops-shell__back default uppercase shouting for a softer Back
+  // affordance that still composes with the global token treatment.
   border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 246, 243, 0.92));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-.request-wizard-header__lead {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.request-wizard-header__back {
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-}
-
-.request-wizard-header__copy {
-  min-width: 0;
-}
-
-.request-wizard-header__title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-}
-
-.request-wizard-header__eyebrow {
-  display: inline-flex;
-  gap: 0.5rem;
-  align-items: center;
-  margin: 0 0 6px;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.request-wizard-header__description {
-  margin: 8px 0 0;
-  max-width: 720px;
-  color: var(--color-text-secondary);
+  background: var(--ops-card);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: var(--tracking-tight);
   font-size: var(--text-sm);
-  line-height: 1.6;
-}
+  color: var(--color-text-secondary);
 
-.request-wizard-context-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  margin-bottom: 6px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border-left: 3px solid var(--color-info);
-  background: var(--color-bg-info);
-  color: var(--color-info);
-  flex-wrap: wrap;
+  &:hover {
+    color: var(--color-text-primary);
+    border-color: var(--ops-outline-strong);
+  }
 
-  > mat-icon {
-    flex-shrink: 0;
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  mat-icon {
     font-size: 18px;
     width: 18px;
     height: 18px;
   }
+}
 
-  &__mode {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 8px;
-    flex: 1;
-    min-width: 0;
+.rrw-meta-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-secondary);
+}
 
-    strong {
-      font-size: var(--text-sm);
-      font-weight: var(--weight-semibold);
-      color: var(--color-text-primary);
-      white-space: nowrap;
-    }
+// ── Context strip (generation.ts §"Compact context strip pattern") ───
+.ops-form-section--context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--color-info);
+  background: var(--color-bg-info);
+  // Override the .ops-form-section default shadow so the inline strip
+  // reads as a quiet status band, not a card.
+  box-shadow: none;
+}
 
-    span {
-      font-size: var(--text-xs);
-      color: var(--color-text-secondary);
-      line-height: 1.4;
-    }
+.rrw-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+
+  mat-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    color: var(--color-text-secondary);
   }
 
-  &__date {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    white-space: nowrap;
+  &--info {
+    background: var(--color-bg-info);
+    border-color: color-mix(in srgb, var(--color-info) 22%, transparent);
+    color: var(--color-info);
 
     mat-icon {
-      font-size: 14px;
-      width: 14px;
-      height: 14px;
+      color: var(--color-info);
     }
   }
 }
 
+// ── Origin-mode picker (generation.ts §"Standard wizard / form page
+// structure" L272–289 — radiogroup with role/aria-checked) ────────────
+.ops-form-section--origin {
+  gap: 16px;
+}
+
+.rrw-origin-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .rrw-origin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .rrw-origin-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.rrw-origin-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card, 8px);
+  background: var(--ops-card);
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+
+  &__icon {
+    color: var(--color-text-secondary);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+
+    strong {
+      color: var(--color-text-primary);
+      font-size: var(--text-sm);
+      font-weight: var(--weight-semibold);
+    }
+
+    small {
+      color: var(--color-text-secondary);
+      font-size: var(--text-xs);
+      line-height: 1.45;
+    }
+  }
+
+  &__check {
+    color: var(--color-accent);
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  &.is-selected {
+    border-color: var(--color-accent);
+    border-width: 2px;
+    padding: 15px;
+    background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
+
+    .rrw-origin-card__icon {
+      color: var(--color-accent);
+    }
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rrw-origin-card:hover:not(.is-selected) {
+    background: var(--color-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--ops-shadow);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rrw-origin-card {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
+}
+
+.rrw-origin-error {
+  margin: 12px 0 0;
+  color: var(--color-critical);
+  font-size: var(--text-sm);
+}
+
+// ── Form shell + step host ────────────────────────────────────────────
 .request-wizard-shell {
   border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius-card, 8px);
+  background: var(--ops-card);
+  box-shadow: var(--ops-shadow);
   overflow: hidden;
 }
 
@@ -133,56 +260,66 @@
   background: transparent;
 }
 
+// ── Action strip — sticky on all viewports per architecture-review
+// Required Change #3. `:has(textarea:focus)` slides the strip off-screen
+// while a textarea (notes field) is being edited so it doesn't compete
+// with the on-screen keyboard. Safe-area inset keeps the strip clear of
+// the iOS home indicator. Top border + ops-card surface satisfies the
+// generation.ts "ops-form-actions: separated by border-top" guidance
+// without adding an upward shadow token.
 .request-wizard-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 24px;
-  padding-top: 20px;
+  margin-top: 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--ops-card);
   border-top: 1px solid var(--color-border);
   flex-wrap: wrap;
+}
+
+.request-wizard-actions__ghost {
+  flex-shrink: 0;
 }
 
 .request-wizard-actions__group {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.request-wizard-error {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 48px 24px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
-  text-align: center;
-  color: var(--color-text-secondary);
+}
 
-  mat-icon {
-    font-size: 48px;
-    width: 48px;
-    height: 48px;
-    color: var(--color-critical);
-  }
+.request-wizard-actions__spinner {
+  display: inline-flex;
+  margin-right: 6px;
+}
 
-  p {
-    margin: 0;
-    font-size: var(--text-sm);
+// Slide the strip off-screen while the user is typing in a textarea
+// (notes field). Restores naturally when the textarea blurs.
+.request-wizard-shell:has(textarea:focus) .request-wizard-actions {
+  transform: translateY(105%);
+  transition: transform 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .request-wizard-shell:has(textarea:focus) .request-wizard-actions {
+    transition: none;
   }
 }
 
+// ── Success surface — token-driven (no hardcoded #d1fae5 / #065f46) ────
 .request-wizard-success {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 48px 24px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
+  border-radius: var(--radius-card, 8px);
+  background: var(--ops-card);
   text-align: center;
 }
 
@@ -193,14 +330,14 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: #d1fae5;
+  background: var(--color-bg-success);
   margin-bottom: 16px;
 
   mat-icon {
     font-size: 36px;
     width: 36px;
     height: 36px;
-    color: #065f46;
+    color: var(--color-success);
   }
 }
 
@@ -223,55 +360,6 @@
   flex-wrap: wrap;
 }
 
-.request-wizard-blocked {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  padding: 48px 24px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
-  text-align: center;
-}
-
-.request-wizard-blocked__icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: rgba(254, 243, 199, 0.9);
-
-  mat-icon {
-    font-size: 32px;
-    width: 32px;
-    height: 32px;
-    color: #92400e;
-  }
-}
-
-.request-wizard-blocked__title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-}
-
-.request-wizard-blocked__message {
-  margin: 0;
-  max-width: 620px;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-}
-
-.request-wizard-blocked__actions {
-  display: flex;
-  justify-content: center;
-}
-
 ::ng-deep .request-wizard-stepper {
   .mat-horizontal-stepper-header-container {
     display: none;
@@ -282,30 +370,37 @@
   }
 }
 
-@media (max-width: 768px) {
-  .request-wizard-page {
-    padding: 12px;
-  }
-
-  .request-wizard-header {
-    padding: 16px;
-  }
-
-  .request-wizard-actions,
-  .request-wizard-actions__group {
+@media (max-width: 960px) {
+  .request-wizard-actions {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .request-wizard-actions__group {
+    flex-direction: column-reverse;
+  }
+
   .request-wizard-actions button,
-  .request-wizard-actions__group button,
-  .request-wizard-success__actions button {
+  .request-wizard-actions__group button {
     width: 100%;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 768px) {
+  .request-wizard-page {
+    padding: 12px;
   }
 
   ::ng-deep .request-wizard-stepper {
     .mat-horizontal-content-container {
       padding: 0 16px 16px;
     }
+  }
+}
+
+@media (max-width: 640px) {
+  .request-wizard-success__actions button {
+    width: 100%;
   }
 }

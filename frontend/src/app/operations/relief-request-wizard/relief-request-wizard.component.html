@@ -1,89 +1,110 @@
 <div class="request-wizard-page">
-  <section class="request-wizard-header">
-    <div class="request-wizard-header__lead">
+  <section class="ops-shell__hero request-wizard-hero" aria-labelledby="rrw-title">
+    <div class="ops-shell__copy">
       <button
-        mat-icon-button
-        class="request-wizard-header__back"
+        type="button"
+        class="ops-shell__back request-wizard-back"
         (click)="goBack()"
         [matTooltip]="backNavigationTooltip()"
         [attr.aria-label]="backNavigationTooltip()">
-        <mat-icon>arrow_back</mat-icon>
+        <mat-icon aria-hidden="true">arrow_back</mat-icon>
+        <span>Back</span>
       </button>
-
-      <div class="request-wizard-header__copy">
-        <p class="request-wizard-header__eyebrow">
-          <mat-icon aria-hidden="true">assignment</mat-icon>
-          Operations / Relief Requests
-        </p>
-        <h1 class="request-wizard-header__title">{{ pageTitle() }}</h1>
-        <p class="request-wizard-header__description">
-          Create or update a relief request by selecting the agency, event, and urgency level.
-          Submitted requests are routed for eligibility review, packaging, and dispatch.
-        </p>
+      <p class="ops-shell__eyebrow">Operations · Relief Requests</p>
+      <h1 id="rrw-title" class="ops-shell__title">{{ pageTitle() }}</h1>
+      <p class="ops-shell__subtitle">
+        Create or update a relief request by selecting the agency, event, and urgency level.
+        Submitted requests are routed for eligibility review, packaging, and dispatch.
+      </p>
+      <div class="ops-shell__meta">
+        <span class="ops-live-pill">
+          <span class="ops-live-pill__label">Mode</span>
+          <span class="ops-live-pill__value">{{ submissionModeLabel() }}</span>
+        </span>
+        <span class="ops-live-pill">
+          <mat-icon aria-hidden="true" class="rrw-meta-icon">calendar_today</mat-icon>
+          <span class="ops-live-pill__value">{{ requestDateText() }}</span>
+        </span>
       </div>
     </div>
-
   </section>
 
-  <div class="request-wizard-context-strip" role="status">
-    <mat-icon aria-hidden="true">security</mat-icon>
-    <span class="request-wizard-context-strip__mode">
-      <strong>{{ submissionModeLabel() }}</strong>
-      <span>{{ submissionModeHint() }}</span>
-    </span>
-    @if (requestDateText()) {
-      <span class="request-wizard-context-strip__date">
-        <mat-icon aria-hidden="true">calendar_today</mat-icon>
-        {{ requestDateText() }}
+  @if (sourceNeedsListId(); as needsId) {
+    <section
+      class="ops-form-section ops-form-section--context request-wizard-context"
+      role="status"
+      aria-label="Request context">
+      <span class="rrw-context-pill rrw-context-pill--info">
+        <mat-icon aria-hidden="true">link</mat-icon>
+        Continuing from Needs List #{{ needsId }}
       </span>
-    }
-  </div>
+      @if (bridgeBeneficiaryName(); as beneficiary) {
+        <span class="rrw-context-pill">
+          <mat-icon aria-hidden="true">apartment</mat-icon>
+          Beneficiary: {{ beneficiary }}
+        </span>
+      }
+    </section>
+  }
 
   @if (!pageBusy() && !creationBlocked() && isDualMode()) {
-    <div class="request-wizard-origin-mode">
-      <mat-radio-group
-        [formControl]="originModeControl"
-        aria-label="Relief request submission mode">
-        @for (mode of availableOriginModes(); track mode) {
-          <mat-radio-button [value]="mode">
-            <span>{{ originModeLabel(mode) }}</span>
-            <small>{{ originModeHint(mode) }}</small>
-          </mat-radio-button>
+    <section
+      class="ops-form-section ops-form-section--origin"
+      aria-labelledby="rrw-origin-label">
+      <p id="rrw-origin-label" class="ops-form-section__eyebrow">Submission mode</p>
+      <div
+        #originModeGroup
+        class="rrw-origin-grid"
+        role="radiogroup"
+        aria-labelledby="rrw-origin-label"
+        [attr.aria-invalid]="originModeControl.invalid && originModeControl.touched ? 'true' : null">
+        @for (option of originModeOptions(); track option.value; let i = $index) {
+          <div
+            class="rrw-origin-card"
+            role="radio"
+            [class.is-selected]="originModeControl.value === option.value"
+            [attr.aria-checked]="originModeControl.value === option.value"
+            [attr.tabindex]="originModeFocusIndex() === i ? 0 : -1"
+            [attr.data-rrw-focus]="i === 0 ? 'origin-mode' : null"
+            (click)="selectOriginMode(option.value)"
+            (focus)="originModeFocusIndex.set(i)"
+            (keydown)="onOriginModeKeydown($event, i)">
+            <mat-icon class="rrw-origin-card__icon" aria-hidden="true">{{ option.icon }}</mat-icon>
+            <div class="rrw-origin-card__body">
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.hint }}</small>
+            </div>
+            @if (originModeControl.value === option.value) {
+              <mat-icon class="rrw-origin-card__check" aria-hidden="true">check_circle</mat-icon>
+            }
+          </div>
         }
-      </mat-radio-group>
+      </div>
       @if (originModeControl.invalid && originModeControl.touched) {
-        <p class="request-wizard-origin-mode__error" role="alert">
-          Select how this request is being submitted.
-        </p>
+        <p class="rrw-origin-error" role="alert">Select how this request is being submitted.</p>
       }
-    </div>
+    </section>
   }
 
   @if (pageBusy()) {
     <dmis-skeleton-loader variant="form-field" [count]="4" />
     <dmis-skeleton-loader variant="table-row" [count]="3" />
   } @else if (error(); as errorMessage) {
-    <div class="request-wizard-error" role="alert">
-      <mat-icon aria-hidden="true">error_outline</mat-icon>
-      <p>{{ errorMessage }}</p>
-      <button mat-flat-button (click)="goBack()">
-        <mat-icon>arrow_back</mat-icon>
-        Go Back
-      </button>
-    </div>
+    <dmis-empty-state
+      icon="error_outline"
+      title="Unable to load this request"
+      [message]="errorMessage"
+      actionLabel="Go back"
+      actionIcon="arrow_back"
+      (action)="goBack()" />
   } @else if (creationBlocked()) {
-    <section class="request-wizard-blocked" aria-live="polite">
-      <div class="request-wizard-blocked__icon">
-        <mat-icon aria-hidden="true">lock</mat-icon>
-      </div>
-      <h2 class="request-wizard-blocked__title">You cannot create requests at this time</h2>
-      <p class="request-wizard-blocked__message">
-        {{ submissionModeHint() }}
-      </p>
-      <div class="request-wizard-blocked__actions">
-        <button mat-stroked-button (click)="navigateToList()">Back to Requests</button>
-      </div>
-    </section>
+    <dmis-empty-state
+      icon="lock"
+      title="You cannot create requests at this time"
+      [message]="submissionModeHint()"
+      actionLabel="Back to Requests"
+      actionIcon="list"
+      (action)="navigateToList()" />
   } @else if (completed()) {
     <section class="request-wizard-success">
       <div class="request-wizard-success__icon">
@@ -112,7 +133,7 @@
       </div>
     </section>
   } @else {
-    <section class="request-wizard-shell">
+    <section class="request-wizard-shell" aria-label="Relief request form">
       @if (saving()) {
         <mat-progress-bar mode="indeterminate" class="request-wizard-progress" />
       }
@@ -144,17 +165,31 @@
               [requestingEntityLabel]="requestingEntityLabel()"
               [creationBlocked]="creationBlocked()" />
 
-            <div class="request-wizard-actions">
-              <button mat-stroked-button type="button" (click)="goBack()">Cancel</button>
+            <div class="request-wizard-actions" role="group" aria-label="Step 1 actions">
               <button
-                mat-flat-button
+                mat-stroked-button
+                type="button"
+                class="request-wizard-actions__ghost"
+                (click)="goBack()">Cancel</button>
+              <div class="request-wizard-actions__group">
+                <button
+                  mat-stroked-button
+                  type="button"
+                  (click)="onSaveAsDraft()"
+                  [disabled]="saving() || creationBlocked()">
+                  <mat-icon>save</mat-icon>
+                  Save as Draft
+                </button>
+                <button
+                  mat-flat-button
                   color="primary"
                   type="button"
-                  matStepperNext
-                  [disabled]="!isStep1Valid()">
-                Next: Review & Route
-                <mat-icon iconPositionEnd>arrow_forward</mat-icon>
-              </button>
+                  (click)="goToReview()"
+                  [disabled]="saving() || creationBlocked()">
+                  Continue
+                  <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+                </button>
+              </div>
             </div>
           </div>
         </mat-step>
@@ -163,8 +198,12 @@
           <div id="ops-request-step-1-panel" role="tabpanel" aria-labelledby="ops-request-step-1-tab">
             <app-request-review-step [formValue]="reviewFormValue()" />
 
-            <div class="request-wizard-actions">
-              <button mat-stroked-button type="button" matStepperPrevious>
+            <div class="request-wizard-actions" role="group" aria-label="Step 2 actions">
+              <button
+                mat-stroked-button
+                type="button"
+                matStepperPrevious
+                class="request-wizard-actions__ghost">
                 <mat-icon>arrow_back</mat-icon>
                 Back
               </button>
@@ -182,9 +221,14 @@
                   color="primary"
                   type="button"
                   (click)="onSaveAndSubmit()"
-                  [disabled]="saving() || creationBlocked()">
+                  [disabled]="saving() || creationBlocked()"
+                  [attr.aria-busy]="saving() ? 'true' : null">
                   @if (saving()) {
-                    Saving...
+                    <mat-progress-spinner
+                      class="request-wizard-actions__spinner"
+                      diameter="16"
+                      mode="indeterminate" />
+                    <span>Submitting…</span>
                   } @else {
                     <mat-icon>send</mat-icon>
                     Save & Submit for Review

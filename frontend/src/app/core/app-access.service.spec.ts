@@ -10,7 +10,7 @@ describe('AppAccessService', () => {
       requested_tenant_id: null,
       active_tenant_id: 20,
       active_tenant_code: 'FFP',
-      active_tenant_type: 'DIST',
+      active_tenant_type: 'NGO',
       is_neoc: false,
       can_read_all_tenants: false,
       can_act_cross_tenant: false,
@@ -19,7 +19,7 @@ describe('AppAccessService', () => {
           tenant_id: 20,
           tenant_code: 'FFP',
           tenant_name: 'FFP',
-          tenant_type: 'DIST',
+          tenant_type: 'NGO',
           is_primary: true,
           access_level: 'ADMIN',
         },
@@ -124,17 +124,96 @@ describe('AppAccessService', () => {
     expect(sysadmin.canAccessMasterRoutePath('warehouses')).toBeTrue();
   });
 
-  it('keeps legacy custodians inside operational masters while gating create/edit by RBAC', () => {
+  it('denies custodians as a normal route while retaining legacy classification', () => {
     const access = setup({
       roles: ['LOGISTICS_MANAGER'],
-      permissions: ['masterdata.view', 'masterdata.create'],
+      permissions: ['masterdata.view', 'masterdata.create', 'masterdata.edit'],
       tenantContext: buildTenantContext(),
     });
 
-    expect(access.canAccessMasterRoutePath('custodians')).toBeTrue();
     expect(access.isLegacyMasterRoutePath('custodians')).toBeTrue();
-    expect(access.canCreateMasterRoutePath('custodians')).toBeTrue();
+    expect(access.canAccessMasterRoutePath('custodians')).toBeFalse();
+    expect(access.canCreateMasterRoutePath('custodians')).toBeFalse();
     expect(access.canEditMasterRoutePath('custodians')).toBeFalse();
+    expect(access.canToggleMasterStatus('custodians', true)).toBeFalse();
+
+    const sysadmin = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['masterdata.view', 'masterdata.create', 'masterdata.edit'],
+      tenantContext: null,
+    });
+
+    expect(sysadmin.canAccessMasterRoutePath('custodians')).toBeFalse();
+  });
+
+  it('limits tenant-type writes to system admins with the dedicated permission and approved tenant context', () => {
+    const allowedContext = buildTenantContext({
+      active_tenant_id: 1,
+      active_tenant_code: 'ODPEM-NEOC',
+      active_tenant_type: 'NATIONAL',
+      memberships: [
+        {
+          tenant_id: 1,
+          tenant_code: 'ODPEM-NEOC',
+          tenant_name: 'ODPEM NEOC',
+          tenant_type: 'NATIONAL',
+          is_primary: true,
+          access_level: 'ADMIN',
+        },
+      ],
+    });
+    const allowed = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: [
+        'masterdata.advanced.view',
+        'masterdata.advanced.create',
+        'masterdata.advanced.edit',
+        'masterdata.advanced.inactivate',
+        'masterdata.tenant_type.manage',
+      ],
+      tenantContext: allowedContext,
+    });
+
+    expect(allowed.canAccessMasterRoutePath('tenant-types')).toBeTrue();
+    expect(allowed.canCreateMasterRoutePath('tenant-types')).toBeTrue();
+    expect(allowed.canEditMasterRoutePath('tenant-types')).toBeTrue();
+    expect(allowed.canToggleMasterStatus('tenant-types', true)).toBeTrue();
+    expect(allowed.canToggleMasterStatus('tenant-types', false)).toBeTrue();
+
+    const missingAdvancedWritePermission = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['masterdata.advanced.view', 'masterdata.tenant_type.manage'],
+      tenantContext: allowedContext,
+    });
+    expect(missingAdvancedWritePermission.canAccessMasterRoutePath('tenant-types')).toBeTrue();
+    expect(missingAdvancedWritePermission.canCreateMasterRoutePath('tenant-types')).toBeFalse();
+    expect(missingAdvancedWritePermission.canEditMasterRoutePath('tenant-types')).toBeFalse();
+    expect(missingAdvancedWritePermission.canToggleMasterStatus('tenant-types', true)).toBeFalse();
+    expect(missingAdvancedWritePermission.canToggleMasterStatus('tenant-types', false)).toBeFalse();
+
+    const missingDedicatedPermission = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: [
+        'masterdata.advanced.view',
+        'masterdata.advanced.create',
+        'masterdata.advanced.edit',
+      ],
+      tenantContext: allowedContext,
+    });
+    expect(missingDedicatedPermission.canCreateMasterRoutePath('tenant-types')).toBeFalse();
+
+    const wrongTenant = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: [
+        'masterdata.advanced.view',
+        'masterdata.advanced.create',
+        'masterdata.advanced.edit',
+        'masterdata.advanced.inactivate',
+        'masterdata.tenant_type.manage',
+      ],
+      tenantContext: buildTenantContext(),
+    });
+    expect(wrongTenant.canEditMasterRoutePath('tenant-types')).toBeFalse();
   });
 
   it('uses operations capabilities to expose the relief-request navigation lane', () => {

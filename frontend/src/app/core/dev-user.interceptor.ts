@@ -1,7 +1,5 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 
-declare const DMIS_LOCAL_AUTH_HARNESS_BUILD: boolean;
-
 const LOCAL_HARNESS_USER_KEY = 'dmis_local_harness_user';
 const LOCAL_HARNESS_USER_HEADER = 'X-DMIS-Local-User';
 const TEST_BUILD_FLAG_KEY = '__DMIS_LOCAL_AUTH_HARNESS_BUILD__';

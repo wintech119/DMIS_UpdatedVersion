@@ -62,6 +62,158 @@ describe('Auth pages', () => {
     expect(element.textContent).toContain('OIDC login is not configured for this deployment');
   });
 
+  it('renders the login status copy as a polite status region', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Sign in to continue.',
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+
+    const status = (fixture.nativeElement as HTMLElement).querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toContain('Sign in to continue.');
+  });
+
+  it('renders the brand-mark slot as the first child of the auth card', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Sign in to continue.',
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+
+    const card = (fixture.nativeElement as HTMLElement).querySelector('.auth-card');
+    expect(card?.firstElementChild?.classList.contains('auth-brand-mark')).toBeTrue();
+  });
+
+  it('renders a skeleton label and busy state while OIDC sign-in is working', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Sign in to continue.',
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.componentInstance.working.set(true);
+    fixture.detectChanges();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector('.auth-primary') as HTMLButtonElement | null;
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+    expect(button?.querySelector('.auth-primary__skeleton')).not.toBeNull();
+  });
+
+  it('does not render spinner elements on auth pages', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Sign in to continue.',
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [
+        DmisAuthLoginPageComponent,
+        DmisAuthCallbackPageComponent,
+        DmisAccessDeniedPageComponent,
+      ],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
+        },
+        {
+          provide: AuthRbacService,
+          useValue: {
+            currentUserRef: signal('ops.user'),
+          },
+        },
+      ],
+    }).compileComponents();
+
+    const fixtures = [
+      TestBed.createComponent(DmisAuthLoginPageComponent),
+      TestBed.createComponent(DmisAuthCallbackPageComponent),
+      TestBed.createComponent(DmisAccessDeniedPageComponent),
+    ];
+    fixtures.forEach((fixture) => fixture.detectChanges());
+
+    for (const fixture of fixtures) {
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector('mat-progress-spinner, [class*="spin"]')).toBeNull();
+    }
+  });
+
   it('shows the local harness selector on the login page when local harness mode is available', async () => {
     (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
     const authenticated = signal(false);
@@ -115,7 +267,7 @@ describe('Auth pages', () => {
               tenant_id: 2,
               tenant_code: 'ODPEM-NEOC',
               tenant_name: 'ODPEM NEOC',
-              tenant_type: 'NEOC',
+              tenant_type: 'NATIONAL',
               is_primary: true,
               access_level: 'FULL',
             },

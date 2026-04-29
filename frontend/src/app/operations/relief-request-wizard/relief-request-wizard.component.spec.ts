@@ -4,7 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { MatTooltip } from '@angular/material/tooltip';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { ReliefRequestWizardComponent } from './relief-request-wizard.component';
 import { OperationsService } from '../services/operations.service';
@@ -87,9 +87,38 @@ describe('ReliefRequestWizardComponent', () => {
     });
 
     it('uses a destination-specific tooltip for the back button', () => {
-      const tooltip = fixture.debugElement.query(By.css('.request-wizard-header__back')).injector.get(MatTooltip);
+      const tooltip = fixture.debugElement.query(By.css('.request-wizard-back')).injector.get(MatTooltip);
 
       expect(tooltip.message).toBe('Back to relief requests');
+    });
+
+    it('renders a sticky action strip on Step 1 with safe-area padding', () => {
+      const host = fixture.nativeElement as HTMLElement;
+      const strip = host.querySelector<HTMLElement>('.request-wizard-actions');
+      expect(strip).not.toBeNull();
+      const computed = getComputedStyle(strip!);
+      // jsdom + Karma both surface the position rule from the component
+      // SCSS as a 'sticky' value when the rule is unconditional.
+      expect(computed.position).toBe('sticky');
+    });
+
+    it('focuses the first invalid field when Continue is blocked on Step 1', () => {
+      const component = fixture.componentInstance;
+      // Force step-1 invalid: clear urgency, leave items invalid
+      component.requestForm.get('urgency_ind')?.setValue(null);
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(null);
+      itemGroup.get('request_qty')?.setValue(null);
+      fixture.detectChanges();
+
+      component.goToReview();
+      fixture.detectChanges();
+
+      // markAllAsTouched fires aria-invalid on Material form-fields and on
+      // the urgency chip-group container.
+      const host = fixture.nativeElement as HTMLElement;
+      const firstInvalid = host.querySelector<HTMLElement>('[aria-invalid="true"]');
+      expect(firstInvalid).not.toBeNull();
     });
 
     it('loads request reference data on init and applies the loaded options', () => {
@@ -313,13 +342,36 @@ describe('ReliefRequestWizardComponent', () => {
 
     it('renders a constrained origin-mode picker for dual-mode intake', () => {
       const host = fixture.nativeElement as HTMLElement;
-      const radioButtons = Array.from(host.querySelectorAll('mat-radio-button'))
-        .map((button) => button.textContent ?? '');
+      const radiogroup = host.querySelector<HTMLElement>('.rrw-origin-grid');
+      expect(radiogroup).not.toBeNull();
+      expect(radiogroup?.getAttribute('role')).toBe('radiogroup');
 
-      expect(radioButtons.length).toBe(2);
-      expect(radioButtons[0]).toContain('Own organisation');
-      expect(radioButtons[1]).toContain('Managed entity');
+      const cards = Array.from(radiogroup!.querySelectorAll<HTMLElement>('.rrw-origin-card'))
+        .map((card) => card.textContent ?? '');
+
+      expect(cards.length).toBe(2);
+      expect(cards[0]).toContain('Own organisation');
+      expect(cards[1]).toContain('Managed entity');
       expect(fixture.componentInstance.originModeControl.hasError('required')).toBeTrue();
+
+      const radios = radiogroup!.querySelectorAll<HTMLElement>('[role="radio"]');
+      expect(radios.length).toBe(2);
+      // Roving tabindex: only the focused (default index 0) card is in
+      // the tab order.
+      expect(radios[0].getAttribute('tabindex')).toBe('0');
+      expect(radios[1].getAttribute('tabindex')).toBe('-1');
+    });
+
+    it('selects a dual-mode card when its host is clicked and updates aria-checked', () => {
+      const host = fixture.nativeElement as HTMLElement;
+      const radiogroup = host.querySelector<HTMLElement>('.rrw-origin-grid');
+      const radios = radiogroup!.querySelectorAll<HTMLElement>('[role="radio"]');
+      radios[1].click();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.originModeControl.value).toBe('FOR_SUBORDINATE');
+      expect(radios[1].getAttribute('aria-checked')).toBe('true');
+      expect(radios[0].getAttribute('aria-checked')).toBe('false');
     });
 
     it('blocks save until a dual-mode origin mode is selected', () => {
@@ -422,6 +474,10 @@ describe('ReliefRequestWizardComponent', () => {
       expect(fixture.componentInstance.creationBlocked()).toBeTrue();
       expect(host.textContent).toContain('You cannot create requests at this time');
       expect(host.querySelector('mat-radio-group')).toBeNull();
+      // The blocked surface now uses dmis-empty-state with a lock icon
+      // and a "Back to Requests" action button.
+      expect(host.querySelector('dmis-empty-state')).not.toBeNull();
+      expect(host.textContent).toContain('Back to Requests');
     });
   });
 
@@ -550,6 +606,14 @@ describe('ReliefRequestWizardComponent', () => {
       expect(component.requestForm.get('agency_id')?.value).toBe(501);
       expect(component.requestForm.get('eligible_event_id')?.value).toBe(44);
 
+      // Context strip surfaces the bridge state as inline pills. The
+      // exact agency label depends on the existing reference-data merge
+      // order (placeholder vs catalog name) — assert the pill structure
+      // and the resolved label, not a specific catalog string.
+      const bridgeHost = bridgeFixture.nativeElement as HTMLElement;
+      expect(bridgeHost.textContent).toContain('Continuing from Needs List #40');
+      expect(bridgeHost.textContent).toMatch(/Beneficiary:\s*\S+/);
+
       component.onSaveAsDraft();
 
       expect(operationsService.createRequest).toHaveBeenCalledTimes(1);
@@ -558,6 +622,71 @@ describe('ReliefRequestWizardComponent', () => {
       expect(payload.agency_id).toBe(501);
       expect(payload.beneficiary_agency_id).toBe(501);
       expect(payload.origin_mode).toBe('ODPEM_BRIDGE');
+    });
+  });
+
+  describe('when loading an existing request fails', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
+
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [],
+        events: [],
+        items: [],
+      }));
+
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
+          },
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: 'self',
+                allowed_origin_modes: ['self'],
+              }),
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: convertToParamMap({ reliefrqstId: '4242' }) },
+            },
+          },
+          {
+            provide: Router,
+            useValue: jasmine.createSpyObj('Router', ['navigate']),
+          },
+        ],
+      }).compileComponents();
+    });
+
+    it('renders dmis-empty-state with a retry action when the request load fails', () => {
+      operationsService.getRequest.and.returnValue(
+        throwError(() => new HttpErrorResponse({ status: 404, statusText: 'Not Found' })),
+      );
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('dmis-empty-state')).not.toBeNull();
+      expect(host.textContent).toContain('Unable to load this request');
+      expect(host.textContent).toContain('Relief request not found.');
     });
   });
 });

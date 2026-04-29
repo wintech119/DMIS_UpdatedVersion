@@ -1,6 +1,6 @@
 import {
   Component, OnInit, DestroyRef, ChangeDetectionStrategy,
-  inject, signal, computed, effect,
+  ElementRef, Injector, afterNextRender, inject, signal, computed, effect, viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
@@ -8,6 +8,7 @@ import {
   ReactiveFormsModule,
   FormGroup,
   FormControl,
+  ValidatorFn,
   Validators,
   ValidationErrors,
 } from '@angular/forms';
@@ -116,6 +117,11 @@ interface FormFieldGroup {
   fields: MasterFieldConfig[];
 }
 
+interface ErrorSummaryLink {
+  id: string;
+  label: string;
+}
+
 interface ItemUomConversionRow {
   uom_code: string;
   conversion_factor: number | null;
@@ -154,9 +160,11 @@ export class MasterFormPageComponent implements OnInit {
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private destroyRef = inject(DestroyRef);
+  private injector = inject(Injector);
 
   config = signal<MasterTableConfig | null>(null);
   form = new FormGroup<Record<string, FormControl>>({});
+  readonly errorSummary = viewChild<ElementRef<HTMLElement>>('errorSummary');
   isEdit = signal(false);
   isLoading = signal(false);
   isSaving = signal(false);
@@ -196,6 +204,45 @@ export class MasterFormPageComponent implements OnInit {
   ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
+
+  readonly formPageTitle = computed(() => {
+    const cfg = this.config();
+    return cfg ? `${this.isEdit() ? 'Edit' : 'Create'} ${cfg.displayName}` : '';
+  });
+
+  readonly formPageSubtitle = computed(() => (
+    this.isEdit()
+      ? 'Update the fields below and save your changes'
+      : 'Fill in the details below to create a new record'
+  ));
+
+  readonly showErrorSummary = computed(() => {
+    this.formStateVersion();
+    return this.form.invalid && this.form.touched;
+  });
+
+  readonly invalidControlLinks = computed<ErrorSummaryLink[]>(() => {
+    this.formStateVersion();
+    const cfg = this.config();
+    if (!cfg || !this.form.touched) {
+      return [];
+    }
+
+    const links: ErrorSummaryLink[] = [];
+    const seenIds = new Set<string>();
+    for (const field of cfg.formFields) {
+      if (!this.isFieldVisibleForMode(field)) {
+        continue;
+      }
+      const control = this.form.get(field.field);
+      const id = this.getFieldDomId(field);
+      if (control?.invalid && !seenIds.has(id)) {
+        links.push({ id, label: field.label });
+        seenIds.add(id);
+      }
+    }
+    return links;
+  });
 
   // ── Item UOM Conversion state ──
   itemUomConversions = signal<ItemUomConversionRow[]>([]);
@@ -285,6 +332,7 @@ export class MasterFormPageComponent implements OnInit {
   private _ifrcBadgeTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
+  readonly lookupNoneValue = '__DMIS_LOOKUP_NONE__';
   private readonly lookupRequestIds: Record<string, number> = {};
   private latestStorageAssignmentRequestId = 0;
   locationForm = new FormGroup({
@@ -329,6 +377,10 @@ export class MasterFormPageComponent implements OnInit {
     const usedKeys = new Map<string, number>();
 
     for (const f of cfg.formFields) {
+      if (!this.isFieldVisibleForMode(f)) {
+        continue;
+      }
+
       const groupLabel = f.group || 'General';
       let group = seen.get(groupLabel);
 
@@ -450,6 +502,7 @@ export class MasterFormPageComponent implements OnInit {
       if (pkParam && pkParam !== 'new') {
         this.pk.set(pkParam);
         this.isEdit.set(true);
+        this.refreshFormModeValidators();
         this.primeGovernedEditState();
         this.loadRecord();
         return;
@@ -458,22 +511,18 @@ export class MasterFormPageComponent implements OnInit {
       this.resetStorageAssignmentState();
       this.pk.set(null);
       this.isEdit.set(false);
+      this.refreshFormModeValidators();
     });
   }
 
   private buildForm(cfg: MasterTableConfig): void {
     for (const field of cfg.formFields) {
-      const validators = [];
-      if (field.required) validators.push(Validators.required);
-      if (field.maxLength) validators.push(Validators.maxLength(field.maxLength));
-      if (field.pattern) validators.push(Validators.pattern(field.pattern));
-      if (field.type === 'email') {
-        validators.push(Validators.email);
-      }
-
       this.form.addControl(
         field.field,
-        new FormControl(field.defaultValue ?? null, validators),
+        new FormControl(
+          this.toLookupControlValue(field, field.defaultValue ?? null),
+          this.getFieldValidators(field),
+        ),
       );
     }
 
@@ -508,6 +557,37 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe(() => {
       this.formStateVersion.update((version) => version + 1);
     });
+
+    this.setupUserWarehouseTenantFilter(cfg);
+  }
+
+  private getFieldValidators(field: MasterFieldConfig): ValidatorFn[] {
+    const validators: ValidatorFn[] = [];
+    if (field.required && this.isFieldVisibleForMode(field)) validators.push(Validators.required);
+    if (field.maxLength) validators.push(Validators.maxLength(field.maxLength));
+    if (field.pattern) validators.push(Validators.pattern(field.pattern));
+    if (field.type === 'email') {
+      validators.push(Validators.email);
+    }
+    return validators;
+  }
+
+  private refreshFormModeValidators(): void {
+    const cfg = this.config();
+    if (!cfg) return;
+    for (const field of cfg.formFields) {
+      const control = this.form.get(field.field);
+      if (!control) continue;
+      control.setValidators(this.getFieldValidators(field));
+      control.updateValueAndValidity({ emitEvent: false });
+    }
+    this.formStateVersion.update((version) => version + 1);
+  }
+
+  private isFieldVisibleForMode(field: MasterFieldConfig): boolean {
+    if (field.editOnly && !this.isEdit()) return false;
+    if (field.createOnly && this.isEdit()) return false;
+    return true;
   }
 
   private setupItemTaxonomyState(cfg: MasterTableConfig): void {
@@ -1219,6 +1299,9 @@ export class MasterFormPageComponent implements OnInit {
       if (field.type !== 'lookup' || !field.lookupTable) {
         return false;
       }
+      if (this.isTenantScopedUserWarehouseLookup(field)) {
+        return false;
+      }
 
       if (cfg.tableKey !== 'items') {
         return true;
@@ -1226,9 +1309,13 @@ export class MasterFormPageComponent implements OnInit {
 
       return !['item_categories', 'ifrc_families', 'ifrc_references'].includes(field.lookupTable);
     });
-    const lookupTables = new Map<string, string>();
+    const lookupTables = new Map<string, { label: string; field: MasterFieldConfig }>();
     for (const field of lookupFields) {
-      lookupTables.set(field.lookupTable!, field.label);
+      const existing = lookupTables.get(field.lookupTable!);
+      lookupTables.set(field.lookupTable!, {
+        label: existing?.label ?? field.label,
+        field: this.hasLookupNoneOption(field) ? field : existing?.field ?? field,
+      });
     }
     if (cfg.tableKey === 'items') {
       this.loadItemCategoryOptions();
@@ -1238,7 +1325,7 @@ export class MasterFormPageComponent implements OnInit {
 
     this.lookupErrors.set({});
 
-    for (const [tableKey, label] of lookupTables.entries()) {
+    for (const [tableKey, { label, field }] of lookupTables.entries()) {
       // For the IFRC Item Reference form, load families with group context
       // so users can see which product group each family belongs to.
       if (tableKey === 'ifrc_families' && cfg.tableKey === 'ifrc_item_references') {
@@ -1251,7 +1338,7 @@ export class MasterFormPageComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       ).subscribe({
         next: (items) => {
-          this.writeLookup(tableKey, items);
+          this.writeLookup(tableKey, this.withLookupNoneOption(field, items));
           this.setLookupLoading(tableKey, false);
           this.setLookupError(tableKey, null);
         },
@@ -1761,7 +1848,7 @@ export class MasterFormPageComponent implements OnInit {
         for (const field of cfg.formFields) {
           const control = this.form.get(field.field);
           if (control && record[field.field] !== undefined) {
-            control.setValue(record[field.field], { emitEvent: false });
+            control.setValue(this.toLookupControlValue(field, record[field.field]), { emitEvent: false });
           }
         }
 
@@ -1839,18 +1926,22 @@ export class MasterFormPageComponent implements OnInit {
 
     if (this.form.hasError('invalidItemUomConversions')) {
       this.form.markAllAsTouched();
+      this.refreshFormErrorSummary();
       this.handleInvalidItemUomConversionSubmission();
       if (this.isWizardMode()) {
         this.navigateToFirstInvalidStep();
       }
+      this.focusErrorSummaryAfterRender();
       return;
     }
 
     if (!this.form.valid) {
       this.form.markAllAsTouched();
+      this.refreshFormErrorSummary();
       if (this.isWizardMode()) {
         this.navigateToFirstInvalidStep();
       }
+      this.focusErrorSummaryAfterRender();
       return;
     }
 
@@ -1874,10 +1965,12 @@ export class MasterFormPageComponent implements OnInit {
     } catch (error) {
       if (error instanceof ItemUomConversionValidationError) {
         this.form.markAllAsTouched();
+        this.refreshFormErrorSummary();
         this.handleInvalidItemUomConversionSubmission(error.details);
         if (this.isWizardMode()) {
           this.navigateToFirstInvalidStep();
         }
+        this.focusErrorSummaryAfterRender();
         return;
       }
       throw error;
@@ -1960,6 +2053,8 @@ export class MasterFormPageComponent implements OnInit {
           if (this.isWizardMode()) {
             this.navigateToFirstInvalidStep();
           }
+          this.refreshFormErrorSummary();
+          this.focusErrorSummaryAfterRender();
           return;
         }
 
@@ -1973,6 +2068,8 @@ export class MasterFormPageComponent implements OnInit {
           );
           this.applyInactiveItemControlError(inactiveItemGuard);
           this.notify.showError('Save blocked by inactive-item forward-write guard.');
+          this.refreshFormErrorSummary();
+          this.focusErrorSummaryAfterRender();
           return;
         }
 
@@ -2316,6 +2413,11 @@ export class MasterFormPageComponent implements OnInit {
     return this.getStatusField()?.options ?? [];
   }
 
+  getStatusFieldHint(): string | null {
+    const field = this.getStatusField();
+    return field ? this.getFieldHint(field) : null;
+  }
+
   private buildFieldGroupKey(label: string, usedKeys: Map<string, number>): string {
     const slugBase = this.slugifyFieldGroupLabel(label) || 'general';
     const duplicateCount = usedKeys.get(slugBase) ?? 0;
@@ -2334,6 +2436,18 @@ export class MasterFormPageComponent implements OnInit {
   getFieldTooltip(field: MasterFieldConfig): string | null {
     const tooltip = String(field.tooltip ?? '').trim();
     return tooltip || null;
+  }
+
+  getFieldDomId(field: MasterFieldConfig | string): string {
+    const fieldName = typeof field === 'string' ? field : field.field;
+    const safeFieldName = fieldName.replace(/[^A-Za-z0-9_-]/g, '-');
+    return `master-field-${safeFieldName}`;
+  }
+
+  getFieldHint(field: MasterFieldConfig): string | null {
+    const currentValue = String(this.form.get(field.field)?.value ?? '').trim().toUpperCase();
+    const matched = field.valueHints?.find((hint) => hint.value.trim().toUpperCase() === currentValue);
+    return matched?.hint ?? field.hint ?? null;
   }
 
   getPrimarySaveLabel(): string {
@@ -2415,6 +2529,16 @@ export class MasterFormPageComponent implements OnInit {
     const rawData = { ...this.form.getRawValue() } as MasterRecord;
 
     for (const field of cfg.formFields) {
+      if (field.createOnly && this.isEdit()) {
+        delete rawData[field.field];
+        continue;
+      }
+
+      if (this.isLookupNoneValue(field, rawData[field.field])) {
+        rawData[field.field] = null;
+        continue;
+      }
+
       if (field.uppercase && typeof rawData[field.field] === 'string') {
         const currentValue = rawData[field.field] as string;
         rawData[field.field] = currentValue.trim().toUpperCase();
@@ -2455,6 +2579,16 @@ export class MasterFormPageComponent implements OnInit {
         control.markAsTouched();
       }
     }
+  }
+
+  private refreshFormErrorSummary(): void {
+    this.formStateVersion.update((version) => version + 1);
+  }
+
+  private focusErrorSummaryAfterRender(): void {
+    afterNextRender(() => {
+      this.errorSummary()?.nativeElement.querySelector('h2')?.focus();
+    }, { injector: this.injector });
   }
 
   private getMissingCatalogSuggestionRequirementLabels(): string[] {
@@ -2612,7 +2746,7 @@ export class MasterFormPageComponent implements OnInit {
         continue;
       }
 
-      const nextValue = this.loadedRecordSnapshot[field.field] ?? null;
+      const nextValue = this.toLookupControlValue(field, this.loadedRecordSnapshot[field.field] ?? null);
       control.setValue(nextValue, { emitEvent: false });
     }
   }
@@ -2940,6 +3074,141 @@ export class MasterFormPageComponent implements OnInit {
 
   isLookupLoading(lookupKey: string): boolean {
     return this.lookupLoading()[lookupKey] === true;
+  }
+
+  private setupUserWarehouseTenantFilter(cfg: MasterTableConfig): void {
+    if (cfg.tableKey !== 'user') {
+      return;
+    }
+    const warehouseField = cfg.formFields.find((field) => (
+      this.isTenantScopedUserWarehouseLookup(field)
+    ));
+    if (!warehouseField) {
+      return;
+    }
+    const tenantControl = this.form.get('tenant_id');
+    const warehouseControl = this.form.get('assigned_warehouse_id');
+    if (!tenantControl || !warehouseControl) {
+      return;
+    }
+
+    tenantControl.valueChanges.pipe(
+      startWith(tenantControl.value),
+      pairwise(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(([previousTenant, currentTenant]) => {
+      if (!this.sameValue(previousTenant, currentTenant)) {
+        warehouseControl.setValue(null, { emitEvent: false });
+      }
+      this.loadTenantScopedUserWarehouseLookup(warehouseField, currentTenant);
+      this.formStateVersion.update((version) => version + 1);
+    });
+  }
+
+  private loadTenantScopedUserWarehouseLookup(
+    field: MasterFieldConfig,
+    tenantId: unknown,
+  ): void {
+    const lookupKey = field.lookupTable!;
+    const requestId = this.beginLookupRequest(lookupKey);
+    if (tenantId == null || tenantId === '') {
+      this.writeLookup(lookupKey, [], requestId);
+      this.setLookupLoading(lookupKey, false, requestId);
+      this.setLookupError(lookupKey, null, requestId);
+      return;
+    }
+
+    this.setLookupLoading(lookupKey, true, requestId);
+    this.service.lookup(lookupKey, true, { tenant_id: tenantId as string | number }).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        this.writeLookup(lookupKey, this.withLookupNoneOption(field, items), requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, null, requestId);
+      },
+      error: () => {
+        this.writeLookup(lookupKey, [], requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, `Failed to load ${field.label} options.`, requestId);
+      },
+    });
+  }
+
+  hasLookupNoneOption(field: MasterFieldConfig): boolean {
+    return field.type === 'lookup'
+      && !field.required
+      && (!!field.noneOptionLabel || field.field === 'parent_tenant_id');
+  }
+
+  getLookupOptions(field: MasterFieldConfig): LookupItem[] {
+    this.formStateVersion();
+    const items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
+    return this.withLookupNoneOption(field, items);
+  }
+
+  getLookupHint(field: MasterFieldConfig): string | null {
+    this.formStateVersion();
+    if (this.isTenantScopedUserWarehouseLookup(field)) {
+      const tenantId = this.form.get(field.lookupDependsOn!)?.value;
+      if (tenantId == null || tenantId === '') {
+        return field.lookupBlockedHint ?? null;
+      }
+      if (this.getLookupOptions(field).length === 0) {
+        return field.lookupEmptyHint ?? 'No options available.';
+      }
+    }
+    return field.hint ?? null;
+  }
+
+  getLookupEmptyHint(field: MasterFieldConfig): string {
+    return this.getLookupHint(field) ?? 'No options available.';
+  }
+
+  private isTenantScopedUserWarehouseLookup(field: MasterFieldConfig): boolean {
+    return this.config()?.tableKey === 'user'
+      && this.isCurrentRouteCreateMode()
+      && field.field === 'assigned_warehouse_id'
+      && field.lookupTable === 'warehouses'
+      && field.lookupDependsOn === 'tenant_id';
+  }
+
+  private isCurrentRouteCreateMode(): boolean {
+    const snapshotPk = this.route.snapshot.params['pk'];
+    if (snapshotPk && snapshotPk !== 'new') {
+      return false;
+    }
+    return !this.isEdit() && !this.pk();
+  }
+
+  getLookupOptionTrackValue(item: LookupItem): string | number {
+    return item.value;
+  }
+
+  private toLookupControlValue(field: MasterFieldConfig, value: unknown): unknown {
+    if (this.hasLookupNoneOption(field) && (value === null || value === undefined || value === '')) {
+      return this.lookupNoneValue;
+    }
+    return value;
+  }
+
+  private isLookupNoneValue(field: MasterFieldConfig, value: unknown): boolean {
+    return this.hasLookupNoneOption(field) && value === this.lookupNoneValue;
+  }
+
+  getLookupNoneLabel(field: MasterFieldConfig): string {
+    return field.noneOptionLabel ?? 'None';
+  }
+
+  private withLookupNoneOption(field: MasterFieldConfig, items: LookupItem[]): LookupItem[] {
+    if (!this.hasLookupNoneOption(field)) {
+      return items;
+    }
+
+    return [
+      { value: this.lookupNoneValue, label: this.getLookupNoneLabel(field) },
+      ...items.filter((item) => item.value !== this.lookupNoneValue),
+    ];
   }
 
   getItemTaxonomyFieldError(fieldName: 'category_id' | 'ifrc_family_id' | 'ifrc_item_ref_id'): string | null {

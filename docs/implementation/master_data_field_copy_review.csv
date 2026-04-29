@@ -1,0 +1,166 @@
+table_key,field_name,label,description,example,notes
+agencies,agency_name,Agency Name,"Name shown when assigning requests, stock movements, or shelter support to this agency.",Kingston Municipal Corporation,
+agencies,agency_type,Type,Classifies whether the agency receives shelter or distribution work.,,Placeholder omitted: select field shows configured choices.
+agencies,warehouse_id,Warehouse,Warehouse this agency works from for stock collection and day-to-day distribution.,,Placeholder omitted: lookup choices are shown by the field.
+agencies,agency_priority,Priority,Order used when teams triage agency support during a response.,,Placeholder omitted: numeric entry should not show a sentinel value. User review: confirm whether lower numbers mean higher priority.
+agencies,ineligible_event_id,Ineligible Event,"Event that currently blocks this agency from response assignments, when applicable.",,Placeholder omitted: lookup choices are shown by the field.
+agencies,address1_text,Address Line 1,Primary address field teams use to reach this agency.,"12 Camp Road, Kingston",
+agencies,address2_text,Address Line 2,"Additional address detail such as building, floor, gate, or landmark.","Gate 2, Logistics Office",
+agencies,parish_code,Parish,"Parish used for routing, reporting, and field coordination.",,Placeholder omitted: lookup choices are shown by the field.
+agencies,contact_name,Contact Name,Person field teams should contact about this agency.,Kemar Brown,
+agencies,phone_no,Phone,Number field teams can call during operations.,+1 876 555 0123,
+agencies,email_text,Email,Operational email used for confirmations and follow-up.,ops@kingston.gov.jm,
+agencies,status_code,Status,Active agencies can be selected for response work; inactive agencies remain for history.,,Placeholder omitted: status select shows lifecycle choices.
+countries,country_name,Country Name,"Country name used for donor, supplier, and procurement records.",Jamaica,
+countries,currency_code,Currency,Default currency teams expect when this country is selected.,,Placeholder omitted: lookup choices are shown by the field.
+countries,status_code,Status,Active countries appear in lookups; inactive countries stay for existing records.,,Placeholder omitted: status select shows lifecycle choices.
+currencies,currency_code,Currency Code,Short currency code finance teams use on country and supplier records.,(set on creation; locked once saved),Readonly on edit after creation.
+currencies,currency_name,Currency Name,Full currency name shown wherever this currency is selected.,Jamaican Dollar,
+currencies,currency_sign,Sign,Symbol printed beside amounts for this currency.,J$,
+currencies,status_code,Status,Active currencies appear in lookups; inactive currencies stay for existing records.,,Placeholder omitted: status select shows lifecycle choices.
+custodians,custodian_name,Custodian Name,Person or organization accountable for warehouse custody and handover.,ODPEM Logistics Unit,
+custodians,address1_text,Address Line 1,Primary address field teams use to reach the custodian.,"12 Camp Road, Kingston",
+custodians,address2_text,Address Line 2,"Additional address detail such as building, floor, gate, or landmark.",Main Stores Office,
+custodians,parish_code,Parish,"Parish used for routing, reporting, and field coordination.",,Placeholder omitted: lookup choices are shown by the field.
+custodians,contact_name,Contact Name,Person teams should call for custody questions or handover.,Kemar Brown,
+custodians,phone_no,Phone,Number field teams can call during operations.,+1 876 555 0123,
+custodians,email_text,Email,Operational email used for confirmations and follow-up.,custody@odpem.gov.jm,
+donors,donor_code,Donor Code,"Short donor key used to match donations, acknowledgements, and reports.",(set on creation; locked once saved),Readonly on edit after creation.
+donors,donor_name,Donor Name,"Official donor name shown on receipts, stock provenance, and reports.",World Food Programme,
+donors,org_type_desc,Organization Type,Type of donor organization used for reporting and partner review.,UN Agency,
+donors,address1_text,Address Line 1,Primary address used for donor correspondence and audit records.,"14 Harbour Street, Kingston",
+donors,address2_text,Address Line 2,"Additional address detail such as building, floor, or mail stop.",Suite 3B,
+donors,country_id,Country,Country this donor is based in for reporting and partner context.,,Placeholder omitted: lookup choices are shown by the field.
+donors,phone_no,Phone,Number teams can call to confirm donation details.,+1 876 555 0123,
+donors,email_text,Email,Email used for donation confirmations and follow-up.,donations@example.org,
+events,event_name,Event Name,Operational name dispatchers and planners will see on response records.,Hurricane Beryl 2026,
+events,event_type,Event Type,Classifies the hazard so reports and dashboards group the event correctly.,,Placeholder omitted: select field shows configured choices.
+events,start_date,Start Date,Date the event began for planning windows and response reporting.,2026-07-03,
+events,event_desc,Description,Short operational summary teams use to understand the event context.,Category 4 hurricane affecting southern parishes,
+events,impact_desc,Impact Description,Impact summary used to plan relief demand and response priorities.,"Flooding, roof damage, and shelter activation",
+events,status_code,Status,Active events drive planning; closed events remain for history.,,Placeholder omitted: status select shows lifecycle choices.
+events,closed_date,Closed Date,Date leadership closed the event for planning and dashboard visibility.,2026-07-12,
+events,reason_desc,Closure Reason,Reason leadership closed or archived this event.,Response transitioned to recovery operations,
+ifrc_families,family_label,Family Label,Name item authors see when choosing the IFRC family for a product.,Water Purification,
+ifrc_families,category_id,Level 1 Category,Level 1 DMIS category this IFRC family supports for reporting and burn-rate fallback.,,Placeholder omitted: lookup choices are shown by the field.
+ifrc_families,group_code,Group Code,Short IFRC group code used to build governed item references.,(set on creation; locked once saved),Readonly on edit after creation.
+ifrc_families,family_code,Family Code,Short family code used with the group code to identify this IFRC family.,(set on creation; locked once saved),Readonly on edit after creation.
+ifrc_families,group_label,Group Label,Readable group name shown when catalog teams review IFRC classification.,Food and Nutrition,
+ifrc_families,source_version,Source Version,IFRC source release or import note used to trace this classification.,IFRC-2024-v3,
+ifrc_families,status_code,Status,Active families appear in item lookups; inactive families stay for existing mappings.,,Placeholder omitted: status select shows lifecycle choices.
+ifrc_item_references,ifrc_family_id,IFRC Family,IFRC family this reference belongs to; it controls valid category alignment.,,Placeholder omitted: lookup choices are shown by the field. Readonly on edit after creation.
+ifrc_item_references,reference_desc,Reference Description,Product description item authors see when matching a local item to IFRC.,Water purification tablets,
+ifrc_item_references,size_weight,Size or Weight,"Size, weight, or count that distinguishes this IFRC reference.",25 kg,
+ifrc_item_references,form,Form,Physical form operators use to compare the reference with stock on hand.,Tablet,
+ifrc_item_references,material,Material,"Primary material when it affects storage, handling, or distribution.",Cotton,
+ifrc_item_references,ifrc_code,IFRC Code,Full IFRC product code used as the governed item reference.,(set on creation; locked once saved),Readonly on edit after creation.
+ifrc_item_references,category_code,Category Code,Short IFRC category code within the selected family.,(set on creation; locked once saved),Readonly on edit after creation.
+ifrc_item_references,category_label,Category Label,Readable IFRC category name shown with the governed reference.,Water treatment,
+ifrc_item_references,spec_segment,Spec Segment,IFRC specification segment that completes the governed reference code.,(set on creation; locked once saved),Readonly on edit after creation. User review: confirm operator wording for spec segment.
+ifrc_item_references,source_version,Source Version,IFRC source release or import note used to trace this reference.,IFRC-2024-v3,
+ifrc_item_references,status_code,Status,Active references can map items; inactive references remain for existing catalog history.,,Placeholder omitted: status select shows lifecycle choices.
+inventory,inventory_id,Inventory ID,Legacy inventory identifier for the stock row being maintained.,,Placeholder omitted: numeric entry should not show a sentinel value. User review: current frontend exposes the auto primary key as a numeric field.
+inventory,item_id,Item ID,Item this inventory row counts for stock monitoring and replenishment.,,"Placeholder omitted: numeric entry should not show a sentinel value. User review: backend defines this as an item lookup, but the current form is numeric."
+inventory,uom_code,UOM,Unit of measure used to count this inventory row.,CASE,"User review: backend defines this as a UOM lookup, but the current form is text."
+inventory,status_code,Status,Active inventory is counted in stock views; inactive inventory stays for history.,,Placeholder omitted: status select shows lifecycle choices.
+inventory,usable_qty,Usable Quantity,Quantity available for allocation and dispatch.,,Placeholder omitted: numeric entry should not show a sentinel value.
+inventory,reserved_qty,Reserved Quantity,Quantity already held for approved or pending response work.,,Placeholder omitted: numeric entry should not show a sentinel value.
+inventory,defective_qty,Defective Quantity,Quantity on hand but not suitable for dispatch.,,Placeholder omitted: numeric entry should not show a sentinel value.
+inventory,expired_qty,Expired Quantity,Quantity expired and unavailable for relief distribution.,,Placeholder omitted: numeric entry should not show a sentinel value.
+inventory,reorder_qty,Reorder Quantity,Quantity threshold that signals replenishment should be considered.,,Placeholder omitted: numeric entry should not show a sentinel value.
+inventory,last_verified_by,Last Verified By,User or team that last confirmed this stock count.,KEMAR_BROWN,"User review: confirm whether this should hold a username, name, or system actor."
+inventory,last_verified_date,Last Verified Date,Date this inventory count was last checked.,2026-07-05,
+inventory,comments_text,Comments,"Notes that explain stock condition, count exceptions, or audit context.",Cycle count adjusted after warehouse check,
+item_categories,category_code,Code,Short category code used to group catalog items for reporting.,FOOD,
+item_categories,category_desc,Description,Readable category name item authors see when classifying items.,Food and nutrition,
+item_categories,category_type,Type,Identifies whether the category covers physical goods or funds.,,Placeholder omitted: select field shows configured choices.
+item_categories,comments_text,Comments,Notes explaining governance or use of this category.,Used for shelter feeding stock,
+item_categories,status_code,Status,Active categories appear in item lookups; inactive categories stay for existing items.,,Placeholder omitted: status select shows lifecycle choices.
+items,item_code,Item Code,Canonical code downstream reports use after IFRC mapping.,WAT-PUR-TAB-25,
+items,legacy_item_code,Local Item Code,Local draft code teams can search before an IFRC match exists.,LOC-WASH-001,
+items,item_name,Item Name,"Display name shown across stock, requests, dashboards, and reports.","CORN BEEF, CANNED",
+items,sku_code,SKU Code (Optional),"Procurement or inventory system reference, if one exists.",SKU-2401-CB12,
+items,category_id,Level 1 Category,Level 1 category used for reporting and burn-rate fallback.,,Placeholder omitted: lookup choices are shown by the field.
+items,ifrc_family_id,Level 2 IFRC Family,Level 2 IFRC family that limits valid governed item references.,,Placeholder omitted: lookup choices are shown by the field.
+items,ifrc_item_ref_id,Level 3 IFRC Item Reference,Level 3 IFRC reference that assigns the canonical item code.,,Placeholder omitted: lookup choices are shown by the field.
+items,item_desc,Description,"Size, packaging, and local details that distinguish this item.","Corned beef, 340 g tin, shelf-stable",
+items,default_uom_code,Default UOM,"Unit teams use when counting, issuing, and reporting this item.",,Placeholder omitted: lookup choices are shown by the field.
+items,reorder_qty,Reorder Quantity,Quantity threshold that signals replenishment should be considered.,,Placeholder omitted: numeric entry should not show a sentinel value.
+items,issuance_order,Issuance Order,Stock rotation rule teams follow when issuing this item.,,Placeholder omitted: select field shows configured choices.
+items,can_expire_flag,Can Expire,ON tracks expiry dates and requires FEFO; OFF treats stock as non-expiring.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+items,baseline_burn_rate,Baseline Burn Rate,Fallback units consumed per hour for stockout estimates when history is thin.,,Placeholder omitted: numeric entry should not show a sentinel value. User review: confirm units per hour for baseline burn rate.
+items,min_stock_threshold,Min Stock Threshold,Floor that flags the item as critical when usable stock falls below it.,,Placeholder omitted: numeric entry should not show a sentinel value.
+items,criticality_level,Criticality Level,Baseline importance used before event-phase criticality is resolved.,,Placeholder omitted: select field shows configured choices.
+items,is_batched_flag,Batch Tracked,ON tracks lot or batch movements; OFF treats stock as interchangeable.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+items,units_size_vary_flag,Units Size Vary,ON allows variable-size units; OFF expects uniform packs or units.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description. User review: confirm examples for variable-size stock.
+items,usage_desc,Usage Description,How and when this item is distributed or consumed during a response.,Issued one tin per person per day at shelters,
+items,storage_desc,Storage Description,"Handling, temperature, stacking, or storage instructions for warehouses.","Cool, dry area below 30 C; stack max 6 high",
+items,comments_text,Comments,Administrative notes and audit-relevant context for this item.,Donated stock reference WFP-2024-0892,
+items,status_code,Status,Active items can be requested and stocked; inactive items remain for history.,,Placeholder omitted: status select shows lifecycle choices.
+locations,inventory_id,Inventory,Inventory record this physical storage location belongs to.,,Placeholder omitted: lookup choices are shown by the field.
+locations,location_desc,Location Description,"Bin, room, or bay name warehouse teams use when picking stock.","Aisle 3, Bay B",
+locations,comments_text,Comments,Notes that help warehouse teams find or manage this location.,Keep heavy items on lower shelf,
+locations,status_code,Status,Active locations can hold stock; inactive locations remain for history.,,Placeholder omitted: status select shows lifecycle choices.
+permission,resource,Resource,System area this permission controls for roles and access checks.,(set on creation; locked once saved),Readonly on edit after creation.
+permission,action,Action,Action this permission grants within the selected resource.,(set on creation; locked once saved),Readonly on edit after creation.
+role,code,Code,Canonical role key used by RBAC and route access checks.,(set on creation; locked once saved),Readonly on edit after creation.
+role,name,Name,Readable role name shown to administrators when assigning access.,Logistics Manager,
+role,description,Description,"Operational scope this role grants, for access review.",Approves needs lists and manages warehouse stock,
+suppliers,supplier_code,Supplier Code,Short supplier key used on procurement records and reports.,SUP-KGN-001,
+suppliers,supplier_name,Supplier Name,Registered supplier name procurement teams will see on orders.,Kingston Relief Supplies Ltd.,
+suppliers,trn_no,TRN,Taxpayer Registration Number used for vendor compliance checks.,123-456-789,
+suppliers,tcc_no,TCC,Tax Compliance Certificate reference used before procurement award.,TCC-2026-0412,
+suppliers,contact_name,Contact Name,"Supplier contact who can confirm quotes, lead times, and delivery.",Marcia Clarke,
+suppliers,phone_no,Phone,Number procurement teams can call during ordering and delivery.,+1 876 555 0123,
+suppliers,email_text,Email,"Email used for quotes, orders, and delivery follow-up.",orders@supplier.example,
+suppliers,address_text,Address,Business or delivery address used for supplier records.,"22 Marcus Garvey Drive, Kingston",
+suppliers,parish_code,Parish,Parish used for local routing and supplier reporting.,,Placeholder omitted: lookup choices are shown by the field.
+suppliers,country_id,Country,Country this supplier is based in for procurement reporting.,,Placeholder omitted: lookup choices are shown by the field.
+suppliers,default_lead_time_days,Default Lead Time (days),Typical days from order approval to delivery.,,Placeholder omitted: numeric entry should not show a sentinel value.
+suppliers,is_framework_supplier,Framework Supplier,ON means an approved framework contract exists; OFF uses normal sourcing.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+suppliers,framework_contract_no,Framework Contract No.,Framework contract reference used to buy quickly during response.,FW-ODPEM-2026-07,
+suppliers,framework_expiry_date,Framework Expiry Date,Date the framework contract stops being valid for procurement.,2026-12-31,
+suppliers,status_code,Status,Active suppliers can be selected for procurement; inactive suppliers stay for history.,,Placeholder omitted: status select shows lifecycle choices.
+tenant,tenant_code,Tenant Code,"Short tenant key used in user access, data scope, and reporting.",KINGSTON_NEOC,Readonly on edit after creation.
+tenant,tenant_name,Tenant Name,"Full organization name shown in access, routing, and reports.",Kingston NEOC,
+tenant,tenant_type,Tenant Type,Classifies the tenant operational level for access and reporting.,,Placeholder omitted: select field shows configured choices.
+tenant,parent_tenant_id,Parent Tenant,Parent organization this tenant reports through; leave blank for national root.,,Placeholder omitted: lookup choices are shown by the field.
+tenant,data_scope,Data Scope,Controls which tenant data users can see when assigned under this tenant.,,Placeholder omitted: select field shows configured choices.
+tenant,pii_access,PII Access,Controls how much personal data this tenant may view in operations records.,,Placeholder omitted: select field shows configured choices.
+tenant,offline_required,Offline Required,ON prioritizes offline-ready flows for this tenant; OFF uses standard online access.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+tenant,mobile_priority,Mobile Priority,ON prioritizes compact mobile workflows; OFF uses standard responsive screens.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+tenant,address1_text,Address Line 1,Primary address field teams use to identify this tenant office or hub.,"12 Camp Road, Kingston",
+tenant,parish_code,Parish,"Parish used for routing, reporting, and tenant coverage.",,Placeholder omitted: lookup choices are shown by the field.
+tenant,contact_name,Contact Name,Primary administrator or operations contact for this tenant.,Kemar Brown,
+tenant,phone_no,Phone,Number administrators can call during operations.,+1 876 555 0123,
+tenant,email_text,Email,Email used for tenant administration and operational follow-up.,kemar.brown@odpem.gov.jm,
+tenant,status_code,Status,Active tenants can receive users and records; inactive tenants remain for history.,,Placeholder omitted: status select shows lifecycle choices.
+uom,uom_code,UOM Code,"Unit code used on inventory, item, and procurement records.",(set on creation; locked once saved),Readonly on edit after creation.
+uom,uom_desc,Description,Readable unit name shown in item and stock forms.,Carton,
+uom,comments_text,Comments,Notes explaining when operators should use this unit.,Use for sealed cartons of 24 tins,
+uom,status_code,Status,Active units appear in item lookups; inactive units stay for existing records.,,Placeholder omitted: status select shows lifecycle choices.
+user,username,Username,Keycloak username used to match login to this DMIS user.,(set on creation; locked once saved),Readonly on edit after creation.
+user,email,Email,"Email used for login identity, alerts, and administrator contact.",kemar.brown@odpem.gov.jm,
+user,first_name,First Name,Given name shown in user directories and assignment history.,Kemar,
+user,last_name,Last Name,Family name shown in user directories and assignment history.,Brown,
+user,full_name,Full Name,"Display name others see in approvals, assignments, and audit trails.",Kemar Brown,
+user,tenant_id,Tenant,Required primary tenant membership created with this user.,,Placeholder omitted: lookup choices are shown by the field.
+user,assigned_warehouse_id,Assigned Warehouse,Warehouse this user manages or works from day to day.,,Placeholder omitted: lookup choices are shown by the field.
+user,agency_id,Legacy Agency (optional),Optional legacy agency link used only by workflows that still depend on agency_id.,,Placeholder omitted: lookup choices are shown by the field.
+user,is_active,Active,ON allows the account to operate in DMIS; OFF disables local access.,,Placeholder omitted: boolean toggle has ON/OFF wording in the description.
+user,phone,Phone,Mobile number for surge alerts and operational follow-up.,+1 876 555 0123,
+user,timezone,Timezone,Timezone used when displaying timestamps to this user.,America/Jamaica,
+user,language,Language,Preferred interface language code for this user.,en,
+user,status_code,Status,Active users can work; inactive users are retained; locked users cannot log in.,,Placeholder omitted: status select shows lifecycle choices.
+warehouses,warehouse_name,Warehouse Name,Name responders and inventory teams see when choosing a stock hub.,Kingston Main Warehouse,
+warehouses,warehouse_type,Type,Identifies whether this hub is a main hub or sub-hub for routing.,,Placeholder omitted: select field shows configured choices.
+warehouses,tenant_id,Managing Tenant,"Authoritative tenant responsible for managing, stocking, and operating this warehouse.",,Placeholder omitted: lookup choices are shown by the field.
+warehouses,min_stock_threshold,Min Stock Threshold,Floor that flags warehouse stock as needing attention.,,Placeholder omitted: numeric entry should not show a sentinel value.
+warehouses,address1_text,Address Line 1,Primary address drivers and field teams use to reach this warehouse.,"12 Camp Road, Kingston",
+warehouses,address2_text,Address Line 2,"Additional address detail such as gate, building, or landmark.","Gate 2, rear loading bay",
+warehouses,parish_code,Parish,"Parish used for routing, reporting, and field coordination.",,Placeholder omitted: lookup choices are shown by the field.
+warehouses,contact_name,Contact Name,"Person teams should call before pickup, delivery, or inspection.",Kemar Brown,
+warehouses,phone_no,Phone,Number field teams can call during operations.,+1 876 555 0123,
+warehouses,email_text,Email,Email used for warehouse confirmations and follow-up.,warehouse@odpem.gov.jm,
+warehouses,status_code,Status,Active warehouses can hold and dispatch stock; inactive warehouses stay for history.,,Placeholder omitted: status select shows lifecycle choices.
+warehouses,reason_desc,Reason,Reason for a status or governance change reviewers may need later.,Closed for roof repair after inspection,User review: confirm whether Reason is only for status changes.

@@ -33,6 +33,11 @@ def _is_odpem_tenant_code(value: object) -> bool:
     return bool(code) and (code.startswith("ODPEM") or code == "OFFICE_OF_DISASTER_P")
 
 
+def _is_public_access_tenant(tenant: TenantSnapshot) -> bool:
+    token = f"{_normalize_token(tenant.tenant_code)} {_normalize_token(tenant.tenant_name)}"
+    return "PUBLIC" in token or "DASHBOARD" in token
+
+
 class Command(BaseCommand):
     help = (
         "Bootstrap a conservative Relief Management authority baseline from current tenants. "
@@ -228,7 +233,7 @@ class Command(BaseCommand):
                 "status_code": "ACTIVE",
             }
 
-            if tenant.tenant_type == "PUBLIC":
+            if _is_public_access_tenant(tenant):
                 policy_row.update(
                     {
                         "can_self_request_flag": False,

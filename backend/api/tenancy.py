@@ -9,14 +9,22 @@ from django.db import DatabaseError, connection, transaction
 
 from api.authentication import Principal
 from api.rbac import (
+    PERM_MASTERDATA_TENANT_TYPE_MANAGE,
     PERM_NATIONAL_ACT_CROSS_TENANT,
     PERM_NATIONAL_READ_ALL_TENANTS,
 )
 
 
-_NEOC_TENANT_TYPES = {"NEOC", "NATIONAL_LEVEL"}
+_NEOC_TENANT_TYPES: set[str] = set()
 _NEOC_TENANT_CODES = {"NEOC", "ODPEM_NEOC"}
 _PHASE_WINDOW_AUTHORITY_TENANT_CODES = {"OFFICE_OF_DISASTER_P"}
+_TENANT_TYPE_ADMIN_TENANT_CODES = {
+    "ODPEM",
+    "ODPEM_NEOC",
+    "NEOC",
+    "OFFICE_OF_DISASTER_P",
+    "JAMICTA",
+}
 _CROSS_TENANT_POLICY_KEY = "approval.cross_tenant_actions"
 
 
@@ -75,6 +83,15 @@ def phase_window_authority_tenant_codes() -> set[str]:
     }
     allowed_codes = configured_codes & _PHASE_WINDOW_AUTHORITY_TENANT_CODES
     return allowed_codes or set(_PHASE_WINDOW_AUTHORITY_TENANT_CODES)
+
+
+def tenant_type_admin_tenant_codes() -> set[str]:
+    configured_codes = {
+        _normalize_tenant_code(value)
+        for value in getattr(settings, "TENANT_TYPE_ADMIN_TENANT_CODES", [])
+        if str(value or "").strip()
+    }
+    return configured_codes or set(_TENANT_TYPE_ADMIN_TENANT_CODES)
 
 
 def is_phase_window_authority_tenant_code(value: object) -> bool:
@@ -416,13 +433,32 @@ def can_manage_phase_window_config(context: TenantContext) -> bool:
     ODPEM national tenant.
     """
     active_type = _normalize_tenant_type(context.active_tenant_type)
-    if active_type not in {"NATIONAL", "NATIONAL_LEVEL"}:
+    if active_type != "NATIONAL":
         return False
 
     if context.active_tenant_id is None or context.active_tenant_id not in context.membership_tenant_ids:
         return False
 
     return is_phase_window_authority_tenant_code(context.active_tenant_code)
+
+
+def can_manage_tenant_types(
+    context: TenantContext,
+    permissions: Iterable[str],
+) -> bool:
+    """
+    Tenant-type maintenance is platform administration, not ordinary
+    master-data CRUD. It requires the dedicated permission and a direct active
+    assignment to an approved ODPEM/NEOC/JAMICTA tenant code.
+    """
+    permission_set = _permission_set(permissions)
+    if PERM_MASTERDATA_TENANT_TYPE_MANAGE.lower() not in permission_set:
+        return False
+
+    if context.active_tenant_id is None or context.active_tenant_id not in context.membership_tenant_ids:
+        return False
+
+    return _normalize_tenant_code(context.active_tenant_code) in tenant_type_admin_tenant_codes()
 
 
 def can_access_warehouse(

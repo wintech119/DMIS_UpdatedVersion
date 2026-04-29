@@ -1,0 +1,242 @@
+:host {
+  display: block;
+}
+
+.ops-section {
+  background: var(--ops-section);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+}
+
+.ops-tenant-role {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  color: var(--ops-text);
+}
+
+.ops-tenant-role__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ops-tenant-role__eyebrow {
+  margin: 0 0 4px;
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-semibold);
+  letter-spacing: var(--ops-tracking-wide);
+}
+
+.ops-tenant-role__title {
+  margin: 0;
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-tenant-role__note {
+  margin: 0;
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-sm);
+  line-height: 1.45;
+}
+
+.ops-tenant-role__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ops-critical-text);
+}
+
+.ops-tenant-role__skeleton-list,
+.ops-tenant-role__rows {
+  display: grid;
+  gap: 8px;
+}
+
+.ops-tenant-role__skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr minmax(72px, 120px);
+  gap: 12px;
+  min-height: 44px;
+  align-items: center;
+}
+
+.ops-tenant-role__skeleton-row span {
+  min-height: 16px;
+  border-radius: var(--ops-radius-pill);
+  background: var(--ops-card);
+}
+
+.ops-tenant-role__row {
+  display: grid;
+  grid-template-columns: 28px minmax(160px, 220px) minmax(0, 1fr) minmax(92px, 120px) 44px;
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-card);
+  transition: background 0.6s ease;
+}
+
+.ops-tenant-role__row--new {
+  background: var(--ops-info-bg);
+}
+
+.ops-tenant-role__domain-icon {
+  color: var(--ops-info-text);
+}
+
+.ops-tenant-role__chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--ops-radius-pill);
+  font-family: var(--ops-font-mono);
+  font-size: var(--ops-text-sm);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-tenant-role__chip mat-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+
+.ops-tenant-role__chip--neutral {
+  background: var(--ops-neutral-bg);
+  color: var(--ops-neutral-text);
+}
+
+.ops-tenant-role__chip--warning {
+  background: var(--ops-warning-bg);
+  color: var(--ops-warning-text);
+}
+
+.ops-tenant-role__chip-code,
+.ops-tenant-role__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-tenant-role__name {
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-medium);
+}
+
+.ops-tenant-role__meta {
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-sm);
+  white-space: nowrap;
+}
+
+.ops-tenant-role__empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px;
+  border: 1px dashed var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-card);
+  color: var(--ops-text-muted);
+  text-align: center;
+}
+
+.ops-tenant-role__empty mat-icon {
+  color: var(--ops-text-subtle);
+}
+
+.ops-tenant-role__empty strong {
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+}
+
+.ops-tenant-role__empty p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--ops-text-sm);
+}
+
+.ops-tenant-role__add-form {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ops-tenant-role__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.ops-tenant-role__assign-button,
+.ops-tenant-role__icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.ops-tenant-role__assign-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-tenant-role__icon-button {
+  cursor: pointer;
+}
+
+.ops-tenant-role__assign-button:focus-visible,
+.ops-tenant-role__icon-button:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-tenant-role__row {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ops-tenant-role__row {
+    grid-template-columns: 28px minmax(0, 1fr) 44px;
+    gap: 8px;
+  }
+
+  .ops-tenant-role__chip,
+  .ops-tenant-role__name,
+  .ops-tenant-role__meta {
+    grid-column: 2;
+  }
+
+  .ops-tenant-role__domain-icon {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  .ops-tenant-role__icon-button {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  .ops-tenant-role__add-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ops-tenant-role__assign-button {
+    width: 100%;
+  }
+}

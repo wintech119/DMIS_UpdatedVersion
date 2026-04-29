@@ -5,6 +5,7 @@ import { of } from 'rxjs';
 
 import { MasterHomeComponent } from './master-home.component';
 import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
+import { MASTER_DOMAIN_DEFINITIONS } from '../../models/master-domain-map';
 import { MasterDataAccessService } from '../../services/master-data-access.service';
 
 describe('MasterHomeComponent', () => {
@@ -49,7 +50,7 @@ describe('MasterHomeComponent', () => {
               label: 'Operational Masters',
               icon: 'domain',
               description: 'Operational entities used by replenishment workflows.',
-              implementedRoutePaths: ['custodians'],
+              implementedRoutePaths: ['warehouses'],
               plannedTables: [],
             }];
           }
@@ -120,16 +121,15 @@ describe('MasterHomeComponent', () => {
     const { component } = setup(['operational']);
 
     expect(component.domains().map((domain) => domain.id)).toEqual(['operational']);
-    expect(component.activeCards().some((card) => card.kind === 'implemented' && card.routePath === 'custodians')).toBeTrue();
+    expect(component.activeCards().some((card) => card.kind === 'implemented' && card.routePath === 'warehouses')).toBeTrue();
+    expect(component.activeCards().some((card) => card.kind === 'implemented' && card.routePath === 'custodians')).toBeFalse();
   });
 
-  it('marks custodians as a legacy operational master', () => {
+  it('does not surface custodians as a normal operational master card', () => {
     const { component } = setup(['operational']);
+    const operationalDomain = MASTER_DOMAIN_DEFINITIONS.find((domain) => domain.id === 'operational');
 
-    const custodianCard = component.activeCards().find((card) => card.kind === 'implemented' && card.routePath === 'custodians');
-
-    expect(custodianCard).toEqual(jasmine.objectContaining({
-      note: 'Legacy/deprecated master retained for compatibility with older operational workflows.',
-    }));
+    expect(operationalDomain?.implementedRoutePaths).not.toContain('custodians');
+    expect(component.activeCards().some((card) => card.kind === 'implemented' && card.routePath === 'custodians')).toBeFalse();
   });
 });

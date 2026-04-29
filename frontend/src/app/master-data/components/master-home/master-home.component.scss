@@ -1,149 +1,117 @@
+@use '../../master-data-mixins' as *;
+
+@include ops-page-shell;
+
 :host {
   display: block;
 }
 
-/* ── Design tokens (mapped to global Notion-inspired tokens) ──────────── */
 .master-home-page {
-  --color-primary: var(--color-accent);
-  --color-primary-bg: #ecfdf5;
-  --color-primary-border: var(--color-accent);
-  --color-text: var(--color-text-primary);
-  --color-muted: var(--color-text-secondary);
-  --color-warning-bg: #fffbeb;
-  --color-warning-border: #f59e0b;
-  --color-warning-text: #78350f;
-
-  max-width: 1280px;
-  margin: 0 auto;
+  max-inline-size: var(--page-max-width);
+  margin-inline: auto;
   padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
 }
 
-/* ── Page header ────────────────────────────────────────────────────────── */
-.md-page-header {
-  h1 {
-    margin: 0 0 6px;
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
-    color: var(--color-text);
-  }
-
-  p {
-    margin: 0;
-    color: var(--color-muted);
-    line-height: 1.5;
-
-    em {
-      font-style: italic;
-    }
-  }
+.md-page-header em {
+  font-style: italic;
 }
 
-/* ── Restricted notice ──────────────────────────────────────────────────── */
 .md-notice {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--color-warning-border);
-  background: var(--color-warning-bg);
+  padding-block: 12px;
+  padding-inline: 16px;
+  background: var(--ops-warning-bg);
+  border: 1px solid var(--ops-warning-border);
+  border-radius: var(--ops-radius-md);
 
   mat-icon {
-    color: var(--color-warning-border);
     flex-shrink: 0;
-    margin-top: 1px;
+    margin-block-start: 1px;
+    color: var(--ops-warning-text);
   }
 
   p {
     margin: 0;
-    color: var(--color-warning-text);
-    font-size: var(--text-base);
+    color: var(--ops-warning-text);
+    font-size: var(--ops-text-base);
   }
 }
 
-/* ── Tab bar ────────────────────────────────────────────────────────────── */
 .md-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  border-bottom: 2px solid var(--color-border);
-  padding-bottom: 0;
+  padding-block-end: 0;
+  border-block-end: 2px solid var(--ops-border);
 }
 
 .md-tab {
+  @extend %focus-ring;
+
+  position: relative;
+  inset-block-end: -2px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
+  padding-block: 8px;
+  padding-inline: 16px;
+  color: var(--ops-text-muted);
+  font: inherit;
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-medium);
   white-space: nowrap;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-  position: relative;
-  bottom: -2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ops-radius-md) var(--ops-radius-md) 0 0;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
 
   mat-icon {
+    inline-size: 18px;
+    block-size: 18px;
     font-size: 18px;
-    width: 18px;
-    height: 18px;
   }
 
   &:hover:not(:disabled) {
-    color: var(--color-primary);
-    background: var(--color-primary-bg);
-    border-color: var(--color-border);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-    z-index: 1;
+    color: var(--ops-primary);
+    background: var(--ops-accent-bg);
+    border-color: var(--ops-border);
   }
 
   &--active {
-    color: var(--color-primary);
-    background: var(--color-surface);
-    border-color: var(--color-border) var(--color-border) var(--color-surface);
-    border-bottom: 2px solid var(--color-primary-border);
-    font-weight: var(--weight-semibold);
+    color: var(--ops-primary);
+    font-weight: var(--ops-weight-semibold);
+    background: var(--ops-card);
+    border-color: var(--ops-border) var(--ops-border) var(--ops-card);
+    border-block-end: 2px solid var(--ops-primary);
   }
 
   &--planning {
-    color: var(--color-text-tertiary);
+    color: var(--ops-text-subtle);
     cursor: not-allowed;
     opacity: 0.75;
 
     &:hover {
+      color: var(--ops-text-subtle);
       background: transparent;
-      color: var(--color-text-tertiary);
     }
   }
 }
 
 .md-tab__planning-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  background: var(--color-surface-muted);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.03em;
-  margin-left: 2px;
+  @extend %pill-badge;
+
+  min-block-size: 18px;
+  margin-inline-start: 2px;
+  color: var(--ops-text-muted);
+  letter-spacing: var(--tracking-normal);
+  background: var(--ops-neutral-bg);
+  border: 1px solid var(--ops-neutral-border);
 }
 
-/* ── Tab panel ──────────────────────────────────────────────────────────── */
-section[role="tabpanel"] {
+section[role='tabpanel'] {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -153,50 +121,48 @@ section[role="tabpanel"] {
   display: none;
 }
 
-/* ── Section intro ──────────────────────────────────────────────────────── */
 .md-section-intro {
+  @extend %card-base;
+
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
+  padding-block: 14px;
+  padding-inline: 16px;
 }
 
 .md-section-intro__icon {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: var(--color-primary-bg);
-  flex-shrink: 0;
+  inline-size: 36px;
+  block-size: 36px;
+  background: var(--ops-accent-bg);
+  border-radius: var(--ops-radius-sm);
 
   mat-icon {
-    color: var(--color-primary);
+    inline-size: 20px;
+    block-size: 20px;
+    color: var(--ops-primary);
     font-size: 20px;
-    width: 20px;
-    height: 20px;
   }
 }
 
 .md-section-intro__title {
-  margin: 0 0 2px;
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text);
+  margin-block: 0 2px;
+  color: var(--ops-text);
+  font-size: var(--ops-text-md);
+  font-weight: var(--ops-weight-semibold);
 }
 
 .md-section-intro__desc {
   margin: 0;
-  color: var(--color-muted);
-  font-size: var(--text-base);
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-base);
   line-height: 1.45;
 }
 
-/* ── Card grid ──────────────────────────────────────────────────────────── */
 .md-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -204,80 +170,82 @@ section[role="tabpanel"] {
   align-items: stretch;
 }
 
-/* ── Planned card ───────────────────────────────────────────────────────── */
 .md-planned-card {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  block-size: 100%;
   padding: 16px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-muted);
+  background: var(--ops-neutral-bg);
+  border: 1px dashed var(--ops-border);
+  border-radius: var(--ops-radius-md);
   opacity: 0.65;
-  height: 100%;
-  box-sizing: border-box;
 }
 
 .md-planned-card__icon {
   display: inline-flex;
-  color: var(--color-text-tertiary);
+  color: var(--ops-text-subtle);
 
   mat-icon {
+    inline-size: 20px;
+    block-size: 20px;
     font-size: 20px;
-    width: 20px;
-    height: 20px;
   }
 }
 
 .md-planned-card__title {
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-secondary);
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-semibold);
 }
 
 .md-planned-card__sub {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
+  color: var(--ops-text-subtle);
+  font-size: var(--ops-text-sm);
 }
 
-/* ── Empty state ────────────────────────────────────────────────────────── */
 .md-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   padding: 32px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-muted);
   text-align: center;
+  background: var(--ops-neutral-bg);
+  border: 1px dashed var(--ops-border);
+  border-radius: var(--ops-radius-md);
 
   mat-icon {
+    inline-size: 32px;
+    block-size: 32px;
+    color: var(--ops-text-subtle);
     font-size: 32px;
-    width: 32px;
-    height: 32px;
-    color: var(--color-text-tertiary);
   }
 
   p {
     margin: 0;
-    color: var(--color-muted);
+    color: var(--ops-text-muted);
   }
 }
 
-/* ── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .md-tab {
     transition: none;
   }
 }
 
-/* ── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .master-home-page {
+    padding: 16px;
+  }
+}
+
 @media (max-width: 768px) {
   .master-home-page {
-    padding: 12px;
     gap: 14px;
+    padding: 12px;
   }
 
   .md-tabs {
@@ -285,11 +253,30 @@ section[role="tabpanel"] {
   }
 
   .md-tab {
-    padding: 6px 12px;
-    font-size: var(--text-sm);
+    padding-block: 6px;
+    padding-inline: 12px;
+    font-size: var(--ops-text-sm);
   }
 
   .md-card-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .md-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-block-end: 2px;
+  }
+
+  .md-section-intro {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .master-home-page {
+    padding: 8px;
   }
 }

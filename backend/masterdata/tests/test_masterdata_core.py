@@ -3,6 +3,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.db import DatabaseError, IntegrityError
 from django.test import RequestFactory, SimpleTestCase
@@ -25,11 +26,13 @@ from masterdata.services.data_access import (
     check_dependencies,
     check_uniqueness,
     create_record,
+    get_record as get_data_access_record,
     inspect_auto_pk_sequence,
+    list_records as list_data_access_records,
     resync_auto_pk_sequence,
     update_record,
 )
-from masterdata.services.validation import _cross_field_validation
+from masterdata.services.validation import _cross_field_validation, validate_record
 from masterdata.ifrc_code_agent import (
     IFRCAgent,
     IFRCCodeSuggestion,
@@ -37,6 +40,25 @@ from masterdata.ifrc_code_agent import (
     _encode_spec,
     _next_sequence,
 )
+
+
+def _warehouse_row_tuple(**overrides):
+    cfg = TABLE_REGISTRY["warehouses"]
+    record = {field.name: None for field in cfg.fields}
+    record.update({
+        "warehouse_id": 5,
+        "warehouse_name": "Kingston Hub",
+        "warehouse_type": "MAIN-HUB",
+        "address1_text": "1 Test Logistics Way",
+        "parish_code": "01",
+        "contact_name": "KEMAR BROWN",
+        "phone_no": "+1 (876) 555-0123",
+        "tenant_id": 9,
+        "custodian_id": 4,
+        "status_code": "A",
+    })
+    record.update(overrides)
+    return tuple(record[field.name] for field in cfg.fields)
 
 
 class OrderByValidationTests(SimpleTestCase):
@@ -129,6 +151,56 @@ class DataAccessErrorWarningTests(SimpleTestCase):
         self.assertEqual(warnings, [])
         self.assertIn("tenant_id", mock_execute_insert.call_args.args[2])
         self.assertIn(99, mock_execute_insert.call_args.args[4])
+
+
+class WarehouseTenantOwnershipDataAccessTests(SimpleTestCase):
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access.connection")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_list_records_returns_managing_tenant_display_fields(
+        self,
+        _mock_sqlite,
+        mock_connection,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+        cursor.fetchall.side_effect = [
+            [_warehouse_row_tuple()],
+            [(9, "ODPEM", "ODPEM National Coordination")],
+        ]
+
+        rows, total, warnings = list_data_access_records("warehouses")
+
+        self.assertEqual(total, 1)
+        self.assertEqual(warnings, [])
+        self.assertEqual(rows[0]["tenant_id"], 9)
+        self.assertEqual(rows[0]["custodian_id"], 4)
+        self.assertEqual(rows[0]["managing_tenant_id"], 9)
+        self.assertEqual(rows[0]["managing_tenant_code"], "ODPEM")
+        self.assertEqual(rows[0]["managing_tenant_name"], "ODPEM National Coordination")
+        self.assertEqual(rows[0]["managing_tenant_label"], "ODPEM - ODPEM National Coordination")
+
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access.connection")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_get_record_returns_managing_tenant_display_fields(
+        self,
+        _mock_sqlite,
+        mock_connection,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = _warehouse_row_tuple()
+        cursor.fetchall.return_value = [(9, "JDF", "Jamaica Defence Force")]
+
+        record, warnings = get_data_access_record("warehouses", 5)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(record["tenant_id"], 9)
+        self.assertEqual(record["custodian_id"], 4)
+        self.assertEqual(record["managing_tenant_id"], 9)
+        self.assertEqual(record["managing_tenant_code"], "JDF")
+        self.assertEqual(record["managing_tenant_name"], "Jamaica Defence Force")
+        self.assertEqual(record["managing_tenant_label"], "JDF - Jamaica Defence Force")
 
 
 class TableConfigValidationTests(SimpleTestCase):
@@ -248,6 +320,72 @@ class ItemCrossFieldValidationTests(SimpleTestCase):
 
 
 class WarehouseCrossFieldValidationTests(SimpleTestCase):
+    def _valid_warehouse_payload(self, **overrides):
+        payload = {
+            "warehouse_name": "Kingston Hub",
+            "warehouse_type": "MAIN-HUB",
+            "address1_text": "1 Test Logistics Way",
+            "parish_code": "01",
+            "contact_name": "KEMAR BROWN",
+            "phone_no": "+1 (876) 555-0123",
+            "tenant_id": 1,
+            "status_code": "A",
+        }
+        payload.update(overrides)
+        return payload
+
+    @patch("masterdata.services.validation.check_fk_exists", return_value=(True, []))
+    def test_managing_tenant_is_required_but_legacy_custodian_is_optional(
+        self,
+        _mock_fk_exists,
+    ):
+        cfg = TABLE_REGISTRY["warehouses"]
+
+        errors = validate_record(cfg, self._valid_warehouse_payload())
+
+        self.assertNotIn("custodian_id", errors)
+        self.assertNotIn("tenant_id", errors)
+
+        missing_tenant_errors = validate_record(
+            cfg,
+            self._valid_warehouse_payload(tenant_id=""),
+        )
+        self.assertEqual(
+            missing_tenant_errors.get("tenant_id"),
+            "Managing Tenant is required.",
+        )
+
+    def test_invalid_managing_tenant_is_rejected(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+
+        def fake_fk_exists(fk_table, _fk_pk, _value):
+            return fk_table != "tenant", []
+
+        with patch("masterdata.services.validation.check_fk_exists", side_effect=fake_fk_exists):
+            errors = validate_record(cfg, self._valid_warehouse_payload(tenant_id=999))
+
+        self.assertEqual(
+            errors.get("tenant_id"),
+            "Selected Managing Tenant does not exist.",
+        )
+
+    def test_invalid_supplied_legacy_custodian_is_rejected(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+
+        def fake_fk_exists(fk_table, _fk_pk, _value):
+            return fk_table != "custodian", []
+
+        with patch("masterdata.services.validation.check_fk_exists", side_effect=fake_fk_exists):
+            errors = validate_record(
+                cfg,
+                self._valid_warehouse_payload(custodian_id=999),
+            )
+
+        self.assertEqual(
+            errors.get("custodian_id"),
+            "Selected Legacy Custodian does not exist.",
+        )
+
     def test_sub_hub_whitespace_parent_is_treated_as_missing(self):
         cfg = TABLE_REGISTRY["warehouses"]
         errors = _cross_field_validation(
@@ -744,10 +882,10 @@ class ItemDetailReadFailureTests(SimpleTestCase):
 
 class PostWriteReadbackFailureViewTests(SimpleTestCase):
     def setUp(self):
-        self.cfg = TABLE_REGISTRY["uom"]
+        self.cfg = TABLE_REGISTRY["donors"]
 
     @patch("masterdata.views.get_record", return_value=(None, ["db_unavailable"]))
-    @patch("masterdata.views.create_record", return_value=("EA", []))
+    @patch("masterdata.views.create_record", return_value=("1", []))
     @patch("masterdata.views.validate_record", return_value={})
     def test_generic_create_returns_503_when_readback_is_transient(
         self,
@@ -756,8 +894,12 @@ class PostWriteReadbackFailureViewTests(SimpleTestCase):
         _mock_get_record,
     ):
         request = SimpleNamespace(
-            data={"uom_code": "EA", "uom_desc": "Each"},
-            user=SimpleNamespace(user_id="tester"),
+            data={"donor_name": "World Food Programme"},
+            user=SimpleNamespace(
+                user_id="tester",
+                roles=["SYSTEM_ADMINISTRATOR"],
+                permissions=[],
+            ),
         )
 
         response = views._handle_create(request, self.cfg)
@@ -786,11 +928,15 @@ class PostWriteReadbackFailureViewTests(SimpleTestCase):
         _mock_get_record,
     ):
         request = SimpleNamespace(
-            data={"uom_desc": "Each"},
-            user=SimpleNamespace(user_id="tester"),
+            data={"donor_name": "World Food Programme"},
+            user=SimpleNamespace(
+                user_id="tester",
+                roles=["SYSTEM_ADMINISTRATOR"],
+                permissions=[],
+            ),
         )
 
-        response = views._handle_update(request, self.cfg, "EA")
+        response = views._handle_update(request, self.cfg, "1")
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.data["detail"], "Failed to load updated record.")
@@ -875,7 +1021,7 @@ class InactivationDependencyFailureViewTests(SimpleTestCase):
         self.user = SimpleNamespace(
             is_authenticated=True,
             user_id="tester",
-            roles=[],
+            roles=["SYSTEM_ADMINISTRATOR"],
             permissions=[views.PERM_MASTERDATA_INACTIVATE],
         )
 
@@ -914,7 +1060,7 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.user = SimpleNamespace(
             is_authenticated=True,
             user_id="tester",
-            roles=[],
+            roles=["SYSTEM_ADMINISTRATOR"],
             permissions=[views.PERM_MASTERDATA_INACTIVATE, views.PERM_MASTERDATA_EDIT],
         )
 
@@ -1068,6 +1214,10 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
             permissions=[views.PERM_MASTERDATA_INACTIVATE, views.PERM_MASTERDATA_EDIT],
         )
 
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], [views.PERM_MASTERDATA_INACTIVATE]),
+    )
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views.get_item_record", return_value=(None, ["db_unavailable"]))
     @patch("masterdata.views.update_item_record", return_value=(True, []))
@@ -1078,6 +1228,7 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
         _mock_update_item_record,
         _mock_get_item_record,
         _mock_permission,
+        _mock_roles,
     ):
         request = self.factory.post("/api/v1/masterdata/items/15/inactivate", {})
         force_authenticate(request, user=self.user)
@@ -1092,6 +1243,10 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
         self.assertEqual(response.data["warnings"], ["db_unavailable"])
         self.assertIn("db_unavailable", response.data["diagnostic"])
 
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], [views.PERM_MASTERDATA_EDIT]),
+    )
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch(
         "masterdata.views.get_record",
@@ -1106,6 +1261,7 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
         _mock_activate_record,
         _mock_get_record,
         _mock_permission,
+        _mock_roles,
     ):
         request = self.factory.post("/api/v1/masterdata/uom/EA/activate", {})
         force_authenticate(request, user=self.user)
@@ -1471,6 +1627,118 @@ class ItemCodeMigrationSchemaTests(SimpleTestCase):
         executed_sql = schema_editor.execute.call_args.args[0]
         self.assertIn("ALTER TABLE tenant_a.item", executed_sql)
         self.assertIn("CREATE VIEW tenant_a.v_stock_status AS", executed_sql)
+
+
+class MasterDataCriticalHardeningTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin_user = SimpleNamespace(
+            pk="masterdata-admin",
+            is_authenticated=True,
+            user_id="masterdata-admin",
+            roles=["SYSTEM_ADMINISTRATOR"],
+            permissions=[
+                views.PERM_MASTERDATA_VIEW,
+                views.PERM_MASTERDATA_CREATE,
+                views.PERM_MASTERDATA_EDIT,
+                views.PERM_MASTERDATA_INACTIVATE,
+            ],
+        )
+        self.view_user = SimpleNamespace(
+            pk="masterdata-viewer",
+            is_authenticated=True,
+            user_id="masterdata-viewer",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_VIEW],
+        )
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    def test_parish_patch_returns_405(self, _mock_permission):
+        request = self.factory.patch(
+            "/api/v1/masterdata/parishes/01",
+            {"parish_name": "Kingston"},
+            format="json",
+        )
+        force_authenticate(request, user=self.admin_user)
+
+        response = views.master_detail_update(request, "parishes", "01")
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.data, {"detail": "Parishes are read-only."})
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_warehouse_update_payload_rejects_cross_tenant(self):
+        request = self.factory.patch(
+            "/api/v1/masterdata/agencies/5",
+            {"warehouse_id": 99},
+            format="json",
+        )
+        force_authenticate(request, user=self.admin_user)
+
+        with patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True):
+            with patch("masterdata.views.get_record", return_value=({"agency_id": 5}, [])):
+                with patch("masterdata.views._tenant_context", return_value=object()):
+                    with patch("masterdata.views.tenant_context_to_dict", return_value={"active_tenant_id": 1}):
+                        with patch("masterdata.views.can_access_warehouse", return_value=False) as mock_can_access:
+                            response = views.master_detail_update(request, "agencies", "5")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_can_access.assert_called_once()
+
+    def test_item_create_requires_system_administrator(self):
+        request = self.factory.post(
+            "/api/v1/masterdata/items/",
+            {"item_name": "Water", "item_code": "WATER-001"},
+            format="json",
+        )
+        force_authenticate(request, user=self.view_user)
+
+        with patch(
+            "masterdata.permissions.resolve_roles_and_permissions",
+            return_value=([], [views.PERM_MASTERDATA_VIEW]),
+        ):
+            response = views.master_list_create(request, "items")
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.get_record", return_value=({"custodian_id": 1, "custodian_name": "Ops"}, []))
+    @patch("masterdata.views.update_record", return_value=(True, []))
+    @patch("masterdata.views.validate_operational_master_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_masterdata_write_throttle(
+        self,
+        _mock_validate_record,
+        _mock_validate_operational,
+        _mock_update_record,
+        _mock_get_record,
+        _mock_permission,
+    ):
+        throttle_user = SimpleNamespace(
+            pk="masterdata-throttle-user",
+            is_authenticated=True,
+            user_id="masterdata-throttle-user",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_EDIT],
+        )
+        responses = []
+        for _ in range(41):
+            request = self.factory.patch(
+                "/api/v1/masterdata/custodians/1",
+                {"custodian_name": "Ops"},
+                format="json",
+            )
+            force_authenticate(request, user=throttle_user)
+            responses.append(views.master_detail_update(request, "custodians", "1"))
+
+        self.assertEqual(responses[39].status_code, 200)
+        self.assertEqual(responses[40].status_code, 429)
+        self.assertIn("Retry-After", responses[40])
 
 
 @override_settings(

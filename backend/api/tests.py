@@ -12,7 +12,7 @@ from django.apps import apps as django_apps
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import path
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed
@@ -1421,13 +1421,13 @@ class AsyncJobApiTests(TestCase):
             requested_tenant_id=2,
             active_tenant_id=2,
             active_tenant_code="AGENCY_B",
-            active_tenant_type="AGENCY",
+            active_tenant_type="PARTNER",
             memberships=(
                 TenantMembership(
                     tenant_id=2,
                     tenant_code="AGENCY_B",
                     tenant_name="Agency B",
-                    tenant_type="AGENCY",
+                    tenant_type="PARTNER",
                     is_primary=True,
                     access_level="WRITE",
                 ),
@@ -2016,6 +2016,210 @@ class AuthLoggingTests(SimpleTestCase):
         )
 
 
+class AuthJwtAutoProvisionTests(TestCase):
+    user_ids = (990001, 990002, 990003)
+
+    def setUp(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS "user" (
+                    user_id integer NOT NULL PRIMARY KEY,
+                    email varchar(200) NOT NULL UNIQUE,
+                    password_hash varchar(256) NOT NULL,
+                    first_name varchar(100),
+                    last_name varchar(100),
+                    full_name varchar(200),
+                    is_active boolean DEFAULT TRUE NOT NULL,
+                    timezone varchar(50) DEFAULT 'America/Jamaica' NOT NULL,
+                    language varchar(10) DEFAULT 'en' NOT NULL,
+                    username varchar(60),
+                    password_algo varchar(20) DEFAULT 'argon2id' NOT NULL,
+                    mfa_enabled boolean DEFAULT FALSE NOT NULL,
+                    mfa_secret varchar(64),
+                    failed_login_count smallint DEFAULT 0 NOT NULL,
+                    agency_id integer,
+                    status_code char(1) DEFAULT 'A' NOT NULL,
+                    version_nbr integer DEFAULT 1 NOT NULL,
+                    user_name varchar(20) NOT NULL,
+                    login_count integer DEFAULT 0 NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                'DELETE FROM "user" WHERE user_id IN (%s, %s, %s)',
+                list(self.user_ids),
+            )
+
+    def _request(self) -> SimpleNamespace:
+        return SimpleNamespace(META={"HTTP_AUTHORIZATION": "Bearer test-token"})
+
+    def _authenticate(self):
+        return authentication.LegacyCompatAuthentication().authenticate(self._request())
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_USERNAME_CLAIM="preferred_username",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=True,
+    )
+    @patch("api.authentication.logger.info")
+    @patch(
+        "api.authentication._verify_jwt_with_jwks",
+        return_value={
+            "sub": "990001",
+            "preferred_username": "new.keycloak.user",
+            "email": "new.keycloak.user@example.test",
+            "name": "New Keycloak User",
+            "roles": ["SYSTEM_ADMINISTRATOR"],
+        },
+    )
+    def test_jwt_auth_auto_provisions_unseen_db_user(
+        self,
+        _mock_verify_jwt,
+        mock_info,
+    ) -> None:
+        principal, _auth = self._authenticate()
+
+        self.assertEqual(principal.user_id, "990001")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT status_code, password_hash, password_algo, is_active, email, full_name
+                FROM "user"
+                WHERE user_id = %s
+                """,
+                [990001],
+            )
+            row = cursor.fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "A")
+        self.assertEqual(row[1], "")
+        self.assertEqual(row[2], "argon2id")
+        self.assertTrue(bool(row[3]))
+        self.assertEqual(row[4], "new.keycloak.user@example.test")
+        self.assertEqual(row[5], "New Keycloak User")
+        mock_info.assert_called_once_with(
+            "Auto-provisioned DMIS user row for user_id=%s username=%s",
+            "990001",
+            "new.keycloak.user",
+        )
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_USERNAME_CLAIM="preferred_username",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=True,
+    )
+    @patch("api.authentication.logger.info")
+    @patch(
+        "api.authentication._verify_jwt_with_jwks",
+        return_value={
+            "sub": "990002",
+            "preferred_username": "existing.keycloak.user",
+            "email": "changed@example.test",
+            "given_name": "Existing",
+            "family_name": "Changed",
+            "roles": [],
+        },
+    )
+    def test_jwt_auth_auto_provision_is_idempotent_for_existing_user(
+        self,
+        _mock_verify_jwt,
+        mock_info,
+    ) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO "user" (
+                    user_id,
+                    email,
+                    password_hash,
+                    full_name,
+                    is_active,
+                    username,
+                    user_name,
+                    password_algo,
+                    mfa_enabled,
+                    failed_login_count,
+                    status_code,
+                    version_nbr,
+                    login_count
+                )
+                VALUES (%s, %s, %s, %s, TRUE, %s, %s, %s, FALSE, 0, %s, 1, 0)
+                """,
+                [
+                    990002,
+                    "existing@example.test",
+                    "already-set",
+                    "Existing User",
+                    "existing.keycloak.user",
+                    "existing.keycloak.u",
+                    "argon2id",
+                    "A",
+                ],
+            )
+
+        principal, _auth = self._authenticate()
+
+        self.assertEqual(principal.user_id, "990002")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT COUNT(*), MIN(email), MIN(password_hash) FROM "user" WHERE user_id = %s',
+                [990002],
+            )
+            row = cursor.fetchone()
+
+        self.assertEqual(row[0], 1)
+        self.assertEqual(row[1], "existing@example.test")
+        self.assertEqual(row[2], "already-set")
+        mock_info.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_USERNAME_CLAIM="preferred_username",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.authentication.connection.cursor")
+    @patch(
+        "api.authentication._verify_jwt_with_jwks",
+        return_value={
+            "sub": "990003",
+            "preferred_username": "rbac.off.user",
+            "email": "rbac.off.user@example.test",
+            "name": "RBAC Off User",
+            "roles": ["VIEWER"],
+        },
+    )
+    def test_jwt_auth_does_not_write_db_when_db_rbac_disabled(
+        self,
+        _mock_verify_jwt,
+        mock_cursor,
+    ) -> None:
+        principal, _auth = self._authenticate()
+
+        self.assertEqual(principal.user_id, "990003")
+        self.assertEqual(principal.roles, ["VIEWER"])
+        mock_cursor.assert_not_called()
+
+
 class AuthWhoAmITests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
@@ -2328,7 +2532,7 @@ class AuthWhoAmITests(TestCase):
                             "tenant_id": 1,
                             "tenant_code": "ODPEM-NEOC",
                             "tenant_name": "ODPEM NEOC",
-                            "tenant_type": "NEOC",
+                            "tenant_type": "NATIONAL",
                             "is_primary": True,
                             "access_level": "FULL",
                         }

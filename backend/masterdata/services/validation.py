@@ -6,15 +6,20 @@ the Angular form controls via ``control.setErrors({server: msg})``.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from typing import Any, Dict, List, Tuple
 
 from masterdata.services.data_access import (
     TableConfig,
+    check_composite_uniqueness,
     check_fk_exists,
     check_uniqueness,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def validate_record(
@@ -102,6 +107,36 @@ def validate_record(
                 errors[fd.name] = f"Selected {fd.label} does not exist."
                 continue
 
+    for field_names in cfg.unique_together:
+        if is_update and not any(field_name in data for field_name in field_names):
+            continue
+        values = {
+            field_name: (
+                data.get(field_name)
+                if field_name in data
+                else (existing_record or {}).get(field_name)
+            )
+            for field_name in field_names
+        }
+        if any(
+            value is None or (isinstance(value, str) and not value.strip())
+            for value in values.values()
+        ):
+            continue
+        is_unique, _ = check_composite_uniqueness(
+            cfg.key,
+            field_names,
+            values,
+            current_pk if is_update else None,
+        )
+        if not is_unique:
+            labels = [
+                cfg.field(field_name).label
+                for field_name in field_names
+                if cfg.field(field_name) is not None
+            ]
+            errors[field_names[0]] = f"{' and '.join(labels)} already exists."
+
     # Cross-field validations
     errors.update(
         _cross_field_validation(
@@ -154,8 +189,8 @@ def _cross_field_validation(
                     sd_date = sd if isinstance(sd, date) else date.fromisoformat(str(sd))
                     if cd_date < sd_date:
                         errors["closed_date"] = "Closed date cannot be before start date."
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.warning("Failed to validate event date ordering for %s: %s", cfg.key, exc)
         elif status == "A":
             if closed_date:
                 errors["closed_date"] = "Closed date must be empty for active events."

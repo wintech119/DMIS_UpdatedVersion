@@ -38,9 +38,20 @@ export const MASTER_DATA_ROUTES: Routes = [
   ...pageRoutes('locations'),
   ...pageRoutes('warehouses'),
   ...pageRoutes('agencies'),
-  ...pageRoutes('custodians'),
   ...pageRoutes('donors'),
   ...pageRoutes('events'),
   ...pageRoutes('suppliers'),
+
+  ...pageRoutes('users'),
+  ...pageRoutes('roles'),
+  ...pageRoutes('permissions'),
+  ...pageRoutes('tenant-types'),
+  {
+    path: 'tenants/:pk/users/:userId/roles',
+    component: MasterDetailPageComponent,
+    data: { routePath: 'tenants', masterAction: 'view' },
+    canMatch: [masterDataAccessGuard],
+  },
+  ...pageRoutes('tenants'),
 ];
 

@@ -1,0 +1,230 @@
+:host {
+  display: block;
+}
+
+.ops-card {
+  background: var(--ops-card);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-md);
+}
+
+.ops-assignment {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  color: var(--ops-text);
+}
+
+.ops-assignment__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ops-assignment__eyebrow {
+  margin: 0 0 4px;
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-semibold);
+  letter-spacing: var(--ops-tracking-wide);
+}
+
+.ops-assignment__title {
+  margin: 0;
+  color: var(--ops-text);
+  font-size: var(--ops-text-md);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-assignment__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ops-critical-text);
+}
+
+.ops-assignment__skeleton-list,
+.ops-assignment__rows {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-assignment__skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr minmax(72px, 120px);
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+}
+
+.ops-assignment__skeleton-row span {
+  min-height: 16px;
+  border-radius: var(--ops-radius-pill);
+  background: var(--ops-section);
+}
+
+.ops-assignment__row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) minmax(84px, 120px) 44px;
+  gap: 12px;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-card);
+  transition: background 0.6s ease;
+}
+
+.ops-assignment__row--new {
+  background: var(--ops-info-bg);
+}
+
+.ops-assignment__chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--ops-radius-pill);
+  font-family: var(--ops-font-mono);
+  font-size: var(--ops-text-sm);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-assignment__chip mat-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+
+.ops-assignment__chip--neutral {
+  background: var(--ops-neutral-bg);
+  color: var(--ops-neutral-text);
+}
+
+.ops-assignment__chip--warning {
+  background: var(--ops-warning-bg);
+  color: var(--ops-warning-text);
+}
+
+.ops-assignment__chip-code,
+.ops-assignment__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-assignment__name {
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-medium);
+}
+
+.ops-assignment__meta {
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-sm);
+  white-space: nowrap;
+}
+
+.ops-assignment__empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  border: 1px dashed var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-section);
+  color: var(--ops-text-muted);
+  text-align: center;
+}
+
+.ops-assignment__empty mat-icon {
+  color: var(--ops-text-subtle);
+}
+
+.ops-assignment__empty strong {
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+}
+
+.ops-assignment__empty p,
+.ops-assignment__empty span {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--ops-text-sm);
+}
+
+.ops-assignment__add-form {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ops-assignment__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.ops-assignment__assign-button,
+.ops-assignment__icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.ops-assignment__assign-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-assignment__icon-button {
+  cursor: pointer;
+}
+
+.ops-assignment__assign-button:focus-visible,
+.ops-assignment__icon-button:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-assignment__row {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ops-assignment {
+    padding: 22px;
+  }
+
+  .ops-assignment__row {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px 10px;
+  }
+
+  .ops-assignment__chip,
+  .ops-assignment__name,
+  .ops-assignment__meta {
+    grid-column: 1;
+  }
+
+  .ops-assignment__icon-button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  .ops-assignment__add-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ops-assignment__assign-button {
+    width: 100%;
+  }
+}

@@ -56,7 +56,9 @@
                 }
               ],
               "define": {
-                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "false"
+                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "false",
+                "DMIS_REPLENISHMENT_ENABLED": "false",
+                "DMIS_OPERATIONS_ENABLED": "false"
               },
               "budgets": [
                 {
@@ -74,7 +76,9 @@
             },
             "development": {
               "define": {
-                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "true"
+                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "true",
+                "DMIS_REPLENISHMENT_ENABLED": "true",
+                "DMIS_OPERATIONS_ENABLED": "true"
               },
               "optimization": false,
               "extractLicenses": false,

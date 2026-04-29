@@ -1,11 +1,11 @@
 <div class="request-stage" [formGroup]="form">
-  <section class="request-panel request-panel--muted">
-    <div class="request-panel__intro">
+  <section class="request-panel ops-form-section">
+    <div class="ops-form-section__intro">
       <div>
-        <p class="request-panel__eyebrow">Request header</p>
-        <h2 class="request-panel__title">Request details</h2>
+        <p class="ops-form-section__eyebrow">Request header</p>
+        <h2 class="ops-form-section__title">Request details</h2>
       </div>
-      <p class="request-panel__copy">
+      <p class="ops-form-section__copy">
         Select the requesting agency and any linked event, then set the urgency level for this request.
       </p>
     </div>
@@ -67,10 +67,10 @@
       </mat-form-field>
     </div>
 
-    <div class="urgency-block" [class.urgency-block--invalid]="!!getControlError('urgency_ind')">
+    <div class="urgency-block" [class.urgency-block--invalid]="isUrgencyInvalid()">
       <div class="urgency-block__header">
         <div>
-          <p class="request-panel__eyebrow">Request urgency</p>
+          <p class="ops-form-section__eyebrow">Request urgency</p>
           <div class="section-title-with-help">
             <h3>Choose the overall request priority</h3>
             <button
@@ -86,33 +86,33 @@
         <p>This sets the intake tone for eligibility review, packaging, and dispatch sequencing.</p>
       </div>
 
-      <div class="urgency-pills" role="radiogroup" aria-label="Select request urgency">
-        @for (option of urgencyOptions; track option.value) {
-          <button
-            type="button"
-            class="urgency-pill"
-            [class.is-active]="form.get('urgency_ind')?.value === option.value"
-            [class.is-critical]="option.value === 'C'"
-            [class.is-high]="option.value === 'H'"
-            [class.is-medium]="option.value === 'M'"
-            [class.is-low]="option.value === 'L'"
-            [disabled]="creationBlocked"
+      <div
+        class="urgency-chip-group"
+        role="radiogroup"
+        aria-label="Select request urgency"
+        [class.urgency-chip-group--invalid]="isUrgencyInvalid()"
+        [attr.aria-invalid]="isUrgencyInvalid() ? 'true' : null"
+        [attr.aria-disabled]="creationBlocked ? 'true' : null">
+        @for (option of urgencyOptions; track option.value; let i = $index) {
+          <span
+            class="urgency-chip-host"
             role="radio"
+            [class.is-selected]="form.get('urgency_ind')?.value === option.value"
             [attr.aria-checked]="form.get('urgency_ind')?.value === option.value"
-            [attr.aria-label]="option.label + ': ' + option.hint"
-            (click)="selectRequestUrgency(option.value)">
-            <span class="urgency-pill__indicator">
-              @if (form.get('urgency_ind')?.value === option.value) {
-                <mat-icon class="urgency-pill__check">check</mat-icon>
-              } @else {
-                <span class="urgency-pill__code">{{ option.value }}</span>
-              }
-            </span>
-            <span class="urgency-pill__body">
-              <strong>{{ option.label }}</strong>
-              <small>{{ option.hint }}</small>
-            </span>
-          </button>
+            [attr.tabindex]="urgencyFocusIndex() === i ? 0 : -1"
+            [attr.aria-disabled]="creationBlocked ? 'true' : null"
+            [attr.aria-label]="urgencyAriaLabel(option.value, option.hint)"
+            (click)="selectRequestUrgency(option.value)"
+            (focus)="urgencyFocusIndex.set(i)"
+            (keydown)="onUrgencyKeydown($event, i, option.value)">
+            <app-ops-status-chip
+              [label]="option.label"
+              [tone]="urgencyChipTone(option.value)"
+              size="lg"
+              [showDot]="false"
+              [checkmark]="form.get('urgency_ind')?.value === option.value" />
+            <small class="urgency-chip-hint">{{ option.hint }}</small>
+          </span>
         }
       </div>
 
@@ -122,11 +122,11 @@
     </div>
   </section>
 
-  <section class="request-panel">
+  <section class="request-panel ops-form-section">
     <div class="notes-header">
       <div>
-        <p class="request-panel__eyebrow">Narrative</p>
-        <h2 class="request-panel__title">Request notes</h2>
+        <p class="ops-form-section__eyebrow">Narrative</p>
+        <h2 class="ops-form-section__title">Request notes</h2>
       </div>
       <button
         mat-icon-button
@@ -147,19 +147,20 @@
         [attr.maxlength]="requestNotesMaxLength"
         rows="3"
         cdkTextareaAutosize
-        cdkAutosizeMinRows="2"
+        cdkAutosizeMinRows="3"
         cdkAutosizeMaxRows="6"></textarea>
-      <mat-hint>Visible to reviewers, packers, and dispatch staff once the request leaves intake.</mat-hint>
+      <mat-hint>Reviewers see this verbatim.</mat-hint>
+      <mat-hint align="end">{{ notesCharCount() }} / {{ requestNotesMaxLength }}</mat-hint>
       @if (form.get('rqst_notes_text')?.hasError('required') && form.get('rqst_notes_text')?.touched) {
         <mat-error>Justification is required for high-urgency requests.</mat-error>
       }
     </mat-form-field>
   </section>
 
-  <section class="request-panel request-panel--ledger">
+  <section class="request-panel ops-form-section">
     <div class="step-items-header">
       <div>
-        <p class="request-panel__eyebrow">Requested items</p>
+        <p class="ops-form-section__eyebrow">Requested items</p>
         <h2 class="step-items-title">
           Item lines
           <span class="step-items-count">({{ itemsArray.length }})</span>
@@ -179,10 +180,13 @@
     </div>
 
     @if (itemsArray.length === 0) {
-      <div class="step-items-empty" role="status">
-        <mat-icon aria-hidden="true">inventory_2</mat-icon>
-        <p>No items added yet. Click "Add Item" to begin.</p>
-      </div>
+      <dmis-empty-state
+        icon="inventory_2"
+        title="No items added yet"
+        message='Click "Add Item" to begin.'
+        actionLabel="Add Item"
+        actionIcon="add"
+        (action)="onAddItem()" />
     } @else {
       <div class="step-items-list" formArrayName="items">
         @for (item of itemsArray.controls; track trackByIndex($index); let i = $index) {
@@ -285,6 +289,17 @@
           </div>
         }
       </div>
+
+      <button
+        type="button"
+        class="step-items-add-cta"
+        (click)="onAddItem()"
+        [disabled]="creationBlocked"
+        [matTooltip]="tooltips.addItem"
+        aria-label="Add another item to this request">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        Add another item
+      </button>
     }
   </section>
 </div>

@@ -69,7 +69,10 @@ export class MasterHomeComponent {
     'ifrc-item-references': 'Maintain Level 3 IFRC references, including spec attributes used during match review.',
     inventory: 'Read-only for now. Manage source transactions and policies via operational workflows.',
     locations: 'No locations found yet. Create locations before running item-location assignment tests.',
-    custodians: 'Legacy/deprecated master retained for compatibility with older operational workflows.',
+    users: 'Review auto-provisioned Keycloak identities and operational assignments.',
+    roles: 'Maintain global RBAC roles before assigning them to users.',
+    permissions: 'Inspect seeded permission resources and actions for advanced access.',
+    tenants: 'Maintain tenant hierarchy and data-governance defaults.',
   };
 
   domains = computed(() =>

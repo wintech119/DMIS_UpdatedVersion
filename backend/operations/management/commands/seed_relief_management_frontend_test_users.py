@@ -17,7 +17,7 @@ from operations.relief_test_data import (
     temporary_local_harness_default_user,
 )
 
-_ODPEM_NATIONAL_TENANT_TYPES = {"NEOC", "NATIONAL_LEVEL"}
+_ODPEM_NATIONAL_TENANT_TYPES = {"NATIONAL"}
 
 
 class Command(BaseCommand):

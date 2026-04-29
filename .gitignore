@@ -126,6 +126,10 @@ dmis_schema.sql
 !.claude/
 .claude/*
 !.claude/CLAUDE.md
+# Project-scoped Claude Code config (team-wide, no secrets):
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 .cursor/
 .mcp.json
 .mcp.example.json
@@ -137,6 +141,7 @@ docs/ops/mcp-postgres-troubleshooting.md
 CLAUDE_CODE_SUPPLY*
 CODEX_SUPPLY*
 DASHBOARD_IMPLEMENTATION*
+artifacts/
 .playwright-mcp/
 /fulfillment-*.png
 /operations-*.png

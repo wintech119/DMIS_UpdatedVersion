@@ -1,7 +1,7 @@
 @if (config(); as cfg) {
-  <div class="detail-page-container">
+  <div class="ops-page-shell detail-page-container">
   <!-- Header -->
-  <div class="detail-header">
+  <header class="ops-page-shell__header detail-header">
     <div class="header-breadcrumb">
       <button mat-icon-button class="back-btn" (click)="navigateBack()" matTooltip="Back to list"
         aria-label="Back to list">
@@ -12,16 +12,19 @@
       </span>
     </div>
     <div class="header-title-row">
-      <h2>
-        {{ recordTitle() || (cfg.displayName + ' Detail') }}
-        @if (record(); as r) {
-          @if (cfg.hasStatus !== false) {
-            <span class="status-badge" [class.active]="isActive()" [class.inactive]="!isActive()">
-              {{ getStatusLabel() }}
-            </span>
+      <div class="ops-page-shell__heading">
+        <p class="ops-page-shell__eyebrow">{{ cfg.displayName }}</p>
+        <h1 class="ops-page-shell__title">
+          {{ recordTitle() || (cfg.displayName + ' Detail') }}
+          @if (record(); as r) {
+            @if (cfg.hasStatus !== false) {
+              <span class="status-badge" [class.active]="isActive()" [class.inactive]="!isActive()">
+                {{ getStatusLabel() }}
+              </span>
+            }
           }
-        }
-      </h2>
+        </h1>
+      </div>
       @if (record() && (canEditRecord() || (isActive() ? canToggleActiveStatus() : canToggleInactiveStatus()))) {
         <div class="header-actions">
           @if (canEditRecord()) {
@@ -43,7 +46,7 @@
         </div>
       }
     </div>
-  </div>
+  </header>
 
   @if (isLoading()) {
     <mat-progress-bar mode="indeterminate" />
@@ -125,6 +128,22 @@
             }
           </div>
         </section>
+      }
+
+      @if (cfg.routePath === 'users' && numericPk(); as userId) {
+        <dmis-user-roles-assignment [userId]="userId" />
+      }
+
+      @if (cfg.routePath === 'roles' && numericPk(); as roleId) {
+        <dmis-role-permissions-assignment [roleId]="roleId" />
+      }
+
+      @if (cfg.routePath === 'tenants' && numericPk(); as tenantId) {
+        <dmis-tenant-users-assignment
+          [tenantId]="tenantId"
+          [tenantCode]="getRecordText(r, 'tenant_code')"
+          [deepLinkUserId]="tenantUserRoleUserId()"
+        />
       }
 
       <!-- Audit info (only for tables with audit columns) -->

@@ -1,10 +1,11 @@
 @if (config(); as cfg) {
-  <div class="master-list-page">
+  <div class="ops-page-shell master-list-page ops-master-list">
     <!-- Header -->
-    <div class="page-header">
-      <div class="header-text">
-        <h1>{{ cfg.displayName }}</h1>
-        <p class="subtitle">{{ cfg.searchPlaceholder || 'Manage ' + cfg.displayName.toLowerCase() }}</p>
+    <header class="ops-page-shell__header page-header">
+      <div class="ops-page-shell__heading header-text">
+        <p class="ops-page-shell__eyebrow">Master data</p>
+        <h1 class="ops-page-shell__title">{{ cfg.displayName }}</h1>
+        <p class="ops-page-shell__subtitle subtitle">{{ cfg.searchPlaceholder || 'Manage ' + cfg.displayName.toLowerCase() }}</p>
       </div>
       @if (canCreate()) {
         <button mat-flat-button color="primary" (click)="onAdd()" class="add-btn">
@@ -12,7 +13,7 @@
           Add New
         </button>
       }
-    </div>
+    </header>
 
     <!-- Filters Panel -->
     <div class="filters-panel" role="region" [attr.aria-label]="cfg.displayName + ' filters'">
@@ -46,7 +47,7 @@
 
       @if (filtersExpanded()) {
         <div class="filters-content" id="filtersContent">
-          <div class="filters-grid">
+          <div class="ops-form-stage filters-grid" style="--ops-form-density: compact;">
             <label class="filter-field filter-search">
               <span class="filter-label">Search</span>
               <input
@@ -143,11 +144,11 @@
     } @else if (rows().length === 0) {
       <!-- Empty State -->
         <dmis-empty-state
-          icon="search_off"
-          title="No records found"
-          [message]="searchText() ? 'Try adjusting your search or filters.' : 'No ' + cfg.displayName.toLowerCase() + ' exist yet.'"
-          [actionLabel]="canCreate() ? 'Add New' : ''"
-          actionIcon="add"
+          [icon]="cfg.emptyState?.icon || 'search_off'"
+          [title]="cfg.emptyState?.title || 'No records found'"
+          [message]="searchText() ? 'Try adjusting your search or filters.' : (cfg.emptyState?.message || 'No ' + cfg.displayName.toLowerCase() + ' exist yet.')"
+          [actionLabel]="canCreate() ? (cfg.emptyState?.actionLabel || 'Add New') : ''"
+          [actionIcon]="cfg.emptyState?.actionIcon || 'add'"
           (action)="onAdd()"
         />
     } @else {
@@ -158,24 +159,37 @@
             @for (col of cfg.columns; track col.field) {
               <ng-container [matColumnDef]="col.field">
                 <th mat-header-cell *matHeaderCellDef>{{ col.header }}</th>
-                <td mat-cell *matCellDef="let row">
-                  @switch (col.type) {
-                    @case ('status') {
-                      <span class="status-chip" [attr.data-status]="row[col.field]">
-                        <mat-icon class="status-icon">{{ row[col.field] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
-                        {{ getStatusLabel(row[col.field]) }}
-                      </span>
-                    }
-                    @case ('boolean') {
-                      <mat-icon [class.bool-true]="row[col.field]" [class.bool-false]="!row[col.field]">
-                        {{ row[col.field] ? 'check_circle' : 'cancel' }}
-                      </mat-icon>
-                    }
-                    @case ('date') {
-                      {{ row[col.field] | date:'mediumDate' }}
-                    }
-                    @default {
-                      {{ row[col.field] }}
+                <td mat-cell *matCellDef="let row"
+                  [class.ops-master-list__cell--monospace]="col.monospace"
+                  [class.ops-master-list__cell--identifier]="isIdentifierColumn(col)"
+                  [style.font-family]="getColumnFontFamily(col)"
+                  [style.font-weight]="getColumnFontWeight(col)"
+                  [attr.title]="getCellTitle(col, row[col.field])"
+                  [matTooltip]="getCellTitle(col, row[col.field]) || ''"
+                  [matTooltipDisabled]="!getCellTitle(col, row[col.field])">
+                  @if (getColumnPill(col, row[col.field]); as pill) {
+                    <span class="ops-pill" [ngClass]="getPillClasses(pill)">
+                      @if (pill.icon) {
+                        <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                      }
+                      {{ pill.label }}
+                    </span>
+                  } @else {
+                    @switch (col.type) {
+                      @case ('boolean') {
+                        <mat-icon [class.bool-true]="row[col.field]" [class.bool-false]="!row[col.field]">
+                          {{ row[col.field] ? 'check_circle' : 'cancel' }}
+                        </mat-icon>
+                      }
+                      @case ('date') {
+                        {{ row[col.field] | date:'mediumDate' }}
+                      }
+                      @default {
+                        @if (getColumnPrefixIcon(col, row[col.field]); as prefixIcon) {
+                          <mat-icon class="status-icon" aria-hidden="true">{{ prefixIcon }}</mat-icon>
+                        }
+                        {{ getDisplayValue(col, row[col.field]) }}
+                      }
                     }
                   }
                 </td>
@@ -236,12 +250,26 @@
                       (keydown.enter)="cfg.formMode === 'page' ? onView(row) : onEdit(row)"
                       role="link">
               <mat-card-header>
-                <span class="card-title">{{ row[cfg.columns[0].field] || row[cfg.pkField] }}</span>
+                <span
+                  class="card-title"
+                  [class.ops-master-list__cell--monospace]="cfg.columns[0].monospace"
+                  [class.ops-master-list__cell--identifier]="isIdentifierColumn(cfg.columns[0])"
+                  [attr.title]="getMobileTitle(cfg, row)"
+                  [matTooltip]="getMobileTitle(cfg, row) || ''"
+                  [matTooltipDisabled]="!getMobileTitle(cfg, row)">
+                  {{ getMobileTitle(cfg, row) }}
+                </span>
                 @if (cfg.hasStatus !== false) {
-                  <span class="status-chip" [attr.data-status]="row[cfg.statusField || 'status_code']">
-                    <mat-icon class="status-icon">{{ row[cfg.statusField || 'status_code'] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
-                    {{ getStatusLabel(row[cfg.statusField || 'status_code']) }}
-                  </span>
+                  @if (getStatusColumn(cfg); as statusColumn) {
+                    @if (getColumnPill(statusColumn, row[statusColumn.field]); as pill) {
+                      <span class="ops-pill" [ngClass]="getPillClasses(pill)">
+                        @if (pill.icon) {
+                          <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                        }
+                        {{ pill.label }}
+                      </span>
+                    }
+                  }
                 }
               </mat-card-header>
               <mat-card-content>
@@ -249,7 +277,28 @@
                   @if (!col.hideMobile && col.type !== 'status' && row[col.field]) {
                     <div class="card-field">
                       <span class="card-label">{{ col.header }}</span>
-                      <span>{{ row[col.field] }}</span>
+                      <span
+                        [class.ops-master-list__cell--monospace]="col.monospace"
+                        [class.ops-master-list__cell--identifier]="isIdentifierColumn(col)"
+                        [style.font-family]="getColumnFontFamily(col)"
+                        [style.font-weight]="getColumnFontWeight(col)"
+                        [attr.title]="getCellTitle(col, row[col.field])"
+                        [matTooltip]="getCellTitle(col, row[col.field]) || ''"
+                        [matTooltipDisabled]="!getCellTitle(col, row[col.field])">
+                        @if (getColumnPill(col, row[col.field]); as pill) {
+                          <span class="ops-pill" [ngClass]="getPillClasses(pill)">
+                            @if (pill.icon) {
+                              <mat-icon class="status-icon" aria-hidden="true">{{ pill.icon }}</mat-icon>
+                            }
+                            {{ pill.label }}
+                          </span>
+                        } @else {
+                          @if (getColumnPrefixIcon(col, row[col.field]); as prefixIcon) {
+                            <mat-icon class="status-icon" aria-hidden="true">{{ prefixIcon }}</mat-icon>
+                          }
+                          {{ getDisplayValue(col, row[col.field]) }}
+                        }
+                      </span>
                     </div>
                   }
                 }

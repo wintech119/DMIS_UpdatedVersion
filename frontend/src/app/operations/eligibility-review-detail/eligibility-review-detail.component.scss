@@ -8,7 +8,7 @@
 }
 
 // Decision audit list that lives inside the post-decision callout.
-// See frontend/src/lib/prompts/generation.tsx §4 information hierarchy and
+// See frontend/src/lib/prompts/generation.ts §4 information hierarchy and
 // §2 "distinguish recovery vs. no-matching-data" empty/blocker guidance.
 .ops-detail-meta--inline {
   margin: 0.75rem 0 0;

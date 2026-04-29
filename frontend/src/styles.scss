@@ -76,6 +76,63 @@
   // ── Focus ring ──
   --color-focus-ring: #1565c0;
 
+  // Operations assignment aliases
+  --ops-font-sans: var(--dmis-font-sans);
+  --ops-font-mono: var(--dmis-font-mono);
+  --ops-text-xs: var(--text-xs);
+  --ops-text-sm: var(--text-sm);
+  --ops-text-base: var(--text-base);
+  --ops-text-md: var(--text-md);
+  --ops-text-lg: var(--text-lg);
+  --ops-text-xl: var(--text-xl);
+  --ops-text-2xl: var(--text-2xl);
+  --ops-weight-medium: var(--weight-medium);
+  --ops-weight-semibold: var(--weight-semibold);
+  --ops-weight-bold: var(--weight-bold);
+  --ops-tracking-wide: var(--tracking-wide);
+  --ops-card: var(--color-surface);
+  --ops-section: var(--color-surface-muted);
+  --ops-border: var(--color-border);
+  --ops-text: var(--color-text-primary);
+  --ops-text-muted: var(--color-text-secondary);
+  --ops-text-subtle: var(--color-text-tertiary);
+  --ops-primary: var(--color-accent);
+  --ops-focus: var(--color-focus-ring);
+  --ops-critical-bg: var(--color-bg-critical);
+  --ops-critical-text: var(--color-critical);
+  --ops-warning-bg: var(--color-bg-warning);
+  --ops-warning-text: var(--color-warning-text);
+  --ops-info-bg: var(--color-bg-info);
+  --ops-info-text: var(--color-info);
+  --ops-success-bg: var(--color-bg-success);
+  --ops-success-text: var(--color-success);
+  --ops-neutral-bg: var(--color-surface-muted);
+  --ops-neutral-text: var(--color-text-primary);
+  --ops-neutral-border: var(--color-border);
+  --ops-on-primary: #ffffff;
+  --ops-outline: var(--color-border);
+  --ops-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --ops-shadow-sticky: 0 -2px 8px rgba(0, 0, 0, 0.08);
+  --ops-shadow-focus: 0 0 0 3px rgba(11, 94, 215, 0.18);
+  --ops-surface-translucent: rgba(255, 255, 255, 0.75);
+  --ops-row-alt: color-mix(in srgb, var(--color-surface-muted) 60%, var(--ops-card));
+  --ops-hover-strong: color-mix(in srgb, var(--ops-primary) 8%, var(--ops-card));
+  --ops-accent-bg: color-mix(in srgb, var(--ops-primary) 10%, var(--ops-card));
+  --ops-accent-border: color-mix(in srgb, var(--ops-primary) 22%, var(--ops-border));
+  --ops-accent-shadow: color-mix(in srgb, var(--ops-primary) 18%, transparent);
+  --ops-select-indicator: var(--color-text-secondary);
+  --ops-disabled-text: var(--color-text-tertiary);
+  --ops-success-border: color-mix(in srgb, var(--ops-success-text) 28%, var(--ops-border));
+  --ops-warning-border: color-mix(in srgb, var(--ops-warning-text) 28%, var(--ops-border));
+  --ops-info-border: color-mix(in srgb, var(--ops-info-text) 28%, var(--ops-border));
+  --ops-critical-border: color-mix(in srgb, var(--ops-critical-text) 28%, var(--ops-border));
+  --ops-critical-strong-text: #7f1d1d;
+  --ops-warning-strong-text: #6e4200;
+  --ops-success-strong-text: #065f46;
+  --ops-radius-md: var(--radius-card);
+  --ops-radius-sm: var(--radius-inner);
+  --ops-radius-pill: var(--radius-pill);
+
   // ── Wizard stepper tokens ──
   --color-wizard-step-done-bg: var(--color-accent);
   --color-wizard-step-done-text: #ffffff;

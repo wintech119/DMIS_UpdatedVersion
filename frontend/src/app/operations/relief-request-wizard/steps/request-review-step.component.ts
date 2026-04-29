@@ -4,7 +4,18 @@ import {
 import { DecimalPipe, DatePipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 
-import { formatUrgency, getUrgencyCssClass } from '../../models/operations-status.util';
+import {
+  formatOperationsUrgency,
+  getOperationsUrgencyTone,
+  mapOperationsToneToChipTone,
+  type OperationsTone,
+} from '../../operations-display.util';
+import {
+  OpsMetricStripComponent,
+  type OpsMetricStripItem,
+  type OpsMetricTileTone,
+} from '../../shared/ops-metric-strip.component';
+import { OpsStatusChipComponent } from '../../shared/ops-status-chip.component';
 
 export interface ReviewFormValue {
   agency_id: number | null;
@@ -28,6 +39,8 @@ export interface ReviewItemValue {
   required_by_date: string | Date | null;
 }
 
+type ChipTone = ReturnType<typeof mapOperationsToneToChipTone>;
+
 @Component({
   selector: 'app-request-review-step',
   standalone: true,
@@ -35,6 +48,8 @@ export interface ReviewItemValue {
     DecimalPipe,
     DatePipe,
     MatTableModule,
+    OpsMetricStripComponent,
+    OpsStatusChipComponent,
   ],
   templateUrl: './request-review-step.component.html',
   styleUrl: './request-review-step.component.scss',
@@ -45,8 +60,17 @@ export class RequestReviewStepComponent {
 
   readonly itemColumns = ['index', 'item_name', 'request_qty', 'urgency_ind', 'rqst_reason_desc', 'required_by_date'];
 
-  readonly formatUrgency = formatUrgency;
-  readonly getUrgencyCssClass = getUrgencyCssClass;
+  readonly formatUrgency = (code: string | null | undefined): string => formatOperationsUrgency(code);
+
+  /**
+   * Tone resolver for the urgency chips inside the summary card and item
+   * ledger. Centralises the routing so the review surface stays in lock
+   * step with the eligibility / dispatch / list surfaces.
+   */
+  urgencyChipTone(code: string | null | undefined): ChipTone {
+    const tone: OperationsTone = getOperationsUrgencyTone(code);
+    return mapOperationsToneToChipTone(tone);
+  }
 
   get totalItems(): number {
     return this.formValue.items?.length ?? 0;
@@ -58,7 +82,55 @@ export class RequestReviewStepComponent {
     );
   }
 
+  /**
+   * `app-ops-metric-strip` model for the review summary. Three
+   * non-interactive tiles (Items / Total qty / Urgency). Token tones
+   * keep the left-edge accent bar consistent with the queue surfaces.
+   */
+  get metricItems(): OpsMetricStripItem[] {
+    const urgencyToken = mapMetricTileToneFromUrgency(this.formValue.urgency_ind);
+    return [
+      {
+        label: 'Items',
+        value: String(this.totalItems),
+        token: 'info',
+      },
+      {
+        label: 'Total qty',
+        value: this.totalQuantity.toLocaleString(),
+        token: 'neutral',
+      },
+      {
+        label: 'Urgency',
+        value: this.formValue.urgency_ind
+          ? formatOperationsUrgency(this.formValue.urgency_ind)
+          : 'Pending',
+        token: urgencyToken,
+      },
+    ];
+  }
+
   trackByIndex(index: number): number {
     return index;
+  }
+}
+
+function mapMetricTileToneFromUrgency(code: string | null | undefined): OpsMetricTileTone {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'C':
+      // Critical → red accent — closest available metric-tile tone is
+      // 'awaiting' (warm warning amber) which mismatches; so the urgency
+      // chip carries the colour and the tile uses 'neutral' to avoid
+      // double-coding red.
+      return 'neutral';
+    case 'H':
+      return 'awaiting';
+    case 'M':
+      return 'info';
+    case 'L':
+      return 'completed';
+    default:
+      return 'neutral';
   }
 }

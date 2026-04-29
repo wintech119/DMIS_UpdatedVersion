@@ -21,6 +21,9 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 import { MasterDataAccessService } from '../../services/master-data-access.service';
+import { UserRolesAssignmentComponent } from '../user-roles-assignment/user-roles-assignment.component';
+import { RolePermissionsAssignmentComponent } from '../role-permissions-assignment/role-permissions-assignment.component';
+import { TenantUsersAssignmentComponent } from '../tenant-users-assignment/tenant-users-assignment.component';
 
 interface DetailFieldGroup {
   key: string;
@@ -42,6 +45,7 @@ interface DetailUomConversion {
     CommonModule, RouterModule,
     MatButtonModule, MatIconModule, MatCardModule, MatTooltipModule,
     MatDialogModule, MatProgressBarModule,
+    UserRolesAssignmentComponent, RolePermissionsAssignmentComponent, TenantUsersAssignmentComponent,
   ],
   templateUrl: './master-detail-page.component.html',
   styleUrl: './master-detail-page.component.scss',
@@ -64,7 +68,9 @@ export class MasterDetailPageComponent implements OnInit {
   editGuidance = signal<CatalogEditGuidance | null>(null);
   isLoading = signal(true);
   pk = signal<string | number | null>(null);
+  tenantUserRoleUserId = signal<number | null>(null);
   itemUomConversions = signal<DetailUomConversion[]>([]);
+  numericPk = computed(() => this.toPositiveInt(this.pk()));
 
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
   readonly canEditRecord = computed(() => {
@@ -160,6 +166,7 @@ export class MasterDetailPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(params => {
       const pkParam = params['pk'];
+      this.tenantUserRoleUserId.set(this.toPositiveInt(params['userId']));
       if (pkParam) {
         this.pk.set(pkParam);
         this.loadRecord();
@@ -383,6 +390,11 @@ export class MasterDetailPageComponent implements OnInit {
 
   getAuditUpdatedAt(record: MasterRecord): string | number | Date | null {
     return this.toDateInput(record['update_dtime'] ?? record['updated_at']);
+  }
+
+  getRecordText(record: MasterRecord, fieldName: string): string {
+    const value = record[fieldName];
+    return value == null ? '' : String(value);
   }
 
   getDefaultUomLabel(): string {

@@ -1,0 +1,113 @@
+<section class="ops-tenant-role ops-section" aria-label="Tenant user roles assignment panel">
+  <div class="ops-tenant-role__header">
+    <div>
+      <p class="ops-tenant-role__eyebrow">ROLES IN THIS TENANT ({{ roles().length }})</p>
+      <h4 class="ops-tenant-role__title">{{ username() || 'Tenant user' }}</h4>
+    </div>
+    <button
+      mat-icon-button
+      type="button"
+      class="ops-tenant-role__icon-button"
+      (click)="loadAssignments()"
+      matTooltip="Retry loading tenant roles"
+      aria-label="Retry loading tenant-scoped roles"
+    >
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </div>
+
+  <p class="ops-tenant-role__note">
+    These roles apply only when the user operates within {{ tenantContextLabel() }}. Global roles assigned at user level remain separate
+  </p>
+
+  @if (errorMessage()) {
+    <mat-error class="ops-tenant-role__error">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      {{ errorMessage() }}
+    </mat-error>
+  }
+
+  @if (isLoading()) {
+    <div class="ops-tenant-role__skeleton-list" aria-label="Loading tenant user roles" role="status" aria-live="polite">
+      @for (row of [0, 1, 2]; track row) {
+        <div class="ops-tenant-role__skeleton-row" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      }
+    </div>
+  } @else if (roles().length === 0) {
+    <div class="ops-tenant-role__empty" aria-label="No tenant roles empty state">
+      <mat-icon aria-hidden="true">domain_disabled</mat-icon>
+      <strong>No roles assigned in this tenant</strong>
+      <p>This user has no tenant-scoped roles for {{ tenantContextLabel() }}.</p>
+    </div>
+  } @else {
+    <div class="ops-tenant-role__rows" aria-label="Tenant-scoped role rows">
+      @for (role of roles(); track role.role_id) {
+        <div class="ops-tenant-role__row" [class.ops-tenant-role__row--new]="isHighlighted(role.role_id)">
+          <mat-icon class="ops-tenant-role__domain-icon" aria-hidden="true">domain</mat-icon>
+          <span
+            class="ops-tenant-role__chip"
+            [class.ops-tenant-role__chip--warning]="roleTone(role) === 'warning'"
+            [class.ops-tenant-role__chip--neutral]="roleTone(role) === 'neutral'"
+            [matTooltip]="role.code"
+          >
+            <mat-icon aria-hidden="true">{{ roleIcon(role) }}</mat-icon>
+            <span class="ops-tenant-role__chip-code">{{ role.code }}</span>
+          </span>
+          <span class="ops-tenant-role__name">{{ role.name }}</span>
+          <span class="ops-tenant-role__meta">{{ roleMeta(role) }}</span>
+          <button
+            mat-icon-button
+            type="button"
+            class="ops-tenant-role__icon-button"
+            (click)="confirmRevoke(role)"
+            [disabled]="isSaving()"
+            [attr.aria-label]="'Remove tenant-scoped role ' + role.code"
+            [matTooltip]="'Remove tenant-scoped role ' + role.code"
+          >
+            <mat-icon>delete_outline</mat-icon>
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <form class="ops-tenant-role__add-form" aria-label="Assign tenant-scoped role" (ngSubmit)="assignSelectedRole()">
+    <mat-form-field appearance="outline" class="ops-tenant-role__field">
+      <mat-label>Add role</mat-label>
+      <input
+        matInput
+        type="text"
+        maxlength="80"
+        [formControl]="roleControl"
+        [matAutocomplete]="roleAuto"
+        autocomplete="off"
+        aria-label="Search unassigned tenant roles"
+      />
+      <mat-autocomplete
+        #roleAuto="matAutocomplete"
+        [displayWith]="displayRole"
+        (optionSelected)="onRoleSelected($event)"
+      >
+        @for (role of availableRoles(); track role.role_id) {
+          <mat-option [value]="role">
+            {{ role.code }} - {{ role.name }}
+          </mat-option>
+        }
+      </mat-autocomplete>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      color="primary"
+      type="submit"
+      class="ops-tenant-role__assign-button"
+      [disabled]="!selectedRole() || isSaving()"
+    >
+      <mat-icon aria-hidden="true">add_circle</mat-icon>
+      Assign
+    </button>
+  </form>
+</section>

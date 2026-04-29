@@ -15,10 +15,11 @@ export const CURRENCY_CONFIG: MasterTableConfig = {
     { field: 'status_code', header: 'Status', type: 'status', sortable: true },
   ],
   formFields: [
-    { field: 'currency_code', label: 'Currency Code', type: 'text', required: true, maxLength: 10, uppercase: true, readonlyOnEdit: true },
-    { field: 'currency_name', label: 'Currency Name', type: 'text', required: true, maxLength: 60 },
-    { field: 'currency_sign', label: 'Sign', type: 'text', maxLength: 6 },
+    { field: 'currency_code', label: 'Currency Code', type: 'text', hint: 'Short currency code finance teams use on country and supplier records.', placeholder: '(set on creation; locked once saved)', required: true, maxLength: 10, uppercase: true, readonlyOnEdit: true },
+    { field: 'currency_name', label: 'Currency Name', type: 'text', hint: 'Full currency name shown wherever this currency is selected.', placeholder: 'Jamaican Dollar', required: true, maxLength: 60 },
+    { field: 'currency_sign', label: 'Sign', type: 'text', hint: 'Symbol printed beside amounts for this currency.', placeholder: 'J$', maxLength: 6 },
     { field: 'status_code', label: 'Status', type: 'select', required: true, defaultValue: 'A',
+      hint: 'Active currencies appear in lookups; inactive currencies stay for existing records.',
       options: [
         { value: 'A', label: 'Active' },
         { value: 'I', label: 'Inactive' },

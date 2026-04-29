@@ -14,15 +14,25 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import DatabaseError, connection
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from django.db import DatabaseError, connection, transaction
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+    throttle_classes,
+)
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from api.rbac import has_governed_catalog_access, resolve_roles_and_permissions
+from api.rbac import (
+    PERM_MASTERDATA_TENANT_TYPE_MANAGE,
+    has_governed_catalog_access,
+    resolve_roles_and_permissions,
+)
 from api.tenancy import (
     can_access_tenant,
     can_access_warehouse,
+    can_manage_tenant_types,
     resolve_tenant_context,
     tenant_context_to_dict,
 )
@@ -43,13 +53,18 @@ from masterdata.permissions import (
     PERM_MASTERDATA_VIEW,
 )
 from masterdata.serializers import IFRCSuggestionResponseSerializer
+from masterdata.throttling import MasterDataWriteThrottle
+from masterdata.services import iam_data_access
 from masterdata.services.data_access import (
+    BASELINE_TENANT_TYPE_CODES,
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
     _safe_rollback,
     _schema_name,
     activate_record,
+    check_warehouse_managed_by_tenant,
     check_dependencies,
+    check_fk_exists,
     create_record,
     get_lookup,
     get_record,
@@ -102,6 +117,15 @@ _IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
 _IFRC_RESPONSE_CANDIDATE_LIMIT = 5
 _SCALAR_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(KG|MG|G|L|ML|KVA|KW|CM|MM|M2)$")
 _DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*(M2|FT)$")
+
+
+class UserCreateRecordError(Exception):
+    def __init__(self, warnings: list[str]):
+        self.warnings = warnings
+
+
+class UserPrimaryTenantMembershipError(Exception):
+    pass
 
 
 def _actor_id(request) -> str:
@@ -162,46 +186,171 @@ def _prepare_warehouse_write_payload(
     existing_record: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     payload = dict(data)
-    existing_tenant_id = existing_record.get("tenant_id") if existing_record else None
-    if existing_tenant_id not in (None, ""):
+    requested_supplied = "tenant_id" in payload
+    requested_raw_tenant_id = payload.get("tenant_id")
+    requested_tenant_id = None
+    if requested_supplied:
+        if requested_raw_tenant_id in (None, ""):
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
+        requested_tenant_id = _parse_positive_int(requested_raw_tenant_id)
+        if requested_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant must be a positive integer."
+            }
+
+    if existing_record is None:
+        if requested_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
         if _should_enforce_tenant_scope():
-            warehouse_id = existing_record.get("warehouse_id") if existing_record else None
+            context = _tenant_context(request)
+            if not can_access_tenant(context, requested_tenant_id, write=True):
+                return payload, {
+                    "tenant_scope": "You do not have access to create warehouses for this tenant."
+                }
+        payload["tenant_id"] = requested_tenant_id
+        return payload, {}
+
+    warehouse_id = existing_record.get("warehouse_id")
+    existing_tenant_id = _parse_positive_int(existing_record.get("tenant_id"))
+    if requested_tenant_id is None:
+        if existing_tenant_id is None:
+            return payload, {
+                "tenant_id": "Managing Tenant is required for warehouse maintenance."
+            }
+        if _should_enforce_tenant_scope():
             context = _tenant_context(request)
             if not can_access_warehouse(context, _parse_positive_int(warehouse_id), write=True):
                 return payload, {
                     "tenant_scope": "You do not have access to modify this warehouse."
                 }
-        payload["tenant_id"] = existing_tenant_id
         return payload, {}
 
-    context = _tenant_context(request)
-    requested_payload_tenant_id = payload.get("tenant_id")
-    if requested_payload_tenant_id not in (None, "") and _parse_positive_int(requested_payload_tenant_id) is None:
-        return payload, {
-            "tenant_id": "tenant_id must be a positive integer."
-        }
+    if _should_enforce_tenant_scope():
+        context = _tenant_context(request)
+        if not can_access_warehouse(context, _parse_positive_int(warehouse_id), write=True):
+            return payload, {
+                "tenant_scope": "You do not have access to modify this warehouse."
+            }
+        if requested_tenant_id != existing_tenant_id and not can_access_tenant(
+            context,
+            requested_tenant_id,
+            write=True,
+        ):
+            return payload, {
+                "tenant_scope": "You do not have access to assign this warehouse to the selected tenant."
+            }
 
-    target_tenant_id = (
-        _parse_positive_int(requested_payload_tenant_id)
-        or getattr(context, "requested_tenant_id", None)
-        or context.active_tenant_id
-    )
-    if target_tenant_id is None:
-        return payload, {
-            "tenant_id": "Tenant context is required for warehouse maintenance."
-        }
-
-    if _should_enforce_tenant_scope() and not can_access_tenant(
-        context,
-        target_tenant_id,
-        write=True,
-    ):
-        return payload, {
-            "tenant_scope": "You do not have access to create warehouses for this tenant."
-        }
-
-    payload["tenant_id"] = target_tenant_id
+    payload["tenant_id"] = requested_tenant_id
     return payload, {}
+
+
+def _extract_required_user_create_tenant(data: dict[str, Any]) -> tuple[int | None, dict[str, str], list[str]]:
+    errors: dict[str, str] = {}
+    raw_tenant_id = data.pop("tenant_id", None)
+    if raw_tenant_id in (None, ""):
+        errors["tenant_id"] = "Tenant is required for user creation."
+        return None, errors, []
+
+    tenant_id = _parse_positive_int(raw_tenant_id)
+    if tenant_id is None:
+        errors["tenant_id"] = "Tenant must be a positive integer."
+        return None, errors, []
+
+    exists, warnings = check_fk_exists("tenant", "tenant_id", tenant_id)
+    if warnings:
+        return None, errors, warnings
+    if not exists:
+        errors["tenant_id"] = "Selected Tenant does not exist."
+        return None, errors, []
+    is_active, warnings = check_fk_exists("tenant", "tenant_id", tenant_id, active_only=True)
+    if warnings:
+        return None, errors, warnings
+    if not is_active:
+        errors["tenant_id"] = "Selected Tenant is inactive."
+        return None, errors, []
+    return tenant_id, errors, []
+
+
+def _verify_user_primary_tenant_membership(tenant_id: int, user_id: int) -> None:
+    if not iam_data_access.has_active_primary_tenant_membership(tenant_id, user_id):
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification found no active row."
+        )
+    if iam_data_access.count_active_primary_tenant_memberships(user_id) != 1:
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification did not find exactly one active primary row."
+        )
+
+
+def _validate_user_assigned_warehouse_tenant(
+    data: dict[str, Any],
+    tenant_id: int,
+) -> tuple[dict[str, str], list[str]]:
+    raw_warehouse_id = data.get("assigned_warehouse_id")
+    if raw_warehouse_id in (None, ""):
+        return {}, []
+
+    warehouse_id = _parse_positive_int(raw_warehouse_id)
+    if warehouse_id is None:
+        return {
+            "assigned_warehouse_id": "Assigned Warehouse must be a positive integer."
+        }, []
+
+    is_managed_by_tenant, warnings = check_warehouse_managed_by_tenant(
+        warehouse_id,
+        tenant_id,
+    )
+    if warnings:
+        return {}, warnings
+    if not is_managed_by_tenant:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse must be active and managed by the selected Tenant."
+            )
+        }, []
+    return {}, []
+
+
+def _validate_user_update_assigned_warehouse_tenant(
+    data: dict[str, Any],
+    existing_record: dict[str, Any],
+) -> tuple[dict[str, str], list[str]]:
+    if "assigned_warehouse_id" not in data or data.get("assigned_warehouse_id") in (
+        None,
+        "",
+    ):
+        return {}, []
+
+    user_id = _parse_positive_int(existing_record.get("user_id"))
+    primary_tenant_id = _parse_positive_int(existing_record.get("primary_tenant_id"))
+    if user_id is None or primary_tenant_id is None:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse requires an active primary Tenant membership."
+            )
+        }, []
+    try:
+        _verify_user_primary_tenant_membership(primary_tenant_id, user_id)
+    except UserPrimaryTenantMembershipError:
+        return {
+            "assigned_warehouse_id": (
+                "Assigned Warehouse requires an active primary Tenant membership."
+            )
+        }, []
+    except DatabaseError as exc:
+        logger.warning(
+            "Primary tenant membership validation failed for user %s: %s",
+            user_id,
+            exc,
+        )
+        _safe_rollback()
+        return {}, ["db_error"]
+
+    return _validate_user_assigned_warehouse_tenant(data, primary_tenant_id)
 
 
 def _tenant_context(request):
@@ -212,6 +361,82 @@ def _tenant_context(request):
     context = resolve_tenant_context(request, request.user, permissions)
     request._tenant_context_cache = context
     return context
+
+
+def _normalized_code(value: Any) -> str:
+    text = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    while "__" in text:
+        text = text.replace("__", "_")
+    return text
+
+
+def _require_tenant_type_write_access(request):
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    context = resolve_tenant_context(request, request.user, permissions)
+    request._tenant_context_cache = context
+    if can_manage_tenant_types(context, permissions):
+        return None
+    return Response(
+        {
+            "detail": (
+                "Tenant type maintenance requires "
+                f"{PERM_MASTERDATA_TENANT_TYPE_MANAGE} and an approved ODPEM/NEOC/JAMICTA tenant context."
+            )
+        },
+        status=403,
+    )
+
+
+def _baseline_tenant_type_errors(
+    data: dict[str, Any],
+    *,
+    pk_value: Any | None = None,
+    is_update: bool = False,
+) -> dict[str, str]:
+    raw_code = data.get("tenant_type_code", pk_value)
+    normalized = _normalized_code(raw_code)
+    if not normalized:
+        return {"tenant_type_code": "Tenant type code is required."}
+    if normalized not in BASELINE_TENANT_TYPE_CODES:
+        return {
+            "tenant_type_code": (
+                "Only approved baseline tenant type codes may be created or maintained."
+            )
+        }
+    if is_update and "tenant_type_code" in data and normalized != _normalized_code(pk_value):
+        return {"tenant_type_code": "Tenant type code cannot be changed after creation."}
+    if "tenant_type_code" in data:
+        data["tenant_type_code"] = normalized
+    return {}
+
+
+def _is_inactivation_payload(cfg, data: dict[str, Any]) -> bool:
+    if not cfg.has_status or cfg.status_field not in data:
+        return False
+    requested_status = str(data.get(cfg.status_field) or "").strip().upper()
+    return requested_status == str(cfg.inactive_status).strip().upper()
+
+
+def _dependency_block_response(table_key: str, pk_value: Any) -> Response | None:
+    blocking, dep_warnings = check_dependencies(table_key, pk_value)
+    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
+        return Response(
+            {
+                "detail": "Failed to validate dependencies before inactivation.",
+                "warnings": dep_warnings,
+            },
+            status=500,
+        )
+    if blocking:
+        return Response(
+            {
+                "detail": "Cannot inactivate: referenced by other records.",
+                "blocking": blocking,
+                "warnings": dep_warnings,
+            },
+            status=409,
+        )
+    return None
 
 
 def _should_enforce_tenant_scope() -> bool:
@@ -228,7 +453,13 @@ def _require_governed_catalog_access(request) -> Response | None:
     )
 
 
-def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: bool) -> Response:
+def _tenant_scope_denied_response(
+    request,
+    *,
+    warehouse_id: int | None = None,
+    tenant_id: int | None = None,
+    write: bool,
+) -> Response:
     context = _tenant_context(request)
     details: dict[str, Any] = {
         "message": "Access denied for tenant scope.",
@@ -237,7 +468,30 @@ def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: b
     }
     if warehouse_id is not None:
         details["warehouse_id"] = warehouse_id
+    if tenant_id is not None:
+        details["tenant_id"] = tenant_id
     return Response({"errors": {"tenant_scope": details}}, status=403)
+
+
+def _require_tenant_scope(
+    request,
+    tenant_id: Any,
+    *,
+    write: bool = False,
+) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    parsed_tenant_id = _parse_positive_int(tenant_id)
+    if parsed_tenant_id is None:
+        return None
+    context = _tenant_context(request)
+    if can_access_tenant(context, parsed_tenant_id, write=write):
+        return None
+    return _tenant_scope_denied_response(
+        request,
+        tenant_id=parsed_tenant_id,
+        write=write,
+    )
 
 
 def _require_warehouse_scope(
@@ -1077,6 +1331,7 @@ def _resolve_ifrc_suggestion(
 @api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_list_create(request, table_key: str):
     cfg, err = _validate_table_key(table_key)
     if err:
@@ -1160,12 +1415,22 @@ def _handle_warehouse_list(request):
 def _handle_create(request, cfg):
     if cfg.key == "items":
         return _handle_item_create(request, cfg)
+    if cfg.key == "user":
+        return _handle_user_create(request, cfg)
     if is_governed_catalog_table(cfg.key):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
             return access_error
+    if cfg.key == "tenant_types":
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
 
     data = dict(request.data or {})
+    if cfg.key == "tenant_types":
+        baseline_errors = _baseline_tenant_type_errors(data, is_update=False)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
     if cfg.key == "warehouses":
         data, tenant_errors = _prepare_warehouse_write_payload(request, data)
         if tenant_errors:
@@ -1237,6 +1502,124 @@ def _handle_create(request, cfg):
     payload = {"record": record, "warnings": warnings}
     payload.update(catalog_detail_metadata(cfg.key))
     return Response(payload, status=201)
+
+
+def _handle_user_create(request, cfg):
+    data = dict(request.data or {})
+    tenant_id, tenant_errors, tenant_warnings = _extract_required_user_create_tenant(data)
+    if tenant_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate Tenant for user creation.",
+                "warnings": tenant_warnings,
+            },
+            status=500,
+        )
+    if tenant_errors:
+        return Response({"errors": tenant_errors}, status=400)
+
+    scope_error = _require_tenant_scope(request, tenant_id, write=True)
+    if scope_error:
+        return scope_error
+
+    for field in cfg.data_fields:
+        if field.default is not None and field.name not in data:
+            data[field.name] = field.default
+
+    warehouse_errors, warehouse_warnings = _validate_user_assigned_warehouse_tenant(
+        data,
+        tenant_id,
+    )
+    if warehouse_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate Assigned Warehouse for user creation.",
+                "warnings": warehouse_warnings,
+            },
+            status=500,
+        )
+    if warehouse_errors:
+        return Response({"errors": warehouse_errors}, status=400)
+
+    errors = tenant_errors
+    errors.update(validate_record(cfg, data, is_update=False))
+    extra_errors, validation_warnings = validate_operational_master_payload(
+        cfg.key,
+        data,
+        is_update=False,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate operational master data.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    pk_val: int | None = None
+    warnings: list[str] = []
+    try:
+        with transaction.atomic():
+            raw_pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
+            if raw_pk_val is None:
+                raise UserCreateRecordError(warnings)
+
+            pk_val = int(raw_pk_val)
+            membership_created = iam_data_access.assign_tenant_user(
+                tenant_id,
+                pk_val,
+                "STANDARD",
+                _actor_id(request),
+                is_primary_tenant=True,
+            )
+            if not membership_created:
+                raise UserPrimaryTenantMembershipError(
+                    "Primary tenant membership insert did not create a row."
+                )
+            _verify_user_primary_tenant_membership(tenant_id, pk_val)
+    except UserCreateRecordError as exc:
+        warnings = exc.warnings
+        if "db_unique_violation" in warnings:
+            return Response(
+                {
+                    "detail": "Record already exists.",
+                    "diagnostic": _warning_diagnostic_message(
+                        warnings,
+                        operation="create",
+                        target="user",
+                    ),
+                    "warnings": warnings,
+                },
+                status=409,
+            )
+        return _create_failure_response(
+            target="user",
+            warnings=warnings,
+            detail="Failed to create user.",
+        )
+    except Exception as exc:
+        logger.exception("Failed to create user with primary tenant membership: %s", exc)
+        return Response(
+            {
+                "detail": "Failed to create user with primary tenant membership.",
+                "warnings": ["primary_tenant_membership_create_failed"],
+            },
+            status=500,
+        )
+
+    record, read_warnings = get_record(cfg.key, pk_val)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="created",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
+    return Response({"record": record, "warnings": warnings}, status=201)
 
 
 def _handle_item_list(request):
@@ -1351,16 +1734,21 @@ def _handle_item_create(request, cfg):
 @api_view(["GET", "PATCH"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_detail_update(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if request.method == "PATCH" and cfg.key == "parishes":
+        return Response({"detail": "Parishes are read-only."}, status=405)
     if is_governed_catalog_table(cfg.key):
         access_error = _require_governed_catalog_access(request)
         if access_error is not None:
             return access_error
 
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
 
     if request.method == "GET":
         return _handle_detail(cfg, pk_value)
@@ -1378,8 +1766,8 @@ def _coerce_pk(cfg, pk_str: str) -> Any:
     if pk_def and pk_def.db_type in ("int", "smallint"):
         try:
             return int(pk_str)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.warning("Failed to coerce pk for %s: %s", cfg.key, exc)
     return pk_str
 
 
@@ -1462,10 +1850,16 @@ def _handle_detail(cfg, pk_value):
 
 
 def _handle_update(request, cfg, pk_value):
+    if cfg.key == "parishes":
+        return Response({"detail": "Parishes are read-only."}, status=405)
     if cfg.key == "items":
         return _handle_item_update(request, cfg, pk_value)
     if is_governed_catalog_table(cfg.key):
         access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
+    if cfg.key == "tenant_types":
+        access_error = _require_tenant_type_write_access(request)
         if access_error is not None:
             return access_error
 
@@ -1477,8 +1871,39 @@ def _handle_update(request, cfg, pk_value):
         except (ValueError, TypeError):
             expected_version = None
 
+    if cfg.key == "user" and "tenant_id" in data:
+        return Response(
+            {
+                "errors": {
+                    "tenant_id": (
+                        "Primary Tenant cannot be changed through the user form. "
+                        "Manage tenant membership from tenant administration."
+                    )
+                }
+            },
+            status=400,
+        )
+
+    if cfg.key == "tenant_types":
+        baseline_errors = _baseline_tenant_type_errors(
+            data,
+            pk_value=pk_value,
+            is_update=True,
+        )
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
+        if _is_inactivation_payload(cfg, data):
+            dependency_error = _dependency_block_response(cfg.key, pk_value)
+            if dependency_error is not None:
+                return dependency_error
+
     existing_record = None
-    if is_governed_catalog_table(cfg.key) or cfg.key in {"warehouses", "agencies"}:
+    needs_existing_record = (
+        is_governed_catalog_table(cfg.key)
+        or cfg.key in {"warehouses", "agencies"}
+        or (cfg.key == "user" and "assigned_warehouse_id" in data)
+    )
+    if needs_existing_record:
         existing_record, read_warnings = get_record(cfg.key, pk_value)
         if existing_record is None:
             if "db_error" in read_warnings:
@@ -1495,6 +1920,25 @@ def _handle_update(request, cfg, pk_value):
         )
         if tenant_errors:
             return Response({"errors": tenant_errors}, status=400)
+    if cfg.key == "user":
+        warehouse_errors, warehouse_warnings = _validate_user_update_assigned_warehouse_tenant(
+            data,
+            existing_record or {},
+        )
+        if warehouse_warnings:
+            return Response(
+                {
+                    "detail": "Failed to validate Assigned Warehouse for user update.",
+                    "warnings": warehouse_warnings,
+                },
+                status=500,
+            )
+        if warehouse_errors:
+            return Response({"errors": warehouse_errors}, status=400)
+    if "warehouse_id" in data:
+        scope_error = _require_warehouse_scope(request, data.get("warehouse_id"), write=True)
+        if scope_error is not None:
+            return scope_error
 
     errors = validate_record(
         cfg,
@@ -1698,7 +2142,7 @@ warehouse_stock_health_detail.required_permission = PERM_MASTERDATA_VIEW
 
 
 def _handle_item_update(request, cfg, pk_value):
-    data = request.data or {}
+    data = dict(request.data or {})
     expected_version = data.pop("version_nbr", None)
     if expected_version is not None:
         try:
@@ -1714,6 +2158,11 @@ def _handle_item_update(request, cfg, pk_value):
                 status=500,
             )
         return Response({"detail": "Not found."}, status=404)
+
+    if "warehouse_id" in data:
+        scope_error = _require_warehouse_scope(request, data.get("warehouse_id"), write=True)
+        if scope_error is not None:
+            return scope_error
 
     errors = validate_record(
         cfg,
@@ -1865,7 +2314,17 @@ def master_lookup(request, table_key: str):
         if access_error is not None:
             return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
-    items, warnings = get_lookup(cfg.key, active_only=active_only)
+    tenant_id = None
+    if cfg.key == "warehouses":
+        raw_tenant_id = request.query_params.get("tenant_id")
+        if raw_tenant_id not in (None, ""):
+            tenant_id = _parse_positive_int(raw_tenant_id)
+            if tenant_id is None:
+                return Response(
+                    {"errors": {"tenant_id": "tenant_id must be a positive integer."}},
+                    status=400,
+                )
+    items, warnings = get_lookup(cfg.key, active_only=active_only, tenant_id=tenant_id)
     return Response({"items": items, "warnings": warnings})
 
 
@@ -2193,6 +2652,7 @@ def _write_ifrc_audit_log(
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_inactivate(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
@@ -2204,23 +2664,19 @@ def master_inactivate(request, table_key: str, pk: str):
         if access_error is not None:
             return access_error
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
+        baseline_errors = _baseline_tenant_type_errors({}, pk_value=pk_value)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
 
-    # Check dependencies first
-    blocking, dep_warnings = check_dependencies(cfg.key, pk_value)
-    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
-        return Response(
-            {
-                "detail": "Failed to validate dependencies before inactivation.",
-                "warnings": dep_warnings,
-            },
-            status=500,
-        )
-    if blocking:
-        return Response({
-            "detail": "Cannot inactivate: referenced by other records.",
-            "blocking": blocking,
-            "warnings": dep_warnings,
-        }, status=409)
+    # Check dependencies first.
+    dependency_error = _dependency_block_response(cfg.key, pk_value)
+    if dependency_error is not None:
+        return dependency_error
 
     expected_version = (request.data or {}).get("version_nbr")
     if expected_version is not None:
@@ -2279,6 +2735,7 @@ master_inactivate.required_permission = PERM_MASTERDATA_INACTIVATE
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
+@throttle_classes([MasterDataWriteThrottle])
 def master_activate(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
@@ -2290,6 +2747,14 @@ def master_activate(request, table_key: str, pk: str):
         if access_error is not None:
             return access_error
     pk_value = _coerce_pk(cfg, pk)
+    if cfg.key == "tenant_types":
+        pk_value = _normalized_code(pk_value)
+        access_error = _require_tenant_type_write_access(request)
+        if access_error is not None:
+            return access_error
+        baseline_errors = _baseline_tenant_type_errors({}, pk_value=pk_value)
+        if baseline_errors:
+            return Response({"errors": baseline_errors}, status=400)
 
     expected_version = (request.data or {}).get("version_nbr")
     if expected_version is not None:

@@ -142,7 +142,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
     def test_resolve_national_tenant_prefers_configured_odpem_tenant_id(self, mock_connection) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = (1, "ODPEM-HQ", "ODPEM HQ", "NEOC")
+        cursor.fetchone.return_value = (1, "ODPEM-HQ", "ODPEM HQ", "NATIONAL")
 
         tenant = Command()._resolve_national_tenant(tenant_id=None, tenant_code=None)
 
@@ -157,7 +157,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
     def test_resolve_national_tenant_accepts_bare_neoc_code(self, mock_connection) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = (1, "NEOC", "NEOC", "NEOC")
+        cursor.fetchone.return_value = (1, "NEOC", "NEOC", "NATIONAL")
 
         tenant = Command()._resolve_national_tenant(tenant_id=None, tenant_code="NEOC")
 
@@ -185,8 +185,8 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     def test_resolve_national_tenant_rejects_ambiguous_fallback_matches(self, mock_connection) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = [
-            (1, "ODPEM-NEOC", "ODPEM NEOC", "NEOC"),
-            (2, "ODPEM-ALT", "ODPEM Alt", "NEOC"),
+            (1, "ODPEM-NEOC", "ODPEM NEOC", "NATIONAL"),
+            (2, "ODPEM-ALT", "ODPEM Alt", "NATIONAL"),
         ]
 
         with self.assertRaisesMessage(

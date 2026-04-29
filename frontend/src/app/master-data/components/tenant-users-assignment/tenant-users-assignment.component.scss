@@ -1,0 +1,321 @@
+:host {
+  display: block;
+}
+
+.ops-card {
+  background: var(--ops-card);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-md);
+}
+
+.ops-tenant-users {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  color: var(--ops-text);
+}
+
+.ops-tenant-users__header,
+.ops-tenant-users__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ops-tenant-users__eyebrow {
+  margin: 0 0 4px;
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-semibold);
+  letter-spacing: var(--ops-tracking-wide);
+}
+
+.ops-tenant-users__title {
+  margin: 0;
+  color: var(--ops-text);
+  font-size: var(--ops-text-md);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-tenant-users__sort-field {
+  width: 220px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.ops-tenant-users__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ops-critical-text);
+}
+
+.ops-tenant-users__skeleton-list,
+.ops-tenant-users__rows {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-tenant-users__skeleton-row {
+  display: grid;
+  grid-template-columns: 44px minmax(160px, 1fr) minmax(100px, 160px) 44px;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+}
+
+.ops-tenant-users__skeleton-row span {
+  min-height: 18px;
+  border-radius: var(--ops-radius-pill);
+  background: var(--ops-section);
+}
+
+.ops-tenant-users__row-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.ops-tenant-users__row {
+  display: grid;
+  grid-template-columns: 44px minmax(160px, 1fr) minmax(150px, 190px) minmax(120px, 150px) minmax(100px, 128px) minmax(92px, 120px) 44px;
+  gap: 12px;
+  align-items: center;
+  min-height: 68px;
+  padding: 10px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-card);
+  cursor: pointer;
+}
+
+.ops-tenant-users__row-shell--expanded .ops-tenant-users__row {
+  border-color: var(--ops-primary);
+}
+
+.ops-tenant-users__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--ops-radius-pill);
+  background: var(--ops-section);
+  color: var(--ops-text);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-tenant-users__identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-tenant-users__username,
+.ops-tenant-users__email,
+.ops-tenant-users__last-login {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-tenant-users__username {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-tenant-users__username mat-icon {
+  flex: 0 0 auto;
+  color: var(--ops-warning-text);
+}
+
+.ops-tenant-users__email,
+.ops-tenant-users__last-login {
+  color: var(--ops-text-muted);
+  font-size: var(--ops-text-sm);
+}
+
+.ops-tenant-users__access-select {
+  min-width: 0;
+}
+
+.ops-tenant-users__access-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--ops-radius-pill);
+  font-size: var(--ops-text-sm);
+  font-weight: var(--ops-weight-semibold);
+  white-space: nowrap;
+}
+
+.ops-tenant-users__access-pill mat-icon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+
+.ops-tenant-users__access-pill--critical {
+  background: var(--ops-critical-bg);
+  color: var(--ops-critical-text);
+}
+
+.ops-tenant-users__access-pill--warning {
+  background: var(--ops-warning-bg);
+  color: var(--ops-warning-text);
+}
+
+.ops-tenant-users__access-pill--info {
+  background: var(--ops-info-bg);
+  color: var(--ops-info-text);
+}
+
+.ops-tenant-users__access-pill--neutral {
+  background: var(--ops-neutral-bg);
+  color: var(--ops-neutral-text);
+}
+
+.ops-tenant-users__primary-toggle {
+  min-width: 100px;
+}
+
+.ops-tenant-users__empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  border: 1px dashed var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-section);
+  color: var(--ops-text-muted);
+  text-align: center;
+}
+
+.ops-tenant-users__empty mat-icon {
+  color: var(--ops-text-subtle);
+}
+
+.ops-tenant-users__empty strong {
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+}
+
+.ops-tenant-users__empty p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--ops-text-sm);
+}
+
+.ops-tenant-users__add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.ops-tenant-users__field,
+.ops-tenant-users__access-add {
+  min-width: 0;
+}
+
+.ops-tenant-users__assign-button,
+.ops-tenant-users__icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.ops-tenant-users__assign-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-tenant-users__icon-button {
+  cursor: pointer;
+}
+
+.ops-tenant-users__row:focus-visible,
+.ops-tenant-users__assign-button:focus-visible,
+.ops-tenant-users__icon-button:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 980px) {
+  .ops-tenant-users__row {
+    grid-template-columns: 44px minmax(160px, 1fr) minmax(120px, 150px) minmax(92px, 120px) 44px;
+  }
+
+  .ops-tenant-users__primary-toggle,
+  .ops-tenant-users__last-login {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ops-tenant-users {
+    padding: 22px;
+  }
+
+  .ops-tenant-users__header,
+  .ops-tenant-users__toolbar {
+    align-items: stretch;
+  }
+
+  .ops-tenant-users__toolbar,
+  .ops-tenant-users__add-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ops-tenant-users__sort-field,
+  .ops-tenant-users__assign-button {
+    width: 100%;
+  }
+
+  .ops-tenant-users__row {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 6px 10px;
+    align-items: start;
+  }
+
+  .ops-tenant-users__avatar {
+    grid-row: 1 / span 2;
+  }
+
+  .ops-tenant-users__identity {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ops-tenant-users__access-select,
+  .ops-tenant-users__primary-toggle {
+    display: none;
+  }
+
+  .ops-tenant-users__access-pill {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
+  }
+
+  .ops-tenant-users__last-login {
+    display: block;
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .ops-tenant-users__icon-button {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}

@@ -1,31 +1,29 @@
 @if (config(); as cfg) {
-  <div class="form-page-container">
+  <div class="ops-page-shell form-page-container">
 
     <!-- Header -->
-    <div class="form-page-header">
+    <header class="ops-page-shell__header form-page-header">
       <button mat-icon-button class="back-btn" (click)="onCancel()" matTooltip="Back to list"
         aria-label="Back to list">
         <mat-icon>arrow_back</mat-icon>
       </button>
-      <div class="header-text">
+      <div class="ops-page-shell__heading header-text">
+        <p class="ops-page-shell__eyebrow">Master data</p>
         <nav class="header-breadcrumb" aria-label="Breadcrumb">
           <button type="button" class="breadcrumb-link" (click)="onCancel()">{{ cfg.displayName }}</button>
           <mat-icon class="breadcrumb-separator" aria-hidden="true">chevron_right</mat-icon>
           <span aria-current="page">{{ isEdit() ? 'Edit' : 'Create' }}</span>
         </nav>
-        <h2>{{ isEdit() ? 'Edit' : 'Create' }} {{ cfg.displayName }}</h2>
-        @if (isEdit()) {
-          <span class="header-subtitle">Update the fields below and save your changes</span>
-        } @else {
-          <span class="header-subtitle">Fill in the details below to create a new record</span>
-        }
+        <h1 class="ops-page-shell__title">{{ formPageTitle() }}</h1>
+        <p class="ops-page-shell__subtitle header-subtitle">{{ formPageSubtitle() }}</p>
       </div>
-    </div>
+    </header>
 
     @if (isLoading()) {
       <mat-progress-bar mode="indeterminate" />
     } @else {
       <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
+        <div class="ops-form-stage" style="--ops-form-density: comfortable;">
         @if (submissionError(); as message) {
           <div class="form-submit-alert" role="alert" aria-live="assertive">
             <mat-icon aria-hidden="true">error</mat-icon>
@@ -55,6 +53,25 @@
               }
             </div>
           </div>
+        }
+
+        @if (showErrorSummary()) {
+          <section
+            #errorSummary
+            class="form-error-summary"
+            role="alert"
+            aria-live="assertive"
+            aria-labelledby="form-error-summary-heading">
+            <h2 id="form-error-summary-heading" tabindex="-1">Review required fields</h2>
+            <p>Fix the highlighted fields before saving.</p>
+            @if (invalidControlLinks().length) {
+              <ul>
+                @for (control of invalidControlLinks(); track control.id) {
+                  <li><a [href]="'#' + control.id">{{ control.label }}</a></li>
+                }
+              </ul>
+            }
+          </section>
         }
 
         @if (cfg.governanceNoteBody) {
@@ -312,14 +329,24 @@
           <div class="wizard-footer" role="toolbar" aria-label="Wizard navigation">
             @if (lastGroupIsSingleStatus()) {
               @if (getStatusField(); as statusField) {
-                <mat-form-field appearance="outline" class="action-bar-status" subscriptSizing="dynamic">
+                <mat-form-field
+                  appearance="outline"
+                  class="action-bar-status"
+                  subscriptSizing="dynamic"
+                  [matTooltip]="getStatusFieldHint() || ''"
+                  [matTooltipDisabled]="!getStatusFieldHint()">
                   <mat-label>{{ statusField.label }}</mat-label>
-                  <mat-select [formControlName]="statusField.field">
+                  <mat-select
+                    [formControlName]="statusField.field"
+                    [attr.aria-describedby]="getStatusFieldHint() ? statusField.field + '-action-hint' : null">
                     @for (opt of getStatusOptions(); track opt.value) {
                       <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
+                @if (getStatusFieldHint(); as statusHint) {
+                  <span class="sr-only" [id]="statusField.field + '-action-hint'">{{ statusHint }}</span>
+                }
               }
             }
             <div class="wizard-footer__nav">
@@ -359,8 +386,9 @@
                 <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.key">
                   @for (field of getRenderableFields(group); track field.field) {
                     <div class="form-field"
-                      [class.colspan-2]="field.colspan === 2"
+                      [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                       [class.locked-field]="isGovernedLockedField(field)"
+                      [id]="getFieldDomId(field)"
                       [attr.data-field]="field.field">
 
                       @switch (field.type) {
@@ -434,7 +462,7 @@
                             <mat-select [formControlName]="field.field"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                              @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                              @for (item of getLookupOptions(field); track item.value) {
                                 <mat-option [value]="item.value">{{ item.label }}</mat-option>
                               }
                             </mat-select>
@@ -444,10 +472,10 @@
                                 <mat-icon>help_outline</mat-icon>
                               </button>
                             }
-                            @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
-                              <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint>
-                            } @else if (field.hint) {
-                              <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>
+                            @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                              <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint>
+                            } @else if (getLookupHint(field); as lookupHint) {
+                              <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint>
                             }
                             @if (lookupErrors()[field.lookupTable!]) {
                               <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
@@ -503,6 +531,7 @@
                               @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
                             </mat-label>
                             <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                              [placeholder]="field.placeholder || ''"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                             <mat-datepicker-toggle matIconSuffix [for]="picker"></mat-datepicker-toggle>
@@ -551,7 +580,7 @@
                             <mat-icon matPrefix>phone</mat-icon>
                             <input matInput type="tel" [formControlName]="field.field"
                               [maxlength]="field.maxLength || null"
-                              placeholder="+1 (XXX) XXX-XXXX"
+                              [placeholder]="field.placeholder || '+1 (XXX) XXX-XXXX'"
                               [attr.aria-required]="field.required || null"
                               [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                             @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
@@ -665,7 +694,8 @@
                     </p>
                   </div>
                   <div class="item-taxonomy-grid">
-                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                      [id]="getFieldDomId('category_id')">
                       <mat-label>Level 1 Category</mat-label>
                       <mat-select formControlName="category_id" aria-required="true">
                         @for (item of itemCategoryOptions(); track item.value) {
@@ -696,7 +726,8 @@
                       }
                     </mat-form-field>
 
-                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                      [id]="getFieldDomId('ifrc_family_id')">
                       <mat-label>Level 2 IFRC Family</mat-label>
                       <mat-select
                         formControlName="ifrc_family_id"
@@ -727,7 +758,8 @@
                     </mat-form-field>
 
                     <div class="item-reference-field">
-                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                        [id]="getFieldDomId('ifrc_item_ref_id')">
                         <mat-label>Level 3 IFRC Item Reference</mat-label>
                         <input
                           matInput
@@ -1031,8 +1063,9 @@
 
               @for (field of getRenderableFields(group); track field.field) {
                 <div class="form-field"
-                  [class.colspan-2]="field.colspan === 2"
+                  [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                   [class.locked-field]="isGovernedLockedField(field)"
+                  [id]="getFieldDomId(field)"
                   [attr.data-field]="field.field">
 
                   @switch (field.type) {
@@ -1126,7 +1159,7 @@
                         <mat-select [formControlName]="field.field"
                           [attr.aria-required]="field.required || null"
                           [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                          @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                          @for (item of getLookupOptions(field); track item.value) {
                             <mat-option [value]="item.value">{{ item.label }}</mat-option>
                           }
                         </mat-select>
@@ -1141,10 +1174,10 @@
                             <mat-icon>help_outline</mat-icon>
                           </button>
                         }
-                        @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
-                          <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint>
-                        } @else if (field.hint) {
-                          <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>
+                        @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                          <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint>
+                        } @else if (getLookupHint(field); as lookupHint) {
+                          <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint>
                         }
                         @if (lookupErrors()[field.lookupTable!]) {
                           <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
@@ -1511,14 +1544,24 @@
         <div class="form-actions" [class.form-actions--with-status]="lastGroupIsSingleStatus()" role="toolbar" aria-label="Form actions">
           @if (lastGroupIsSingleStatus(); as hasStatus) {
             @if (getStatusField(); as statusField) {
-              <mat-form-field appearance="outline" class="action-bar-status" subscriptSizing="dynamic">
+              <mat-form-field
+                appearance="outline"
+                class="action-bar-status"
+                subscriptSizing="dynamic"
+                [matTooltip]="getStatusFieldHint() || ''"
+                [matTooltipDisabled]="!getStatusFieldHint()">
                 <mat-label>{{ statusField.label }}</mat-label>
-                <mat-select [formControlName]="statusField.field">
+                <mat-select
+                  [formControlName]="statusField.field"
+                  [attr.aria-describedby]="getStatusFieldHint() ? statusField.field + '-action-hint' : null">
                   @for (opt of getStatusOptions(); track opt.value) {
                     <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
+              @if (getStatusFieldHint(); as statusHint) {
+                <span class="sr-only" [id]="statusField.field + '-action-hint'">{{ statusHint }}</span>
+              }
             }
           }
           <div class="action-bar-buttons">
@@ -1551,7 +1594,8 @@
                   </p>
                 </div>
                 <div class="item-taxonomy-grid">
-                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                    [id]="getFieldDomId('category_id')">
                     <mat-label>Level 1 Category</mat-label>
                     <mat-select formControlName="category_id" aria-required="true">
                       @for (item of itemCategoryOptions(); track item.value) {
@@ -1574,7 +1618,8 @@
                     @if (getItemTaxonomyFieldError('category_id'); as error) { <mat-error>{{ error }}</mat-error> }
                   </mat-form-field>
 
-                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                    [id]="getFieldDomId('ifrc_family_id')">
                     <mat-label>Level 2 IFRC Family</mat-label>
                     <mat-select formControlName="ifrc_family_id" [attr.aria-required]="isItemFamilyRequired()">
                       @for (item of itemIfrcFamilyOptions(); track item.value) {
@@ -1597,7 +1642,8 @@
                   </mat-form-field>
 
                   <div class="item-reference-field">
-                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic"
+                      [id]="getFieldDomId('ifrc_item_ref_id')">
                       <mat-label>Level 3 IFRC Item Reference</mat-label>
                       <input matInput [formControl]="referenceSearchControl" [matAutocomplete]="ifrcRefAutoTpl"
                         [attr.aria-required]="isItemReferenceRequired()" placeholder="Search IFRC description or code" />
@@ -1803,8 +1849,9 @@
 
             @for (field of getRenderableFields(group); track field.field) {
               <div class="form-field"
-                [class.colspan-2]="field.colspan === 2"
+                [class.colspan-2]="field.colspan === 2 || field.colspan === 4"
                 [class.locked-field]="isGovernedLockedField(field)"
+                [id]="getFieldDomId(field)"
                 [attr.data-field]="field.field">
 
                 @switch (field.type) {
@@ -1843,13 +1890,13 @@
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
                       <mat-select [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
-                        @for (item of lookups()[field.lookupTable!] || []; track item.value) { <mat-option [value]="item.value">{{ item.label }}</mat-option> }
+                        @for (item of getLookupOptions(field); track item.value) { <mat-option [value]="item.value">{{ item.label }}</mat-option> }
                       </mat-select>
                       @if (getFieldTooltip(field); as fieldTooltip) {
                         <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
                       }
-                      @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) { <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint> }
-                      @else if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (getLookupOptions(field).length === 0 && !lookupErrors()[field.lookupTable!]) { <mat-hint [id]="field.field + '-hint'">{{ getLookupEmptyHint(field) }}</mat-hint> }
+                      @else if (getLookupHint(field); as lookupHint) { <mat-hint [id]="field.field + '-hint'">{{ lookupHint }}</mat-hint> }
                       @if (lookupErrors()[field.lookupTable!]) { <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
                       @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
@@ -1877,7 +1924,7 @@
                   @case ('date') {
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
-                      <input matInput [matDatepicker]="picker" [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      <input matInput [matDatepicker]="picker" [formControlName]="field.field" [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                       <mat-datepicker-toggle matIconSuffix [for]="picker" /><mat-datepicker #picker />
                       @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
@@ -1899,7 +1946,7 @@
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
                       <mat-icon matPrefix>phone</mat-icon>
-                      <input matInput type="tel" [formControlName]="field.field" [maxlength]="field.maxLength || null" placeholder="+1 (XXX) XXX-XXXX" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      <input matInput type="tel" [formControlName]="field.field" [maxlength]="field.maxLength || null" [placeholder]="field.placeholder || '+1 (XXX) XXX-XXXX'" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
                       @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
                       @if (form.get(field.field)?.hasError('pattern')) { <mat-error role="alert">{{ field.patternMessage || 'Invalid phone format' }}</mat-error> }
@@ -2076,6 +2123,7 @@
           </div>
         </ng-template>
 
+        </div>
       </form>
     }
   </div>

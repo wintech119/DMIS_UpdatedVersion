@@ -1,6 +1,7 @@
 import {
-  Component, ChangeDetectionStrategy, Input, OnChanges, SimpleChanges,
+  Component, ChangeDetectionStrategy, DestroyRef, Input, OnChanges, OnInit, SimpleChanges, inject, signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
   FormArray,
@@ -17,12 +18,23 @@ import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { TextFieldModule } from '@angular/cdk/text-field';
+import { Subscription } from 'rxjs';
 
 import {
   RequestReferenceOption,
   URGENCY_OPTIONS,
   UrgencyCode,
 } from '../../models/operations.model';
+import { OpsStatusChipComponent } from '../../shared/ops-status-chip.component';
+import { DmisEmptyStateComponent } from '../../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
+import {
+  formatOperationsUrgency,
+  getOperationsUrgencyTone,
+  mapOperationsToneToChipTone,
+  type OperationsTone,
+} from '../../operations-display.util';
+
+type ChipTone = ReturnType<typeof mapOperationsToneToChipTone>;
 
 @Component({
   selector: 'app-request-items-step',
@@ -39,12 +51,16 @@ import {
     MatNativeDateModule,
     MatTooltipModule,
     TextFieldModule,
+    OpsStatusChipComponent,
+    DmisEmptyStateComponent,
   ],
   templateUrl: './request-items-step.component.html',
   styleUrl: './request-items-step.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RequestItemsStepComponent implements OnChanges {
+export class RequestItemsStepComponent implements OnChanges, OnInit {
+  private readonly destroyRef = inject(DestroyRef);
+
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) itemsArray!: FormArray<FormGroup>;
   @Input({ required: true }) onAddItem!: () => void;
@@ -57,9 +73,20 @@ export class RequestItemsStepComponent implements OnChanges {
   @Input({ required: true }) requestingEntityLabel!: string;
   @Input({ required: true }) creationBlocked = false;
 
+  ngOnInit(): void {
+    // Defensive bind for cases where the parent assigns inputs directly
+    // (e.g. unit tests using `component.form = new FormGroup(...)`) and
+    // ngOnChanges does not fire. Subscribing here ensures the notes char
+    // counter signal is wired before the first detectChanges paints.
+    this.bindNotesCharCount();
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['creationBlocked'] || changes['agencyOptions'] || changes['form'] || changes['itemsArray']) {
       this.syncFormDisabledState();
+    }
+    if (changes['form']) {
+      this.bindNotesCharCount();
     }
   }
 
@@ -77,6 +104,23 @@ export class RequestItemsStepComponent implements OnChanges {
     reason: 'Explain the operational need for this item line. A reason is required when line urgency is Critical or High.',
     requiredBy: 'Optional target date for when the item is needed on the ground. This helps planning, packaging, and dispatch timing.',
   } as const;
+
+  /**
+   * Char counter for the notes textarea. Backed by a signal so OnPush
+   * still re-renders on every keystroke (closes architecture-review
+   * Required Change #2 — a getter would freeze under OnPush).
+   */
+  private readonly notesCharCountSig = signal(0);
+  readonly notesCharCount = this.notesCharCountSig.asReadonly();
+
+  /**
+   * Roving-tabindex anchor for the urgency chip-group radiogroup. Only
+   * one chip is in the tab order at a time; arrow keys cycle focus and
+   * Enter/Space commits the selection.
+   */
+  readonly urgencyFocusIndex = signal(0);
+
+  private notesSubscription: Subscription | null = null;
 
   get requestingAgencyTooltip(): string {
     switch (this.submissionModeLabel) {
@@ -113,6 +157,71 @@ export class RequestItemsStepComponent implements OnChanges {
     this.form.get('urgency_ind')?.markAsTouched();
   }
 
+  /**
+   * Tone resolver for the urgency chips. Routes through the operations
+   * display utility so the chip palette stays consistent with the
+   * eligibility / dispatch / list surfaces.
+   */
+  urgencyChipTone(urgency: UrgencyCode): ChipTone {
+    const tone: OperationsTone = getOperationsUrgencyTone(urgency);
+    return mapOperationsToneToChipTone(tone);
+  }
+
+  /**
+   * Long label for the chip's screen-reader announcement.
+   * Combines `formatOperationsUrgency` with the option hint so the
+   * chip reads as "Critical: Immediate action required." rather than
+   * just "Critical".
+   */
+  urgencyAriaLabel(urgency: UrgencyCode, hint: string): string {
+    return `${formatOperationsUrgency(urgency)}: ${hint}`;
+  }
+
+  onUrgencyKeydown(event: KeyboardEvent, index: number, urgency: UrgencyCode): void {
+    const options = this.urgencyOptions;
+    if (options.length === 0) {
+      return;
+    }
+
+    let targetIndex: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault();
+        targetIndex = (index + 1) % options.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault();
+        targetIndex = (index - 1 + options.length) % options.length;
+        break;
+      case 'Home':
+        event.preventDefault();
+        targetIndex = 0;
+        break;
+      case 'End':
+        event.preventDefault();
+        targetIndex = options.length - 1;
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        this.selectRequestUrgency(urgency);
+        return;
+      default:
+        return;
+    }
+
+    if (targetIndex == null) {
+      return;
+    }
+    this.urgencyFocusIndex.set(targetIndex);
+    const hosts = (event.currentTarget as HTMLElement)
+      .parentElement
+      ?.querySelectorAll<HTMLElement>('[role="radio"]');
+    queueMicrotask(() => hosts?.[targetIndex!]?.focus());
+  }
+
   getControlError(controlName: 'agency_id' | 'urgency_ind' | 'eligible_event_id'): string | null {
     const control = this.form.get(controlName);
     if (!control || !(control.touched || control.dirty || control.errors?.['server'])) {
@@ -130,6 +239,14 @@ export class RequestItemsStepComponent implements OnChanges {
 
     const serverMessage = control.getError('server');
     return typeof serverMessage === 'string' ? serverMessage : null;
+  }
+
+  /**
+   * Bound to `[attr.aria-invalid]` on the urgency chip-group container.
+   * Closes architecture-review Required Change #6 (a11y wiring).
+   */
+  isUrgencyInvalid(): boolean {
+    return !!this.getControlError('urgency_ind');
   }
 
   trackByIndex(index: number): number {
@@ -192,6 +309,20 @@ export class RequestItemsStepComponent implements OnChanges {
   hasItemMatch(itemGroup: AbstractControl): boolean {
     const id = itemGroup.get('item_id')?.value;
     return typeof id === 'number' && Number.isFinite(id) && id > 0;
+  }
+
+  private bindNotesCharCount(): void {
+    this.notesSubscription?.unsubscribe();
+    this.notesSubscription = null;
+    const ctrl = this.form?.get('rqst_notes_text');
+    if (!ctrl) {
+      this.notesCharCountSig.set(0);
+      return;
+    }
+    this.notesCharCountSig.set(String(ctrl.value ?? '').length);
+    this.notesSubscription = ctrl.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => this.notesCharCountSig.set(String(value ?? '').length));
   }
 
   private syncFormDisabledState(): void {

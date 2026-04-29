@@ -4,7 +4,7 @@ Hooks the user can land via the `update-config` skill in `.claude/settings.json`
 
 | Hook | Path / event | Purpose |
 |---|---|---|
-| `PreToolUse` on Write/Edit | `docs/adr/**`, `docs/security/**`, `frontend/src/lib/prompts/generation.tsx`, `frontend/src/styles.scss`, `frontend/src/app/shared/**`, `backend/dmis_api/settings.py` | Confirm before editing canonical architecture, security, settings, or design-system files. `generation.tsx` is the canonical DMIS component-generation prompt (warm-neutral palette, status tones, typography, spacing); a change there ripples into every future Angular component. |
+| `PreToolUse` on Write/Edit | `docs/adr/**`, `docs/security/**`, `frontend/src/lib/prompts/generation.ts`, `frontend/src/styles.scss`, `frontend/src/app/shared/**`, `backend/dmis_api/settings.py` | Confirm before editing canonical architecture, security, settings, or design-system files. `generation.ts` is the canonical DMIS component-generation prompt (warm-neutral palette, status tones, typography, spacing); a change there ripples into every future Angular component. |
 | `PostToolUse` on Edit | `backend/**.py` → `python manage.py check` | Catch settings/ORM regressions early |
 | `PostToolUse` on Edit | `frontend/**/*.{ts,html,scss}` → `npm run lint` | Catch ESLint and template-accessibility regressions |
 | `PreCommit` | diff `references/dmis-django-reading-map.md` across the 3 backend skills and `references/dmis-angular-reading-map.md` across the 3 frontend skills; fail on divergence | Prevent the duplicated reference content from drifting |
