@@ -1299,6 +1299,9 @@ export class MasterFormPageComponent implements OnInit {
       if (field.type !== 'lookup' || !field.lookupTable) {
         return false;
       }
+      if (this.isTenantScopedUserWarehouseLookup(field)) {
+        return false;
+      }
 
       if (cfg.tableKey !== 'items') {
         return true;
@@ -3077,6 +3080,12 @@ export class MasterFormPageComponent implements OnInit {
     if (cfg.tableKey !== 'user') {
       return;
     }
+    const warehouseField = cfg.formFields.find((field) => (
+      this.isTenantScopedUserWarehouseLookup(field)
+    ));
+    if (!warehouseField) {
+      return;
+    }
     const tenantControl = this.form.get('tenant_id');
     const warehouseControl = this.form.get('assigned_warehouse_id');
     if (!tenantControl || !warehouseControl) {
@@ -3090,8 +3099,39 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe(([previousTenant, currentTenant]) => {
       if (!this.sameValue(previousTenant, currentTenant)) {
         warehouseControl.setValue(null, { emitEvent: false });
-        this.formStateVersion.update((version) => version + 1);
       }
+      this.loadTenantScopedUserWarehouseLookup(warehouseField, currentTenant);
+      this.formStateVersion.update((version) => version + 1);
+    });
+  }
+
+  private loadTenantScopedUserWarehouseLookup(
+    field: MasterFieldConfig,
+    tenantId: unknown,
+  ): void {
+    const lookupKey = field.lookupTable!;
+    const requestId = this.beginLookupRequest(lookupKey);
+    if (tenantId == null || tenantId === '') {
+      this.writeLookup(lookupKey, [], requestId);
+      this.setLookupLoading(lookupKey, false, requestId);
+      this.setLookupError(lookupKey, null, requestId);
+      return;
+    }
+
+    this.setLookupLoading(lookupKey, true, requestId);
+    this.service.lookup(lookupKey, true, { tenant_id: tenantId as string | number }).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        this.writeLookup(lookupKey, this.withLookupNoneOption(field, items), requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, null, requestId);
+      },
+      error: () => {
+        this.writeLookup(lookupKey, [], requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, `Failed to load ${field.label} options.`, requestId);
+      },
     });
   }
 
@@ -3103,19 +3143,13 @@ export class MasterFormPageComponent implements OnInit {
 
   getLookupOptions(field: MasterFieldConfig): LookupItem[] {
     this.formStateVersion();
-    let items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
-    if (this.shouldFilterUserWarehouseLookup(field)) {
-      const tenantId = this.form.get(field.lookupDependsOn!)?.value;
-      items = tenantId == null || tenantId === ''
-        ? []
-        : items.filter((item) => this.sameValue(item['tenant_id'], tenantId));
-    }
+    const items = field.lookupTable ? this.readLookup(field.lookupTable) : [];
     return this.withLookupNoneOption(field, items);
   }
 
   getLookupHint(field: MasterFieldConfig): string | null {
     this.formStateVersion();
-    if (this.shouldFilterUserWarehouseLookup(field)) {
+    if (this.isTenantScopedUserWarehouseLookup(field)) {
       const tenantId = this.form.get(field.lookupDependsOn!)?.value;
       if (tenantId == null || tenantId === '') {
         return field.lookupBlockedHint ?? null;
@@ -3131,12 +3165,20 @@ export class MasterFormPageComponent implements OnInit {
     return this.getLookupHint(field) ?? 'No options available.';
   }
 
-  private shouldFilterUserWarehouseLookup(field: MasterFieldConfig): boolean {
+  private isTenantScopedUserWarehouseLookup(field: MasterFieldConfig): boolean {
     return this.config()?.tableKey === 'user'
-      && !this.isEdit()
+      && this.isCurrentRouteCreateMode()
       && field.field === 'assigned_warehouse_id'
       && field.lookupTable === 'warehouses'
       && field.lookupDependsOn === 'tenant_id';
+  }
+
+  private isCurrentRouteCreateMode(): boolean {
+    const snapshotPk = this.route.snapshot.params['pk'];
+    if (snapshotPk && snapshotPk !== 'new') {
+      return false;
+    }
+    return !this.isEdit() && !this.pk();
   }
 
   getLookupOptionTrackValue(item: LookupItem): string | number {

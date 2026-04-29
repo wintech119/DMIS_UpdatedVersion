@@ -183,7 +183,12 @@ describe('MasterFormPageComponent', () => {
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
 
-    masterDataService.lookup.and.callFake((tableKey: string) => {
+    masterDataService.lookup.and.callFake((
+      tableKey: string,
+      activeOnly = true,
+      queryParams?: Record<string, string | number | boolean | null | undefined>,
+    ) => {
+      void activeOnly;
       if (tableKey === 'uom') {
         return of([{ value: 'EA', label: 'Each' }]);
       }
@@ -210,10 +215,14 @@ describe('MasterFormPageComponent', () => {
         ]);
       }
       if (tableKey === 'warehouses') {
-        return of([
+        const warehouses = [
           { value: 20, label: 'Kingston Central Depot', tenant_id: 1 },
           { value: 21, label: 'JDF Forward Depot', tenant_id: 2 },
-        ]);
+        ];
+        const tenantId = queryParams?.['tenant_id'];
+        return of(tenantId == null
+          ? warehouses
+          : warehouses.filter((warehouse) => String(warehouse.tenant_id) === String(tenantId)));
       }
       return of([]);
     });
@@ -355,7 +364,7 @@ describe('MasterFormPageComponent', () => {
     TestBed.configureTestingModule({
       imports: [MasterFormPageComponent, NoopAnimationsModule],
       providers: [
-        { provide: ActivatedRoute, useValue: { data: of({ routePath }), params: of(params) } },
+        { provide: ActivatedRoute, useValue: { data: of({ routePath }), params: of(params), snapshot: { params } } },
         { provide: Router, useValue: router },
         { provide: MatDialog, useValue: dialog },
         { provide: MasterDataService, useValue: masterDataService },
@@ -476,17 +485,23 @@ describe('MasterFormPageComponent', () => {
     expect(payload['agency_id']).toBeNull();
   });
 
-  it('limits new user assigned warehouse choices to the selected tenant', () => {
-    const { component } = setup('users');
+  it('loads new user assigned warehouse choices with a tenant-scoped lookup request', () => {
+    const { component, masterDataService } = setup('users');
     const cfg = component.config()!;
     const warehouseField = cfg.formFields.find((field) => field.field === 'assigned_warehouse_id')!;
+    const warehouseLookupCalls = () => masterDataService.lookup.calls.allArgs()
+      .filter(([tableKey]) => tableKey === 'warehouses');
 
     expect(warehouseField.lookupDependsOn).toBe('tenant_id');
     expect(component.getLookupOptions(warehouseField)).toEqual([]);
     expect(component.getLookupEmptyHint(warehouseField)).toContain('Select Tenant first');
+    expect(warehouseLookupCalls()).toEqual([]);
 
     component.form.get('tenant_id')?.setValue(1);
 
+    expect(masterDataService.lookup).toHaveBeenCalledWith('warehouses', true, { tenant_id: 1 });
+    expect(warehouseLookupCalls().every(([, , params]) => params != null && params['tenant_id'] != null))
+      .toBeTrue();
     expect(component.getLookupOptions(warehouseField)).toEqual([
       jasmine.objectContaining({ value: 20, label: 'Kingston Central Depot', tenant_id: 1 }),
     ]);
@@ -495,6 +510,9 @@ describe('MasterFormPageComponent', () => {
     component.form.get('tenant_id')?.setValue(2);
 
     expect(component.form.get('assigned_warehouse_id')?.value).toBeNull();
+    expect(masterDataService.lookup).toHaveBeenCalledWith('warehouses', true, { tenant_id: 2 });
+    expect(warehouseLookupCalls().every(([, , params]) => params != null && params['tenant_id'] != null))
+      .toBeTrue();
     expect(component.getLookupOptions(warehouseField)).toEqual([
       jasmine.objectContaining({ value: 21, label: 'JDF Forward Depot', tenant_id: 2 }),
     ]);

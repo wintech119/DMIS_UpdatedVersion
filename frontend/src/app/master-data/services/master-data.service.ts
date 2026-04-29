@@ -22,6 +22,8 @@ import {
   MasterListOptions,
 } from '../models/item-taxonomy.models';
 
+type LookupQueryParams = Record<string, string | number | boolean | null | undefined>;
+
 @Injectable({ providedIn: 'root' })
 export class MasterDataService {
   private http = inject(HttpClient);
@@ -81,11 +83,16 @@ export class MasterDataService {
     return this.http.get<MasterSummaryResponse>(`${this.apiUrl}/${tableKey}/summary`);
   }
 
-  lookup(tableKey: string, activeOnly = true): Observable<LookupItem[]> {
-    const cacheKey = `${tableKey}_${activeOnly}`;
+  lookup(
+    tableKey: string,
+    activeOnly = true,
+    queryParams?: LookupQueryParams,
+  ): Observable<LookupItem[]> {
+    const cacheKey = this.buildLookupCacheKey(tableKey, activeOnly, queryParams);
     if (!this.lookupCache.has(cacheKey)) {
       let params = new HttpParams();
       if (!activeOnly) params = params.set('active_only', 'false');
+      params = this.appendLookupQueryParams(params, queryParams);
       const obs$ = this.http.get<MasterLookupResponse>(
         `${this.apiUrl}/${tableKey}/lookup`,
         { params },
@@ -100,6 +107,36 @@ export class MasterDataService {
       this.lookupCache.set(cacheKey, obs$);
     }
     return this.lookupCache.get(cacheKey)!;
+  }
+
+  private buildLookupCacheKey(
+    tableKey: string,
+    activeOnly: boolean,
+    queryParams?: LookupQueryParams,
+  ): string {
+    const serializedParams = Object.entries(queryParams ?? {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join('&');
+
+    return serializedParams
+      ? `${tableKey}_${activeOnly}_${serializedParams}`
+      : `${tableKey}_${activeOnly}`;
+  }
+
+  private appendLookupQueryParams(
+    params: HttpParams,
+    queryParams?: LookupQueryParams,
+  ): HttpParams {
+    let nextParams = params;
+    for (const [key, value] of Object.entries(queryParams ?? {})) {
+      if (value === null || value === undefined || value === '') {
+        continue;
+      }
+      nextParams = nextParams.set(key, String(value));
+    }
+    return nextParams;
   }
 
   lookupItemCategories(opts?: ItemCategoryLookupOptions): Observable<ItemCategoryLookup[]> {
