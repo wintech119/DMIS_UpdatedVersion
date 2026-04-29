@@ -3,7 +3,7 @@
 ## Source of Truth
 
 - Visual target: `C:\Users\wbowe\Downloads\Supply Replenish Dashbaord\DESIGN.md` + pinned screenshot (2026-04-20).
-- Implementation guardrail: `frontend/src/lib/prompts/generation.ts` (Notion-warm ops-page-shell vocabulary).
+- Implementation guardrail: `frontend/src/lib/prompts/generation.tsx` (Notion-warm ops-page-shell vocabulary).
 - Backend contract (locked, already fixed in prior commit 09ae7ea):
   - `/api/v1/replenishment/*` — no `/api/v1/supply/*`.
   - CTA route: `/replenishment/needs-list-wizard?event_id=&event_name=&warehouse_id=&phase=`.

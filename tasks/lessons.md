@@ -1,7 +1,5 @@
 # Lessons
 
-- When renaming a canonical prompt file, update every tracked skill and hook reference in the same pass, and keep generated Angular guidance aligned with the live app config instead of documenting future router features as already enabled.
-
 - When a review pass mixes backend control gaps with a frontend no-visual constraint, verify the live tree first and keep frontend fixes to behavior, validation, accessibility, and lint-safe syntax unless the user explicitly authorizes visual changes.
 
 - For repo-local MCP repairs, keep a single canonical MCP alias per launcher, align the MCP-only requirements pin with the installed backend venv, and validate both TOML parsing and a short launcher startup smoke before closing the task.

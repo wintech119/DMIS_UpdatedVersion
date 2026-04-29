@@ -141,7 +141,7 @@ docs/ops/mcp-postgres-troubleshooting.md
 CLAUDE_CODE_SUPPLY*
 CODEX_SUPPLY*
 DASHBOARD_IMPLEMENTATION*
-artifacts/wave2-preflight/
+artifacts/
 .playwright-mcp/
 /fulfillment-*.png
 /operations-*.png

@@ -1,111 +1,11 @@
 # Current Task Plan
 
-## User Warehouse Update Guard Fix - 2026-04-28
-
-Risk score: 5 / Low-Medium using the architecture-review rubric.
-Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 0, operational impact 1.
-
-1. Completed: inspected current user update validation path and existing tenant/warehouse helpers.
-2. Completed: enforced primary-tenant warehouse validation when updating user assigned warehouses.
-3. Completed: added focused backend regression coverage.
-4. Completed: ran targeted backend verification and completed architecture-review closeout.
-
-## Tenant-Filtered User Warehouse Assignment - 2026-04-28
-
-Risk score: 6 / Low-Medium using the architecture-review rubric.
-Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 1, operational impact 1.
-
-1. Completed: inspect current user form lookup and backend create/update validation paths.
-2. Completed: implement tenant-filtered warehouse lookup and backend tenant/warehouse guard.
-3. Completed: add focused frontend/backend regression tests.
-4. Completed: run targeted verification and architecture-review closeout.
-
-## Tenant-First Warehouse Ownership - 2026-04-28
-
-Risk score: 7 / Medium using the architecture-review rubric.
-Axes: blast radius 2, data sensitivity 1, authority change 1, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: inspected the current warehouse/custodian backend registry, view guard, Angular config, routes, access service, tests, and canonical architecture/security references.
-2. Completed: implement backend tenant-first warehouse ownership, managing-tenant display enrichment, and regression coverage.
-3. Completed: update Angular warehouse form/list config, remove custodian from normal navigation/access, and update focused frontend tests.
-4. Completed: update ADR/docs/field-copy references and confirm backlog references.
-5. Completed: run targeted backend/frontend verification and architecture-review closeout.
-
-## Inactive Tenant User Create Fix - 2026-04-28
-
-Risk score: 5 / Low-Medium using the architecture-review rubric.
-Axes: blast radius 1, data sensitivity 2, authority change 1, reversibility 0, external surface 0, operational impact 1.
-
-1. Completed: inspected current tenant-first user creation and existing FK/status validation helpers.
-2. Completed: rejected inactive tenants before primary tenant membership assignment.
-3. Completed: added focused backend regression coverage.
-4. Completed: ran targeted backend verification and completed architecture-review closeout.
-
-## Tenant-First User Creation - 2026-04-28
-
-Risk score: 8 / Medium using the architecture-review rubric.
-Axes: blast radius 2, data sensitivity 2, authority change 1, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: inspect current Advanced/System user create, tenant membership, frontend form, and docs/backlog references.
-2. Completed: implement atomic user creation with required tenant membership and primary-tenant read model guards.
-3. Completed: update frontend Users create/edit form behavior and focused Angular tests.
-4. Completed: update architecture, implementation, field-copy, requirements, and backlog wording.
-5. Completed: run targeted backend/frontend verification and complete review closeout.
-
-## Tenant Type Review Fixes - 2026-04-28
-
-Risk score: 5 / Low-Medium using the architecture-review rubric.
-Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 1, external surface 1, operational impact 0.
-
-1. Completed: inspected current tenant-type backend, migration, frontend access patterns, and local architecture/security guidance.
-2. Completed: patched PATCH inactivation dependency enforcement, defensive legacy-column migration handling, and frontend write permission alignment.
-3. Completed: updated focused backend and frontend regression coverage in existing test files.
-4. Completed: ran targeted verification and completed architecture-review closeout.
-
-## Canonical Generation Prompt Review Fixes - 2026-04-28
-
-Risk score: 2 / Low by total, architecture-review triggered by blast radius 2 because canonical prompt and skill docs shape future frontend implementation.
-Axes: blast radius 2, data sensitivity 0, authority change 0, reversibility 0, external surface 0, operational impact 0.
-
-1. Completed: verified the cited prompt and workflow-reference review findings against the current tree before editing.
-2. Completed: corrected the prompt's Material tooltip, route-param, and required signal-input guidance.
-3. Completed: updated tracked `.agents/skills` references from the old `.tsx` prompt path to `frontend/src/lib/prompts/generation.ts`.
-4. Completed: ran focused grep verification for stale paths and invalid snippets, then completed the architecture-review closeout with `npm run lint` evidence.
-
-## Advanced/System Master Data Brief #6 - Frontend Many-to-Many Assignments - 2026-04-28
-
-Risk score: 7 / Medium using the architecture-review handoff rubric.
-Axes: blast radius 1, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: read the approved Brief #6 handoff, generation.ts sections 1-4, the Brief #6 design appendix, frontend implementation skill, and architecture/security review references.
-2. Completed: inspect existing master-data components, services, routes, models, and backend assignment endpoint contracts before adding new assignment files.
-3. Completed: implement the IAM assignment service and four standalone, OnPush, signal-IO assignment components.
-4. Completed: embed the panels into the flat-table detail pages and add the tenant-user roles logical deep-link route.
-5. Completed: run lint, build, tests, visual grep checks, and architecture-review closeout. Pending after commit: Playwright visual verification.
-
-## Advanced/System Master Data Brief #1 - JWT User Auto-Provision - 2026-04-27
-
-Risk score: 8 / Medium-High using the architecture-review handoff rubric.
-Axes: blast radius 2, data sensitivity 2, authority change 1, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: read the approved handoff brief, backend auth/test patterns, schema constraints, and architecture/security references.
-2. Completed: added first-login DB user auto-provisioning to the JWT success path without changing local-harness behavior.
-3. Completed: added focused tests for first-login insert, idempotent existing-user behavior, and `AUTH_USE_DB_RBAC=0` no-write behavior.
-4. Completed: ran targeted Django checks/tests and completed the post-implementation architecture review.
-
-## Worktree and Branch Cleanup - 2026-04-26
-
-1. In progress: inventory local worktrees, branch tracking state, and dirty files before cleanup.
-2. Pending: classify stale detached worktrees, attached worktrees, and local branches by safety to remove.
-3. Pending: remove only unused clean worktrees/branches and prune git worktree metadata.
-4. Pending: verify the final worktree and branch state after cleanup.
-
 ## EP-05 Module 1 Relief Request Intake Closure - 2026-04-25
 
 Risk score: 8 / Medium using the architecture-review handoff rubric.
 Axes: blast radius 2, data sensitivity 1, authority change 2, reversibility 1, external surface 1, operational impact 1.
 
-1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.ts` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
+1. Completed: created fresh worktree `codex/ep05-module1-closure-gpt55`, copied the gitignored `generation.tsx` visual reference, and read the required plan, freeze spec, checklist, and backend/frontend skill workflows.
 2. Completed: implemented backend cancel, authority-preview, audit timeline, permission, and IDOR regression coverage using existing function-based DRF and operations service patterns.
 3. Completed: implemented frontend model/service contracts, apply-from-needs-list bridge route/component, wizard bridge-state ingestion, and detail audit timeline rendering without visual polish.
 4. Completed: ran required Django and Angular verification gates; manual smoke behavior is covered by automated backend/frontend probes in this worktree.
@@ -228,22 +128,3 @@ Axes: blast radius 1, data sensitivity 1, authority change 1, reversibility 0, e
 2. Completed: patched only confirmed gaps while preserving backend authorization enforcement and avoiding visual layout/style changes.
 3. Completed: ran focused Django, Angular, markdown-reference, and diff verification.
 4. Completed: completed post-implementation backend/frontend and architecture-review closeout.
-
-## Advanced/System Master Data Brief #2 - 2026-04-27
-
-Risk score: 9 / High-by-brief using the architecture-review handoff. Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: read the implementation brief, backend implementation skill, backend guidance, and targeted architecture/security controls.
-2. Completed: inspect current RBAC, masterdata permission, validation, registry, schema, and test patterns before editing.
-3. Completed: add advanced permission constants, seed migration, flat advanced `TableConfig` entries, permission routing, and focused tests.
-4. Completed: run migration and targeted advanced masterdata verification; full masterdata suite was attempted and hit pre-existing baseline failures after rerun with `--keepdb`.
-5. Completed: completed post-implementation architecture review and report per the brief.
-
-## Advanced/System Master Data Brief #3 - 2026-04-27
-
-Risk score: 9 / Medium using the architecture-review handoff. Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 1, operational impact 1.
-
-1. Completed: verified prerequisite commits `8c27857` and `6a6ad5e1` on the current branch, read the Brief #3 handoff, backend implementation skill, backend guidance, and architecture/security controls.
-2. Completed: inspected current masterdata views, permissions, throttling, URL routing, schema, and test patterns; duplicate search found no existing IAM junction endpoint/service helper.
-3. Completed: add advanced junction raw-SQL helpers, views, URL routes, and focused tests.
-4. Completed: ran compile, Django check, migration check, focused advanced tests, attempted exact full masterdata suite, reran preserved-DB suite, and completed post-implementation architecture review.
