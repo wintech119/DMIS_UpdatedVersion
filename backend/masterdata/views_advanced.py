@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 
+from django.conf import settings
 from django.db import DatabaseError, IntegrityError
 from rest_framework.decorators import (
     api_view,
@@ -17,6 +18,12 @@ from api.authentication import LegacyCompatAuthentication
 from api.rbac import (
     PERM_MASTERDATA_ADVANCED_EDIT,
     PERM_MASTERDATA_ADVANCED_VIEW,
+    resolve_roles_and_permissions,
+)
+from api.tenancy import (
+    can_access_tenant,
+    resolve_tenant_context,
+    tenant_context_to_dict,
 )
 from masterdata.permissions import MasterDataPermission
 from masterdata.services import iam_data_access
@@ -32,26 +39,112 @@ def _principal(request):
     return getattr(request, "principal", None) or getattr(request, "user", None)
 
 
-def _actor_id(request) -> str:
+def _actor_identity(request) -> str | None:
     principal = _principal(request)
-    return str(getattr(principal, "user_id", None) or "system")
+    for attr in ("user_id", "username"):
+        value = str(getattr(principal, attr, "") or "").strip()
+        if value:
+            return value
+    return None
 
 
-def _actor_db_user_id(request) -> int | None:
-    try:
-        return int(_actor_id(request))
-    except (TypeError, ValueError):
+def _actor_id(request) -> str:
+    return _actor_identity(request) or "system"
+
+
+def _actor_assignment_audit_id(request) -> int | str | None:
+    actor_id = _actor_identity(request)
+    if actor_id is None:
         return None
+    try:
+        return int(actor_id)
+    except (TypeError, ValueError):
+        return actor_id
 
 
-def _actor_db_user_id_or_error(request) -> tuple[int | None, Response | None]:
-    actor_user_id = _actor_db_user_id(request)
-    if actor_user_id is None:
+def _actor_assignment_audit_id_or_error(request) -> tuple[int | str | None, Response | None]:
+    actor_id = _actor_assignment_audit_id(request)
+    if actor_id is None:
         return None, Response(
-            {"detail": "Authenticated user_id is required for assignment audit."},
-            status=500,
+            {"detail": "Authenticated actor identity is required for assignment audit."},
+            status=401,
         )
-    return actor_user_id, None
+    return actor_id, None
+
+
+def _should_enforce_tenant_scope() -> bool:
+    return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
+
+
+def _tenant_context(request):
+    cached = getattr(request, "_tenant_context_cache", None)
+    if cached is not None:
+        return cached
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    context = resolve_tenant_context(request, request.user, permissions)
+    request._tenant_context_cache = context
+    return context
+
+
+def _tenant_scope_denied_response(
+    request,
+    *,
+    write: bool,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    role_id: int | None = None,
+) -> Response:
+    details: dict[str, Any] = {
+        "message": "Access denied for tenant scope.",
+        "write": bool(write),
+        "tenant_context": tenant_context_to_dict(_tenant_context(request)),
+    }
+    if tenant_id is not None:
+        details["tenant_id"] = tenant_id
+    if user_id is not None:
+        details["user_id"] = user_id
+    if role_id is not None:
+        details["role_id"] = role_id
+    return Response({"errors": {"tenant_scope": details}}, status=403)
+
+
+def _require_tenant_scope(request, tenant_id: int, *, write: bool) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    context = _tenant_context(request)
+    if can_access_tenant(context, tenant_id, write=write):
+        return None
+    return _tenant_scope_denied_response(request, tenant_id=tenant_id, write=write)
+
+
+def _require_active_tenant_scope(
+    request,
+    *,
+    write: bool,
+    role_id: int | None = None,
+) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    context = _tenant_context(request)
+    if context.active_tenant_id is not None and can_access_tenant(
+        context,
+        context.active_tenant_id,
+        write=write,
+    ):
+        return None
+    return _tenant_scope_denied_response(request, role_id=role_id, write=write)
+
+
+def _require_user_scope(request, user_id: int, *, write: bool) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    target_tenant_ids = iam_data_access.list_user_active_tenant_ids(user_id)
+    if not target_tenant_ids:
+        return _tenant_scope_denied_response(request, user_id=user_id, write=write)
+    context = _tenant_context(request)
+    if all(can_access_tenant(context, tenant_id, write=write) for tenant_id in target_tenant_ids):
+        return None
+    return _tenant_scope_denied_response(request, user_id=user_id, write=write)
 
 
 def _positive_int(value: Any, field_name: str) -> tuple[int | None, Response | None]:
@@ -139,6 +232,9 @@ def user_roles(request, user_id: int):
 
     try:
         if request.method == "GET":
+            scope_error = _require_user_scope(request, user_id, write=False)
+            if scope_error:
+                return scope_error
             return Response({"results": iam_data_access.list_user_roles(user_id)})
 
         if request.method == "POST":
@@ -146,10 +242,13 @@ def user_roles(request, user_id: int):
             role_id, error = _payload_positive_int(data, "role_id")
             if error:
                 return error
-            actor_user_id, actor_error = _actor_db_user_id_or_error(request)
+            scope_error = _require_user_scope(request, user_id, write=True)
+            if scope_error:
+                return scope_error
+            actor_audit_id, actor_error = _actor_assignment_audit_id_or_error(request)
             if actor_error:
                 return actor_error
-            created = iam_data_access.assign_user_role(user_id, role_id, actor_user_id)
+            created = iam_data_access.assign_user_role(user_id, role_id, actor_audit_id)
             _log_success(
                 "assign",
                 "user_role",
@@ -161,6 +260,9 @@ def user_roles(request, user_id: int):
         role_id, error = _query_positive_int(request, "role_id")
         if error:
             return error
+        scope_error = _require_user_scope(request, user_id, write=True)
+        if scope_error:
+            return scope_error
         deleted = iam_data_access.revoke_user_role(user_id, role_id)
         if not deleted:
             return Response({"detail": "Assignment not found."}, status=404)
@@ -191,6 +293,9 @@ def role_permissions(request, role_id: int):
 
     try:
         if request.method == "GET":
+            scope_error = _require_active_tenant_scope(request, role_id=role_id, write=False)
+            if scope_error:
+                return scope_error
             return Response({"results": iam_data_access.list_role_permissions(role_id)})
 
         if request.method == "POST":
@@ -199,6 +304,9 @@ def role_permissions(request, role_id: int):
             if error:
                 return error
             scope_json, scope_error = _validated_scope_json(data)
+            if scope_error:
+                return scope_error
+            scope_error = _require_active_tenant_scope(request, role_id=role_id, write=True)
             if scope_error:
                 return scope_error
             created = iam_data_access.assign_role_permission(
@@ -223,6 +331,9 @@ def role_permissions(request, role_id: int):
         perm_id, error = _query_positive_int(request, "perm_id")
         if error:
             return error
+        scope_error = _require_active_tenant_scope(request, role_id=role_id, write=True)
+        if scope_error:
+            return scope_error
         deleted = iam_data_access.revoke_role_permission(role_id, perm_id)
         if not deleted:
             return Response({"detail": "Assignment not found."}, status=404)
@@ -249,6 +360,9 @@ def tenant_users(request, tenant_id: int):
 
     try:
         if request.method == "GET":
+            scope_error = _require_tenant_scope(request, tenant_id, write=False)
+            if scope_error:
+                return scope_error
             return Response({"results": iam_data_access.list_tenant_users(tenant_id)})
 
         if request.method == "POST":
@@ -259,14 +373,17 @@ def tenant_users(request, tenant_id: int):
             access_level, access_error = _validated_access_level(data)
             if access_error:
                 return access_error
-            actor_user_id, actor_error = _actor_db_user_id_or_error(request)
+            scope_error = _require_tenant_scope(request, tenant_id, write=True)
+            if scope_error:
+                return scope_error
+            actor_audit_id, actor_error = _actor_assignment_audit_id_or_error(request)
             if actor_error:
                 return actor_error
             created = iam_data_access.assign_tenant_user(
                 tenant_id,
                 user_id,
                 access_level,
-                actor_user_id,
+                actor_audit_id,
             )
             _log_success(
                 "assign",
@@ -284,6 +401,9 @@ def tenant_users(request, tenant_id: int):
         user_id, error = _query_positive_int(request, "user_id")
         if error:
             return error
+        scope_error = _require_tenant_scope(request, tenant_id, write=True)
+        if scope_error:
+            return scope_error
         deleted = iam_data_access.revoke_tenant_user(tenant_id, user_id)
         if not deleted:
             return Response({"detail": "Assignment not found."}, status=404)
@@ -312,6 +432,9 @@ def tenant_user_roles(request, tenant_id: int, user_id: int):
 
     try:
         if request.method == "GET":
+            scope_error = _require_tenant_scope(request, tenant_id, write=False)
+            if scope_error:
+                return scope_error
             return Response({"results": iam_data_access.list_user_tenant_roles(tenant_id, user_id)})
 
         if request.method == "POST":
@@ -319,14 +442,17 @@ def tenant_user_roles(request, tenant_id: int, user_id: int):
             role_id, error = _payload_positive_int(data, "role_id")
             if error:
                 return error
-            actor_user_id, actor_error = _actor_db_user_id_or_error(request)
+            scope_error = _require_tenant_scope(request, tenant_id, write=True)
+            if scope_error:
+                return scope_error
+            actor_audit_id, actor_error = _actor_assignment_audit_id_or_error(request)
             if actor_error:
                 return actor_error
             created = iam_data_access.assign_user_tenant_role(
                 tenant_id,
                 user_id,
                 role_id,
-                actor_user_id,
+                actor_audit_id,
             )
             _log_success(
                 "assign",
@@ -344,6 +470,9 @@ def tenant_user_roles(request, tenant_id: int, user_id: int):
         role_id, error = _query_positive_int(request, "role_id")
         if error:
             return error
+        scope_error = _require_tenant_scope(request, tenant_id, write=True)
+        if scope_error:
+            return scope_error
         deleted = iam_data_access.revoke_user_tenant_role(tenant_id, user_id, role_id)
         if not deleted:
             return Response({"detail": "Assignment not found."}, status=404)

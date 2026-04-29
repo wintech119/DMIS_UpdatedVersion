@@ -453,7 +453,13 @@ def _require_governed_catalog_access(request) -> Response | None:
     )
 
 
-def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: bool) -> Response:
+def _tenant_scope_denied_response(
+    request,
+    *,
+    warehouse_id: int | None = None,
+    tenant_id: int | None = None,
+    write: bool,
+) -> Response:
     context = _tenant_context(request)
     details: dict[str, Any] = {
         "message": "Access denied for tenant scope.",
@@ -462,7 +468,30 @@ def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: b
     }
     if warehouse_id is not None:
         details["warehouse_id"] = warehouse_id
+    if tenant_id is not None:
+        details["tenant_id"] = tenant_id
     return Response({"errors": {"tenant_scope": details}}, status=403)
+
+
+def _require_tenant_scope(
+    request,
+    tenant_id: Any,
+    *,
+    write: bool = False,
+) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    parsed_tenant_id = _parse_positive_int(tenant_id)
+    if parsed_tenant_id is None:
+        return None
+    context = _tenant_context(request)
+    if can_access_tenant(context, parsed_tenant_id, write=write):
+        return None
+    return _tenant_scope_denied_response(
+        request,
+        tenant_id=parsed_tenant_id,
+        write=write,
+    )
 
 
 def _require_warehouse_scope(
@@ -1488,6 +1517,10 @@ def _handle_user_create(request, cfg):
         )
     if tenant_errors:
         return Response({"errors": tenant_errors}, status=400)
+
+    scope_error = _require_tenant_scope(request, tenant_id, write=True)
+    if scope_error:
+        return scope_error
 
     for field in cfg.data_fields:
         if field.default is not None and field.name not in data:

@@ -165,6 +165,23 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
         return _fetchall_dicts(cursor)
 
 
+def list_user_active_tenant_ids(user_id: int) -> list[int]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT tu.tenant_id
+            FROM tenant_user tu
+            JOIN tenant t ON t.tenant_id = tu.tenant_id
+            WHERE tu.user_id = %s
+              AND COALESCE(tu.status_code, 'A') = 'A'
+              AND COALESCE(t.status_code, 'A') = 'A'
+            ORDER BY tu.tenant_id
+            """,
+            [user_id],
+        )
+        return [int(row[0]) for row in cursor.fetchall()]
+
+
 def assign_tenant_user(
     tenant_id: int,
     user_id: int,
@@ -174,32 +191,56 @@ def assign_tenant_user(
     is_primary_tenant: bool = False,
 ) -> bool:
     actor_label = _actor_label(assigned_by)
+    assigned_by_value = _assigned_by_value(assigned_by)
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO tenant_user (
-                tenant_id,
-                user_id,
-                is_primary_tenant,
-                access_level,
-                assigned_by,
-                status_code,
-                create_by_id,
-                create_dtime
+            WITH inserted AS (
+                INSERT INTO tenant_user (
+                    tenant_id,
+                    user_id,
+                    is_primary_tenant,
+                    access_level,
+                    assigned_by,
+                    status_code,
+                    create_by_id,
+                    create_dtime
+                )
+                VALUES (%s, %s, %s, %s, %s, 'A', %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (tenant_id, user_id) DO NOTHING
+                RETURNING TRUE AS created
+            ),
+            updated AS (
+                UPDATE tenant_user
+                SET
+                    access_level = %s,
+                    assigned_by = %s,
+                    assigned_at = CURRENT_TIMESTAMP,
+                    status_code = 'A'
+                WHERE tenant_id = %s
+                  AND user_id = %s
+                  AND NOT EXISTS (SELECT 1 FROM inserted)
+                RETURNING FALSE AS created
             )
-            VALUES (%s, %s, %s, %s, %s, 'A', %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (tenant_id, user_id) DO NOTHING
+            SELECT created FROM inserted
+            UNION ALL
+            SELECT created FROM updated
             """,
             [
                 tenant_id,
                 user_id,
                 is_primary_tenant,
                 access_level,
-                _assigned_by_value(assigned_by),
+                assigned_by_value,
                 actor_label,
+                access_level,
+                assigned_by_value,
+                tenant_id,
+                user_id,
             ],
         )
-        return cursor.rowcount > 0
+        row = cursor.fetchone()
+        return bool(row[0]) if row else False
 
 
 def has_active_primary_tenant_membership(tenant_id: int, user_id: int) -> bool:

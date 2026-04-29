@@ -3,7 +3,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from api.rbac import (
@@ -1443,6 +1443,266 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
             missing_response = views_advanced.tenant_user_roles(missing_delete, 2, 7)
             self.assertEqual(missing_response.status_code, 404)
 
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_user_roles_scope_denied_before_assignment_lookup(self):
+        with (
+            patch("masterdata.views_advanced.tenant_context_to_dict", return_value={}),
+            patch("masterdata.views_advanced.can_access_tenant", return_value=False) as mock_access,
+            patch(
+                "masterdata.views_advanced._tenant_context",
+                return_value=SimpleNamespace(active_tenant_id=9),
+            ) as mock_context,
+            patch(
+                "masterdata.views_advanced.iam_data_access.list_user_active_tenant_ids",
+                return_value=[2],
+            ) as mock_target_tenants,
+            patch("masterdata.views_advanced.iam_data_access.assign_user_role") as mock_assign,
+        ):
+            request = self.factory.post(
+                "/api/v1/masterdata/user/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+
+            response = views_advanced.user_roles(request, 7)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_context.assert_called()
+        mock_target_tenants.assert_called_once_with(7)
+        mock_access.assert_called_once()
+        mock_assign.assert_not_called()
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_role_permissions_scope_denied_before_lookup(self):
+        with (
+            patch("masterdata.views_advanced.tenant_context_to_dict", return_value={}),
+            patch("masterdata.views_advanced.can_access_tenant", return_value=False) as mock_access,
+            patch(
+                "masterdata.views_advanced._tenant_context",
+                return_value=SimpleNamespace(active_tenant_id=9),
+            ) as mock_context,
+            patch("masterdata.views_advanced.iam_data_access.list_role_permissions") as mock_list,
+        ):
+            request = self.factory.get("/api/v1/masterdata/role/3/permissions")
+            force_authenticate(
+                request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW], user_id="99"),
+            )
+
+            response = views_advanced.role_permissions(request, 3)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_context.assert_called()
+        mock_access.assert_called_once()
+        mock_list.assert_not_called()
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_tenant_users_scope_denied_before_lookup(self):
+        with (
+            patch("masterdata.views_advanced.tenant_context_to_dict", return_value={}),
+            patch("masterdata.views_advanced.can_access_tenant", return_value=False) as mock_access,
+            patch(
+                "masterdata.views_advanced._tenant_context",
+                return_value=SimpleNamespace(active_tenant_id=9),
+            ) as mock_context,
+            patch("masterdata.views_advanced.iam_data_access.list_tenant_users") as mock_list,
+        ):
+            request = self.factory.get("/api/v1/masterdata/tenant/2/users")
+            force_authenticate(
+                request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_VIEW], user_id="99"),
+            )
+
+            response = views_advanced.tenant_users(request, 2)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_context.assert_called()
+        mock_access.assert_called_once()
+        mock_list.assert_not_called()
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_tenant_user_roles_scope_denied_before_assignment(self):
+        with (
+            patch("masterdata.views_advanced.tenant_context_to_dict", return_value={}),
+            patch("masterdata.views_advanced.can_access_tenant", return_value=False) as mock_access,
+            patch(
+                "masterdata.views_advanced._tenant_context",
+                return_value=SimpleNamespace(active_tenant_id=9),
+            ) as mock_context,
+            patch(
+                "masterdata.views_advanced.iam_data_access.assign_user_tenant_role"
+            ) as mock_assign,
+        ):
+            request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id="99"),
+            )
+
+            response = views_advanced.tenant_user_roles(request, 2, 7)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_context.assert_called()
+        mock_access.assert_called_once()
+        mock_assign.assert_not_called()
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_user_create_scope_denied_before_primary_tenant_membership(self):
+        with (
+            patch("masterdata.views.tenant_context_to_dict", return_value={}),
+            patch("masterdata.views.can_access_tenant", return_value=False) as mock_access,
+            patch(
+                "masterdata.views._tenant_context",
+                return_value=SimpleNamespace(active_tenant_id=9),
+            ) as mock_context,
+            patch("masterdata.views.check_fk_exists", return_value=(True, [])),
+            patch("masterdata.views.create_record") as mock_create_record,
+            patch("masterdata.views.iam_data_access.assign_tenant_user") as mock_assign,
+        ):
+            request = self.factory.post(
+                "/api/v1/masterdata/user/",
+                {
+                    "tenant_id": 2,
+                    "username": "field.admin",
+                    "email": "field.admin@example.test",
+                },
+                format="json",
+            )
+            force_authenticate(
+                request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_CREATE], user_id="99"),
+            )
+
+            response = views.master_list_create(request, "user")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.data["errors"])
+        mock_context.assert_called()
+        mock_access.assert_called_once()
+        mock_create_record.assert_not_called()
+        mock_assign.assert_not_called()
+
+    def test_assignment_posts_accept_oidc_uuid_actor_identity(self):
+        actor_id = "550e8400-e29b-41d4-a716-446655440000"
+        with (
+            patch("masterdata.views_advanced.iam_data_access.assign_user_role") as mock_user_role,
+            patch(
+                "masterdata.views_advanced.iam_data_access.assign_tenant_user"
+            ) as mock_tenant_user,
+            patch(
+                "masterdata.views_advanced.iam_data_access.assign_user_tenant_role"
+            ) as mock_tenant_role,
+        ):
+            mock_user_role.return_value = True
+            mock_tenant_user.return_value = True
+            mock_tenant_role.return_value = True
+
+            user_role_request = self.factory.post(
+                "/api/v1/masterdata/user/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                user_role_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            user_role_response = views_advanced.user_roles(user_role_request, 7)
+
+            tenant_user_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users",
+                {"user_id": 7, "access_level": "admin"},
+                format="json",
+            )
+            force_authenticate(
+                tenant_user_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            tenant_user_response = views_advanced.tenant_users(tenant_user_request, 2)
+
+            tenant_role_request = self.factory.post(
+                "/api/v1/masterdata/tenant/2/users/7/roles",
+                {"role_id": 3},
+                format="json",
+            )
+            force_authenticate(
+                tenant_role_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            tenant_role_response = views_advanced.tenant_user_roles(
+                tenant_role_request,
+                2,
+                7,
+            )
+
+        self.assertEqual(user_role_response.status_code, 201)
+        self.assertEqual(tenant_user_response.status_code, 201)
+        self.assertEqual(tenant_role_response.status_code, 201)
+        mock_user_role.assert_called_once_with(7, 3, actor_id)
+        mock_tenant_user.assert_called_once_with(2, 7, "ADMIN", actor_id)
+        mock_tenant_role.assert_called_once_with(2, 7, 3, actor_id)
+
+    def test_assignment_deletes_accept_oidc_uuid_actor_identity(self):
+        actor_id = "550e8400-e29b-41d4-a716-446655440000"
+        with (
+            patch("masterdata.views_advanced.iam_data_access.revoke_user_role") as mock_user_role,
+            patch(
+                "masterdata.views_advanced.iam_data_access.revoke_tenant_user"
+            ) as mock_tenant_user,
+            patch(
+                "masterdata.views_advanced.iam_data_access.revoke_user_tenant_role"
+            ) as mock_tenant_role,
+        ):
+            mock_user_role.return_value = True
+            mock_tenant_user.return_value = True
+            mock_tenant_role.return_value = True
+
+            user_role_request = self.factory.delete(
+                "/api/v1/masterdata/user/7/roles?role_id=3"
+            )
+            force_authenticate(
+                user_role_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            user_role_response = views_advanced.user_roles(user_role_request, 7)
+
+            tenant_user_request = self.factory.delete(
+                "/api/v1/masterdata/tenant/2/users?user_id=7"
+            )
+            force_authenticate(
+                tenant_user_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            tenant_user_response = views_advanced.tenant_users(tenant_user_request, 2)
+
+            tenant_role_request = self.factory.delete(
+                "/api/v1/masterdata/tenant/2/users/7/roles?role_id=3"
+            )
+            force_authenticate(
+                tenant_role_request,
+                user=self._principal([PERM_MASTERDATA_ADVANCED_EDIT], user_id=actor_id),
+            )
+            tenant_role_response = views_advanced.tenant_user_roles(
+                tenant_role_request,
+                2,
+                7,
+            )
+
+        self.assertEqual(user_role_response.status_code, 204)
+        self.assertEqual(tenant_user_response.status_code, 204)
+        self.assertEqual(tenant_role_response.status_code, 204)
+
     def test_assign_user_role_sql_uses_on_conflict_and_assigned_by(self):
         cursor = MagicMock()
         cursor.rowcount = 1
@@ -1459,9 +1719,26 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
         self.assertIn("ON CONFLICT (user_id, role_id) DO NOTHING", sql)
         self.assertEqual(params[:3], [7, 3, 99])
 
-    def test_assign_tenant_user_sql_populates_assigned_by(self):
+    def test_assign_user_role_sql_allows_non_integer_actor_identity(self):
         cursor = MagicMock()
         cursor.rowcount = 1
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+
+        actor_id = "550e8400-e29b-41d4-a716-446655440000"
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+        with patch("masterdata.services.iam_data_access.connection", connection):
+            created = iam_data_access.assign_user_role(7, 3, actor_id)
+
+        self.assertTrue(created)
+        _sql, params = cursor.execute.call_args.args
+        self.assertEqual(params[:3], [7, 3, None])
+        self.assertEqual(params[3:5], [actor_id[:20], actor_id[:20]])
+
+    def test_assign_tenant_user_sql_populates_assigned_by(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (True,)
         cursor_context = MagicMock()
         cursor_context.__enter__.return_value = cursor
         cursor_context.__exit__.return_value = False
@@ -1473,5 +1750,27 @@ class AdvancedMasterDataPermissionTests(SimpleTestCase):
         self.assertTrue(created)
         sql, params = cursor.execute.call_args.args
         self.assertIn("ON CONFLICT (tenant_id, user_id) DO NOTHING", sql)
+        self.assertIn("UPDATE tenant_user", sql)
         self.assertIn("is_primary_tenant", sql)
-        self.assertEqual(params[:5], [2, 7, False, "ADMIN", 99])
+        self.assertEqual(params[:6], [2, 7, False, "ADMIN", 99, "99"])
+        self.assertEqual(params[6:], ["ADMIN", 99, 2, 7])
+
+    def test_assign_tenant_user_sql_updates_access_level_on_existing_membership(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (False,)
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = False
+
+        connection = SimpleNamespace(cursor=lambda: cursor_context)
+        with patch("masterdata.services.iam_data_access.connection", connection):
+            created = iam_data_access.assign_tenant_user(2, 7, "READ_ONLY", 99)
+
+        self.assertFalse(created)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("UPDATE tenant_user", sql)
+        self.assertIn("access_level = %s", sql)
+        self.assertIn("assigned_at = CURRENT_TIMESTAMP", sql)
+        self.assertIn("status_code = 'A'", sql)
+        self.assertEqual(params[:6], [2, 7, False, "READ_ONLY", 99, "99"])
+        self.assertEqual(params[6:], ["READ_ONLY", 99, 2, 7])
