@@ -1,0 +1,9 @@
+reviews:
+  path_filters:
+    - "**/*"
+    - "frontend/package-lock.json"
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+  auto_review:
+    base_branches:
+      - codex/dmis-may15-release-train

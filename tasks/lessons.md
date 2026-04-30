@@ -1,5 +1,8 @@
 # Lessons
 
+- When CodeRabbit skips a lockfile-only PR due to default path filters, verify the repo-tracked `.coderabbit.yaml`; an ignored local config will not affect remote reviews.
+- When adding CodeRabbit positive path filters to override a default block, include the broader repository review scope as well; a single positive pattern can narrow future reviews too far.
+
 - When a review pass mixes backend control gaps with a frontend no-visual constraint, verify the live tree first and keep frontend fixes to behavior, validation, accessibility, and lint-safe syntax unless the user explicitly authorizes visual changes.
 
 - For repo-local MCP repairs, keep a single canonical MCP alias per launcher, align the MCP-only requirements pin with the installed backend venv, and validate both TOML parsing and a short launcher startup smoke before closing the task.
