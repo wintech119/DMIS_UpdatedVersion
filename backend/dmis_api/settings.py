@@ -739,6 +739,7 @@ DMIS_OPERATIONS_ENABLED = _get_bool_env(
 
 INSTALLED_APPS = [
     "django.contrib.auth",
+    "accounts",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -988,6 +989,9 @@ AUTH_ALGORITHMS = [
 AUTH_USER_ID_CLAIM = os.getenv("AUTH_USER_ID_CLAIM", "")
 AUTH_USERNAME_CLAIM = os.getenv("AUTH_USERNAME_CLAIM", "")
 AUTH_ROLES_CLAIM = os.getenv("AUTH_ROLES_CLAIM", "")
+
+# Django auth adapter for the existing DMIS RBAC user table.
+AUTH_USER_MODEL = "accounts.DmisUser"
 
 if "AUTH_USE_DB_RBAC" in os.environ:
     AUTH_USE_DB_RBAC = os.getenv("AUTH_USE_DB_RBAC", "0") == "1"

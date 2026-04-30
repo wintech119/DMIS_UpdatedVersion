@@ -3,7 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from django.db import connection
+from django.db import connection, transaction
+
+
+class UserCreateRecordError(Exception):
+    def __init__(self, warnings: list[str]):
+        self.warnings = warnings
+
+
+class UserPrimaryTenantMembershipError(Exception):
+    pass
 
 
 def _fetchall_dicts(cursor) -> list[dict[str, Any]]:
@@ -273,6 +282,50 @@ def count_active_primary_tenant_memberships(user_id: int) -> int:
             [user_id],
         )
         return int(cursor.fetchone()[0])
+
+
+def verify_user_primary_tenant_membership(tenant_id: int, user_id: int) -> None:
+    if not has_active_primary_tenant_membership(tenant_id, user_id):
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification found no active row."
+        )
+    if count_active_primary_tenant_memberships(user_id) != 1:
+        raise UserPrimaryTenantMembershipError(
+            "Primary tenant membership verification did not find exactly one active primary row."
+        )
+
+
+def create_user_with_primary_tenant(
+    *,
+    tenant_id: int,
+    record_data: dict[str, Any],
+    actor_id: Any,
+    access_level: str = "STANDARD",
+) -> tuple[int, list[str]]:
+    """
+    Atomically create a user row and exactly one active primary tenant membership.
+    """
+    from masterdata.services.data_access import create_record
+
+    with transaction.atomic():
+        raw_pk_val, warnings = create_record("user", record_data, actor_id)
+        if raw_pk_val is None:
+            raise UserCreateRecordError(warnings)
+
+        pk_val = int(raw_pk_val)
+        membership_created = assign_tenant_user(
+            tenant_id,
+            pk_val,
+            access_level,
+            actor_id,
+            is_primary_tenant=True,
+        )
+        if not membership_created:
+            raise UserPrimaryTenantMembershipError(
+                "Primary tenant membership insert did not create a row."
+            )
+        verify_user_primary_tenant_membership(tenant_id, pk_val)
+        return pk_val, list(warnings or [])
 
 
 def revoke_tenant_user(tenant_id: int, user_id: int) -> bool:

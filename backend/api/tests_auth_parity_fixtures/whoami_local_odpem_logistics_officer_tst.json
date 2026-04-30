@@ -1,0 +1,64 @@
+{
+  "operations_capabilities": {
+    "allowed_origin_modes": [],
+    "can_create_relief_request": false,
+    "can_create_relief_request_on_behalf": false,
+    "default_requesting_tenant_id": 1,
+    "relief_request_submission_mode": null
+  },
+  "permissions": [
+    "masterdata.view",
+    "operations.consolidation.dispatch",
+    "operations.consolidation.receive",
+    "operations.dispatch.execute",
+    "operations.dispatch.prepare",
+    "operations.fulfillment_mode.set",
+    "operations.notification.receive",
+    "operations.package.allocate",
+    "operations.package.create",
+    "operations.package.lock",
+    "operations.package.override.request",
+    "operations.partial_release.request",
+    "operations.pickup.release",
+    "operations.queue.view",
+    "operations.request.create.for_subordinate",
+    "operations.request.create.self",
+    "operations.request.edit.draft",
+    "operations.request.submit",
+    "operations.staging_warehouse.override",
+    "operations.waybill.view",
+    "replenishment.needs_list.submit"
+  ],
+  "roles": [
+    "LOGISTICS_OFFICER"
+  ],
+  "tenant_context": {
+    "active_tenant_code": "ODPEM-HQ",
+    "active_tenant_id": 1,
+    "active_tenant_type": "NATIONAL",
+    "can_act_cross_tenant": false,
+    "can_read_all_tenants": false,
+    "is_neoc": false,
+    "memberships": [
+      {
+        "access_level": "FULL",
+        "is_primary": true,
+        "tenant_code": "ODPEM-HQ",
+        "tenant_id": 1,
+        "tenant_name": "OFFICE OF DISASTER PREPAREDNESS AND EMERGENCY MANAGEMENT - HQ",
+        "tenant_type": "NATIONAL"
+      },
+      {
+        "access_level": "FULL",
+        "is_primary": false,
+        "tenant_code": "ODPEM-NEOC",
+        "tenant_id": 2,
+        "tenant_name": "ODPEM - NATIONAL EMERGENCY OPERATIONS CENTRE",
+        "tenant_type": "NATIONAL"
+      }
+    ],
+    "requested_tenant_id": null
+  },
+  "user_id": "20",
+  "username": "local_odpem_logistics_officer_tst"
+}

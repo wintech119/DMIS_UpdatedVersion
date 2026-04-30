@@ -1,5 +1,16 @@
 # Current Task Plan
 
+## Django Auth Adapter Phase 1 - 2026-04-30
+
+Risk score: 8 / Medium using the approved auth-adapter architecture review.
+Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 0, operational impact 1.
+
+1. Completed: re-read the amended Brief 1 and inspected the existing auth, master-data, RBAC, and command patterns before implementation.
+2. Completed: extracted the tenant-first user creation helper into `masterdata.services.iam_data_access` and kept the bounded `masterdata.views` refactor behavior-neutral.
+3. Completed: added the unmanaged `accounts.DmisUser` adapter, manager, no-op state migration, and `create_admin_user` management command.
+4. Completed: added service, accounts, and parity-snapshot coverage plus generated whoami fixture JSON.
+5. Completed with environment caveat: ran `manage.py check`, focused tests, masterdata tests, and attempted the full backend suite; PostgreSQL-only gates were blocked by missing local DB configuration.
+
 ## OIDC Advanced Assignment Actor Fix - 2026-04-29
 
 Risk score: 4 / Low-Medium using the architecture-review handoff rubric.
