@@ -77,7 +77,6 @@ backend/runtime/db_backup_*.sql
 # Codex local artifacts (config may contain DATABASE_URI and other secrets)
 .codex/
 .codex/config.toml
-.coderabbit.yaml
 
 # ---------------------------------------------------------------------------
 # Database files and test data (do not commit; may contain PII or env-specific data)
