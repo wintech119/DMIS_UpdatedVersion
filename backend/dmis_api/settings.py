@@ -997,6 +997,14 @@ AUTHENTICATION_BACKENDS = [
     "accounts.backends.LocalHarnessBackend",
     "django.contrib.auth.backends.ModelBackend",
 ]
+_rbac_bridge_autorun_requested = _get_bool_env(
+    "RBAC_BRIDGE_AUTORUN_ON_MIGRATE",
+    (not TESTING) and DMIS_RUNTIME_ENV in {"local-harness", "prod-like-local"},
+)
+RBAC_BRIDGE_AUTORUN_ON_MIGRATE = bool(
+    _rbac_bridge_autorun_requested
+    and (TESTING or DMIS_RUNTIME_ENV in {"local-harness", "prod-like-local"})
+)
 
 if "AUTH_USE_DB_RBAC" in os.environ:
     AUTH_USE_DB_RBAC = os.getenv("AUTH_USE_DB_RBAC", "0") == "1"

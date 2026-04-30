@@ -157,13 +157,10 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
         )
         return messages
 
-    django_auth_tables = [
-        "auth_user",
-        "auth_group",
-        "auth_group_permissions",
-        "auth_user_groups",
-        "auth_user_user_permissions",
-    ]
+    # Phase 3 of the Django auth adapter intentionally mirrors custom RBAC
+    # into auth_group/auth_permission and the custom-user group M2M. Only
+    # auth_user rows indicate drift away from the legacy "user" table.
+    django_auth_tables = ["auth_user"]
     populated = []
     for table_name in django_auth_tables:
         count = _count_rows(table_name)
@@ -174,9 +171,9 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
         details = ", ".join(f"{name}={count}" for name, count in populated)
         messages.append(
             DjangoWarning(
-                "Django auth membership tables contain rows. "
-                "DMIS RBAC remains canonical; validate these are framework-only artifacts "
-                f"and not business authorization dependencies ({details}).",
+                "Django auth_user contains rows. "
+                "The legacy DMIS user table remains canonical; validate these are not "
+                f"business authorization dependencies ({details}).",
                 id="api.W002",
             )
         )

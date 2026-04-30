@@ -173,7 +173,11 @@ class DmisUser(AbstractBaseUser):
         if not self.is_active:
             return False
         try:
-            return _user_has_perm(self, perm, obj)
+            if _user_has_perm(self, perm, obj):
+                return True
+            if isinstance(perm, str) and "__" in perm and not perm.startswith("dmis."):
+                return _user_has_perm(self, f"dmis.{perm}", obj)
+            return False
         except DatabaseError:
             return False
 

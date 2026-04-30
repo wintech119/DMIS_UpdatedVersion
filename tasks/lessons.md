@@ -3,6 +3,9 @@
 - When CodeRabbit skips a lockfile-only PR due to default path filters, verify the repo-tracked `.coderabbit.yaml`; an ignored local config will not affect remote reviews.
 - When adding CodeRabbit positive path filters to override a default block, include the broader repository review scope as well; a single positive pattern can narrow future reviews too far.
 - When a Django auth backend accepts `**kwargs`, make it explicitly decline credential types owned by later backends; otherwise request headers can let an earlier token backend bypass the intended username/password verifier.
+- When mirroring custom RBAC into Django auth, clear unsupported direct user-permission M2M rows during sync; otherwise Django `has_perm()` can over-grant permissions that the canonical resolver never returns.
+- When bridging flattened RBAC permission strings into Django permissions, preserve the legacy `permission.resource` / `permission.action` columns and test dotted actions; `resource.action` strings are not safely reversible.
+- When bridging custom RBAC into Django groups, test permissions that arise from combined roles, not only per-role closures; role-union compatibility can require a derived bridge group to preserve parity without overgranting a single role.
 
 - When a review pass mixes backend control gaps with a frontend no-visual constraint, verify the live tree first and keep frontend fixes to behavior, validation, accessibility, and lint-safe syntax unless the user explicitly authorizes visual changes.
 
