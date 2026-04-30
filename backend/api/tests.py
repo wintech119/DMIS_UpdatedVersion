@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
+from accounts.models import DmisUser
 from api.models import AsyncJob, AsyncJobArtifact
 from api.permissions import NeedsListPermission
 from api.tenancy import TenantContext, TenantMembership
@@ -2031,13 +2032,23 @@ class AuthJwtAutoProvisionTests(TestCase):
                     last_name varchar(100),
                     full_name varchar(200),
                     is_active boolean DEFAULT TRUE NOT NULL,
+                    organization varchar(200),
+                    job_title varchar(200),
+                    phone varchar(50),
                     timezone varchar(50) DEFAULT 'America/Jamaica' NOT NULL,
                     language varchar(10) DEFAULT 'en' NOT NULL,
+                    notification_preferences text,
+                    assigned_warehouse_id integer,
+                    last_login_at timestamp,
+                    create_dtime timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    update_dtime timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     username varchar(60),
                     password_algo varchar(20) DEFAULT 'argon2id' NOT NULL,
                     mfa_enabled boolean DEFAULT FALSE NOT NULL,
                     mfa_secret varchar(64),
                     failed_login_count smallint DEFAULT 0 NOT NULL,
+                    lock_until_at timestamp,
+                    password_changed_at timestamp,
                     agency_id integer,
                     status_code char(1) DEFAULT 'A' NOT NULL,
                     version_nbr integer DEFAULT 1 NOT NULL,
@@ -2070,7 +2081,7 @@ class AuthJwtAutoProvisionTests(TestCase):
     )
     @patch("api.authentication.logger.info")
     @patch(
-        "api.authentication._verify_jwt_with_jwks",
+        "accounts.backends._verify_jwt_with_jwks",
         return_value={
             "sub": "990001",
             "preferred_username": "new.keycloak.user",
@@ -2124,7 +2135,7 @@ class AuthJwtAutoProvisionTests(TestCase):
     )
     @patch("api.authentication.logger.info")
     @patch(
-        "api.authentication._verify_jwt_with_jwks",
+        "accounts.backends._verify_jwt_with_jwks",
         return_value={
             "sub": "990002",
             "preferred_username": "existing.keycloak.user",
@@ -2182,7 +2193,7 @@ class AuthJwtAutoProvisionTests(TestCase):
             row = cursor.fetchone()
 
         self.assertEqual(row[0], 1)
-        self.assertEqual(row[1], "existing@example.test")
+        self.assertEqual(row[1], "changed@example.test")
         self.assertEqual(row[2], "already-set")
         mock_info.assert_not_called()
 
@@ -2199,7 +2210,7 @@ class AuthJwtAutoProvisionTests(TestCase):
     )
     @patch("api.authentication.connection.cursor")
     @patch(
-        "api.authentication._verify_jwt_with_jwks",
+        "accounts.backends._verify_jwt_with_jwks",
         return_value={
             "sub": "990003",
             "preferred_username": "rbac.off.user",
@@ -2351,23 +2362,33 @@ class AuthWhoAmITests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
-    @patch(
-        "api.authentication._resolve_dev_override_principal",
-        return_value=Principal(
-            user_id="13",
-            username="relief_ffp_requester_tst",
-            roles=["AGENCY_DISTRIBUTOR"],
-            permissions=["operations.request.create.self"],
-        ),
-    )
     def test_whoami_dev_override_includes_db_roles_and_permissions(
         self,
-        _mock_override_principal,
     ) -> None:
-        response = self.client.get(
-            "/api/v1/auth/whoami/",
-            HTTP_X_DMIS_LOCAL_USER="relief_ffp_requester_tst",
+        now = timezone.now()
+        override_user = DmisUser(
+            user_id="13",
+            username="relief_ffp_requester_tst",
+            email="relief_ffp_requester_tst@example.test",
+            full_name="relief_ffp_requester_tst",
+            password="",
+            user_name="relief_ffp_requeste",
+            create_dtime=now,
+            update_dtime=now,
+            is_active=True,
         )
+        override_user.bind_auth_context(
+            roles=["AGENCY_DISTRIBUTOR"],
+            permissions=["operations.request.create.self"],
+        )
+        with (
+            patch("api.authentication._resolve_dev_override_principal", return_value=override_user),
+            patch("api.authentication.login"),
+        ):
+            response = self.client.get(
+                "/api/v1/auth/whoami/",
+                HTTP_X_DMIS_LOCAL_USER="relief_ffp_requester_tst",
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -2417,10 +2438,13 @@ class AuthWhoAmITests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
-    @patch("api.authentication.connection.cursor", side_effect=DatabaseError("boom"))
+    @patch(
+        "accounts.backends.LocalHarnessBackend.get_user_by_harness_header",
+        side_effect=AuthenticationFailed("X-DMIS-Local-User could not be resolved safely."),
+    )
     def test_whoami_rejects_invalid_local_harness_override_instead_of_falling_back(
         self,
-        _mock_cursor,
+        _mock_backend_lookup,
     ) -> None:
         response = self.client.get(
             "/api/v1/auth/whoami/",
@@ -2444,12 +2468,12 @@ class AuthWhoAmITests(TestCase):
         AUTH_USE_DB_RBAC=False,
     )
     @patch(
-        "api.authentication.connection.cursor",
-        side_effect=[_CursorResultContext((27, "local_system_admin_tst")), DatabaseError("boom")],
+        "accounts.backends.LocalHarnessBackend.get_user_by_harness_header",
+        side_effect=AuthenticationFailed("X-DMIS-Local-User RBAC lookup failed."),
     )
     def test_whoami_rejects_local_harness_override_when_rbac_lookup_fails(
         self,
-        _mock_cursor,
+        _mock_backend_lookup,
     ) -> None:
         response = self.client.get(
             "/api/v1/auth/whoami/",

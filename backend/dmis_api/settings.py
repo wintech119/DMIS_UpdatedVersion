@@ -992,6 +992,11 @@ AUTH_ROLES_CLAIM = os.getenv("AUTH_ROLES_CLAIM", "")
 
 # Django auth adapter for the existing DMIS RBAC user table.
 AUTH_USER_MODEL = "accounts.DmisUser"
+AUTHENTICATION_BACKENDS = [
+    "accounts.backends.KeycloakOidcBackend",
+    "accounts.backends.LocalHarnessBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
 
 if "AUTH_USE_DB_RBAC" in os.environ:
     AUTH_USE_DB_RBAC = os.getenv("AUTH_USE_DB_RBAC", "0") == "1"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import (
     Group,
@@ -91,6 +93,45 @@ class DmisUser(AbstractBaseUser):
     @property
     def is_superuser(self) -> bool:
         return False
+
+    def bind_auth_context(self, *, request=None, roles=None, permissions=None):
+        self._dmis_request = request
+        self._rbac_seed_roles = list(roles or [])
+        self._rbac_seed_permissions = list(permissions or [])
+        self._rbac_roles = list(self._rbac_seed_roles)
+        self._rbac_permissions = list(self._rbac_seed_permissions)
+        self._rbac_resolved = False
+        return self
+
+    @property
+    def roles(self) -> list[str]:
+        if getattr(self, "_rbac_resolving", False):
+            return list(getattr(self, "_rbac_seed_roles", []))
+        self._ensure_rbac_resolved()
+        return list(getattr(self, "_rbac_roles", []))
+
+    @property
+    def permissions(self) -> list[str]:
+        if getattr(self, "_rbac_resolving", False):
+            return list(getattr(self, "_rbac_seed_permissions", []))
+        self._ensure_rbac_resolved()
+        return list(getattr(self, "_rbac_permissions", []))
+
+    def _ensure_rbac_resolved(self) -> None:
+        if getattr(self, "_rbac_resolved", False):
+            return
+        request = getattr(self, "_dmis_request", None) or SimpleNamespace()
+        from api.rbac import resolve_roles_and_permissions
+
+        self._rbac_resolving = True
+        try:
+            roles, permissions = resolve_roles_and_permissions(request, self)
+        finally:
+            self._rbac_resolving = False
+
+        self._rbac_roles = list(roles)
+        self._rbac_permissions = list(permissions)
+        self._rbac_resolved = True
 
     @cached_property
     def is_staff(self) -> bool:
