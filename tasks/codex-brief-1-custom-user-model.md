@@ -27,6 +27,110 @@ After this phase, `request.user` is **still** a `Principal` (do **not** change a
 
 ## Concrete tasks
 
+### 0. Service-layer helper extraction (PREREQUISITE for Task 2)
+
+**Why this is here**: The original brief assumed a tenant-first user-creation helper already existed in `masterdata/services/data_access.py`. It does not — the atomic logic currently lives inline in `backend/masterdata/views.py:1566-1583`, calling `create_record()` plus `iam_data_access.assign_tenant_user()`. `DmisUserManager.create_user` cannot call view code, so the atomic flow must be lifted into the service layer first. This is a **non-functional refactor** — zero behavior change for existing API consumers.
+
+**Where it goes**: `backend/masterdata/services/iam_data_access.py` (this module already houses `assign_tenant_user`, `has_active_primary_tenant_membership`, `count_active_primary_tenant_memberships` — the helper belongs alongside them).
+
+**Changes to `backend/masterdata/services/iam_data_access.py`**:
+
+1. **Move** `UserCreateRecordError` and `UserPrimaryTenantMembershipError` class definitions from `backend/masterdata/views.py:122-128` into this module (verbatim — same fields, same semantics).
+2. **Move** `_verify_user_primary_tenant_membership(tenant_id, user_id)` from `backend/masterdata/views.py:278-286` into this module. **Rename** to `verify_user_primary_tenant_membership` (drop the leading underscore — it's now public API of the service).
+3. **Add** the new helper:
+
+   ```python
+   def create_user_with_primary_tenant(
+       *,
+       tenant_id: int,
+       record_data: dict[str, Any],
+       actor_id: Any,
+       access_level: str = "STANDARD",
+   ) -> tuple[int, list[str]]:
+       """
+       Atomically create a user row and exactly one active primary
+       tenant_user membership. Returns (user_id, warnings).
+
+       Raises:
+           UserCreateRecordError: when create_record returns None.
+           UserPrimaryTenantMembershipError: when the membership insert
+               returns 0 rows or verification fails.
+
+       The transaction rolls back on any raised exception, so a membership
+       failure leaves no orphan user row.
+       """
+       from masterdata.services.data_access import create_record  # local import to avoid cycle
+
+       with transaction.atomic():
+           raw_pk_val, warnings = create_record("user", record_data, actor_id)
+           if raw_pk_val is None:
+               raise UserCreateRecordError(warnings)
+           pk_val = int(raw_pk_val)
+           membership_created = assign_tenant_user(
+               tenant_id, pk_val, access_level, actor_id,
+               is_primary_tenant=True,
+           )
+           if not membership_created:
+               raise UserPrimaryTenantMembershipError(
+                   "Primary tenant membership insert did not create a row."
+               )
+           verify_user_primary_tenant_membership(tenant_id, pk_val)
+           return pk_val, list(warnings or [])
+   ```
+
+**Changes to `backend/masterdata/views.py`** (the ONLY allowed view edits in this phase — purely structural, zero behavior change):
+
+1. **Remove** the local definitions of `UserCreateRecordError` and `UserPrimaryTenantMembershipError` (lines 122–128).
+2. **Remove** the local `_verify_user_primary_tenant_membership` (lines 278–286).
+3. **Add** an import from the service module:
+
+   ```python
+   from masterdata.services.iam_data_access import (
+       UserCreateRecordError,
+       UserPrimaryTenantMembershipError,
+       verify_user_primary_tenant_membership,
+       create_user_with_primary_tenant,
+   )
+   ```
+
+4. **Update** the call site at line 337 inside `_validate_user_update_assigned_warehouse_tenant` to use `verify_user_primary_tenant_membership` (no underscore).
+5. **Replace** the atomic block at lines 1566–1583 with a single call:
+
+   ```python
+   try:
+       pk_val, warnings = create_user_with_primary_tenant(
+           tenant_id=tenant_id,
+           record_data=data,
+           actor_id=_actor_id(request),
+       )
+   except UserCreateRecordError as exc:
+       # existing handler at lines 1584–1603 stays unchanged
+       ...
+   except Exception as exc:
+       # existing handler at lines 1604–1612 stays unchanged
+       ...
+   ```
+
+   The surrounding error-handling code (lines 1584–1612) stays unchanged because the helper raises exactly the same exception types.
+
+**Tests for the helper** — `backend/masterdata/tests_iam_services.py` (new file):
+
+- `test_create_user_with_primary_tenant_happy_path`: returns `(user_id, warnings)` with both DB rows present.
+- `test_raises_user_create_record_error_when_create_returns_none`.
+- `test_raises_membership_error_when_assign_returns_false`.
+- `test_raises_membership_error_when_verification_fails`.
+- `test_rolls_back_user_row_when_membership_fails`: assert no orphan row in `"user"` after a forced membership failure.
+
+**Existing tests must pass without modification.** Run the masterdata test suite to confirm:
+
+```bash
+python manage.py test masterdata --verbosity=2
+```
+
+Zero new failures. If any existing test breaks, the refactor changed observable behavior — fix the refactor, do not modify the test.
+
+---
+
 ### 1. Create app skeleton
 
 Create the `accounts` Django app under `backend/`:
@@ -41,12 +145,18 @@ Create the `accounts` Django app under `backend/`:
 
 ### 2. `DmisUserManager(BaseUserManager)`
 
-- `create_user(username, email, password=None, **extra_fields)` calls into the existing tenant-first user creation service in `backend/masterdata/services/data_access.py`. Inspect that file and `backend/masterdata/views.py` to identify the canonical helper. Pass through any required tenant fields (`tenant_id` or `tenant_code` via `extra_fields`). **Do not bypass tenant-first creation** — if no helper is exposed cleanly, raise `ImproperlyConfigured` with a clear message and document the question in your summary.
+- `create_user(username, email, password=None, **extra_fields)`:
+  - Requires `tenant_id` (or `tenant_code` resolved to `tenant_id` via a lookup against the `tenant` table) in `extra_fields`. Raise `ImproperlyConfigured` if absent.
+  - Builds a `record_data` dict matching the shape `create_record('user', ...)` expects (mirror what the API view assembles in `backend/masterdata/views.py` around line 1490 — at minimum `username`, `email`, `password_hash`, `full_name` or `user_name`, `is_active`, `status_code='A'`).
+  - Hashes the supplied password via `make_password()` and stores it in the `password_hash` field of `record_data`.
+  - Calls `create_user_with_primary_tenant(tenant_id=..., record_data=..., actor_id="system")` from `masterdata.services.iam_data_access`. Use `actor_id="system"` (or the user_id of the caller if invoked through Django admin) — do not invent a new pattern.
+  - Translates helper exceptions: `UserCreateRecordError` → `IntegrityError` (or `ValidationError` if a more useful surface exists); `UserPrimaryTenantMembershipError` → `IntegrityError`.
+  - Returns the `DmisUser` instance freshly loaded via `self.get(pk=user_id)`.
 - `create_superuser(username, email, password=None, **extra_fields)`:
-  - Requires a `tenant_id` or `tenant_code` extra field.
-  - Calls `create_user`.
-  - Sets `is_active=True`.
-  - Adds the user to the `SYSTEM_ADMINISTRATOR` role via the existing custom RBAC tables (insert into `user_role` with the role lookup). Use parameterised raw SQL or the existing helpers — do not invent a new pattern.
+  - Requires `tenant_id` or `tenant_code` extra field.
+  - Calls `create_user(...)` to obtain the new user.
+  - Adds the user to the `SYSTEM_ADMINISTRATOR` role via the existing custom RBAC tables (insert into `user_role` with the role lookup). Use parameterised raw SQL — do not invent a new pattern. Run inside a `transaction.atomic()` block so failure rolls back the role assignment without orphaning state in `user_role`.
+  - Returns the `DmisUser` instance.
 
 ### 3. `DmisUser(AbstractBaseUser, PermissionsMixin)`
 
@@ -155,7 +265,8 @@ Implement the chosen option and explain why.
 
 ## Constraints (HARD — do not violate)
 
-- **Do not** modify `backend/api/authentication.py`, `backend/api/rbac.py`, `backend/api/permissions.py`, `backend/api/tenancy.py`, or any view in this phase.
+- **Do not** modify `backend/api/authentication.py`, `backend/api/rbac.py`, `backend/api/permissions.py`, `backend/api/tenancy.py`, or any auth-related view.
+- **The ONLY allowed view edit** in this phase is `backend/masterdata/views.py` for the structural refactor described in **Task 0** (move exceptions and verification function into `iam_data_access.py`; replace the inline atomic block at lines 1566–1583 with a call to `create_user_with_primary_tenant`; update the call site at line 337). **Zero behavior change.** If any existing masterdata test fails after this edit, the refactor is wrong — fix the refactor, do not modify the test.
 - **Do not** add or alter columns on the `"user"` table. No DDL.
 - **Do not** create rows in `auth_user`. The W002 check (`backend/api/checks.py:134-184`) must keep passing.
 - **Do not** touch tenancy code or the `tenant_user` schema.
