@@ -301,14 +301,16 @@ def create_user_with_primary_tenant(
     record_data: dict[str, Any],
     actor_id: Any,
     access_level: str = "STANDARD",
+    data_access_create_record=None,
 ) -> tuple[int, list[str]]:
     """
     Atomically create a user row and exactly one active primary tenant membership.
     """
-    from masterdata.services.data_access import create_record
+    if data_access_create_record is None:
+        from masterdata.services.data_access import create_record as data_access_create_record
 
     with transaction.atomic():
-        raw_pk_val, warnings = create_record("user", record_data, actor_id)
+        raw_pk_val, warnings = data_access_create_record("user", record_data, actor_id)
         if raw_pk_val is None:
             raise UserCreateRecordError(warnings)
 

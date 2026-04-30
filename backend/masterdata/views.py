@@ -54,7 +54,6 @@ from masterdata.permissions import (
 )
 from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.throttling import MasterDataWriteThrottle
-from masterdata.services import data_access as masterdata_data_access
 from masterdata.services import iam_data_access
 from masterdata.services.iam_data_access import (
     UserCreateRecordError,
@@ -1550,19 +1549,12 @@ def _handle_user_create(request, cfg):
     pk_val: int | None = None
     warnings: list[str] = []
     try:
-        original_create_record = None
-        if create_record is not masterdata_data_access.create_record:
-            original_create_record = masterdata_data_access.create_record
-            masterdata_data_access.create_record = create_record
-        try:
-            pk_val, warnings = create_user_with_primary_tenant(
-                tenant_id=tenant_id,
-                record_data=data,
-                actor_id=_actor_id(request),
-            )
-        finally:
-            if original_create_record is not None:
-                masterdata_data_access.create_record = original_create_record
+        pk_val, warnings = create_user_with_primary_tenant(
+            tenant_id=tenant_id,
+            record_data=data,
+            actor_id=_actor_id(request),
+            data_access_create_record=create_record,
+        )
     except UserCreateRecordError as exc:
         warnings = exc.warnings
         if "db_unique_violation" in warnings:

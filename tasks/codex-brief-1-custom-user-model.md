@@ -3,7 +3,7 @@
 > **Source-of-truth plan**: `tasks/django-auth-adapter-plan.md` (read first for full context).
 > **Pre-requisites**: None. This is the first phase.
 > **Risk**: Low–Medium. **Reversible**: Yes (single setting flip).
-> **Working directory**: `C:\Users\wbowe\OneDrive\Desktop\project\DMIS_UpdatedVersion\.claude\worktrees\funny-goldberg-8bdebc`
+> **Working directory**: `{WORKING_DIR}`
 
 ---
 

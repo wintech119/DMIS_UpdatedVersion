@@ -15,14 +15,16 @@ Status: Active suppression - re-evaluate on sunset condition below.
 ## 2. Dependency path
 
 ```
-@angular-devkit/build-angular@21.2.7
-  -> @angular-devkit/build-webpack@0.2102.7
-      -> webpack-dev-server@5.2.3
-          -> sockjs@0.3.24
-              -> uuid@8.3.2
+@angular-devkit/build-angular@21.2.9
+  -> webpack-dev-server@5.2.3
+      -> sockjs@0.3.24
+          -> uuid@8.3.2
 ```
 
-All four wrapping packages are devDependencies. None ship in the production Angular bundle produced by `npm run build`.
+`frontend/package.json` declares `@angular-devkit/build-angular` as `^21.2.5`;
+`frontend/package-lock.json` currently resolves it to `21.2.9`. The wrapping
+packages are dev tooling. None ship in the production Angular bundle produced
+by `npm run build`.
 
 ## 3. Worktree evidence - call site is not vulnerable
 
@@ -38,8 +40,7 @@ sockjs imports only `uuid.v4` and invokes it with **no arguments** (no caller-pr
 Not exploitable as configured. Suppression is accepted on the following grounds:
 
 - **Code-path analysis**: sockjs's only `uuid` call site is `v4()` with no buffer - outside the advisory's vulnerable surface.
-- **Runtime exposure**: dev-tooling only. The published production bundle does not include `uuid`, `sockjs`, or `webpack-dev-server`.
-- **Live serve path**: `frontend/angular.json` uses `@angular-devkit/build-angular:application` (esbuild) for build and `:dev-server` for serve. With the `application` builder, `:dev-server` runs the Vite dev-server flow; webpack-dev-server (and therefore sockjs) is a dormant transitive on this codebase, not the active dev-serve transport.
+- **Runtime exposure**: dev-tooling only. `webpack-dev-server` is a direct dependency of the resolved `@angular-devkit/build-angular@21.2.9` toolchain and may be loaded during `ng serve`, so this exception treats sockjs as dev-time reachable. The published production bundle does not include `uuid`, `sockjs`, or `webpack-dev-server`.
 - **Compatibility cost of forcing a fix**: `uuid@12+` no longer supports CommonJS, so `uuid@14` would not be compatible with this CommonJS call site (`require('uuid').v4`) if webpack-dev-server is ever loaded by any tooling path. `uuid@11.x` retains CJS but `npm audit` keys this advisory as `<14.0.0`, so an `11.1.1` pin would not necessarily clear the audit gate while still requiring dependency materialization.
 - **Supply-chain hold**: project-level hold on `npm install` / `npm audit fix` is currently in effect; introducing an `overrides` entry without materialization would create lockfile drift.
 

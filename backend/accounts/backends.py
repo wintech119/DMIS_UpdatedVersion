@@ -10,7 +10,6 @@ from django.contrib.auth.backends import BaseBackend, ModelBackend
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import DatabaseError
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed
 
@@ -218,10 +217,11 @@ class LocalHarnessBackend(ModelBackend):
         self._check_login_throttle(request, requested)
         UserModel = get_user_model()
         try:
-            query = Q(username=requested) | Q(email=requested)
-            if requested.isdigit():
-                query |= Q(pk=int(requested))
-            user = UserModel.objects.filter(query).first()
+            user = UserModel.objects.filter(username=requested).first()
+            if user is None and requested.isdigit():
+                user = UserModel.objects.filter(pk=int(requested)).first()
+            if user is None:
+                user = UserModel.objects.filter(email=requested).first()
         except DatabaseError as exc:
             self._record_login_failure(request, requested)
             _log_auth_warning("auth.dev_override_lookup_failed", request=request, exception=exc)

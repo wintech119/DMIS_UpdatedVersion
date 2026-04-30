@@ -11,6 +11,7 @@ import { CatalogEditGuidance } from '../../models/master-data.models';
 import { MasterDataAccessService } from '../../services/master-data-access.service';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterEditGateService } from '../../services/master-edit-gate.service';
+import { IamAssignmentService } from '../../services/iam-assignment.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
 describe('MasterDetailPageComponent', () => {
@@ -20,7 +21,8 @@ describe('MasterDetailPageComponent', () => {
     pk = '14',
     editGuidance: CatalogEditGuidance | null = null,
   ) {
-    const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', ['get', 'inactivate', 'activate', 'lookup']);
+    const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', ['get', 'inactivate', 'activate', 'lookup', 'list']);
+    const assignmentService = jasmine.createSpyObj<IamAssignmentService>('IamAssignmentService', ['listUserRoles']);
     const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
       'showSuccess',
       'showError',
@@ -58,6 +60,8 @@ describe('MasterDetailPageComponent', () => {
       }
       return of([]);
     });
+    masterDataService.list.and.returnValue(of({ results: [], count: 0, limit: 500, offset: 0, warnings: [] }));
+    assignmentService.listUserRoles.and.returnValue(of([]));
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
     access.canEditRoutePath.and.returnValue(true);
     access.canToggleStatusRoutePath.and.returnValue(true);
@@ -76,6 +80,7 @@ describe('MasterDetailPageComponent', () => {
         { provide: Clipboard, useValue: clipboard },
         { provide: MasterDataAccessService, useValue: access },
         { provide: MasterDataService, useValue: masterDataService },
+        { provide: IamAssignmentService, useValue: assignmentService },
         { provide: DmisNotificationService, useValue: notificationService },
       ],
     });
@@ -106,6 +111,21 @@ describe('MasterDetailPageComponent', () => {
       'closed_date',
       'reason_desc',
     ]);
+  });
+
+  it('uses the full name as the user detail title', () => {
+    const { component, fixture } = setup('users', {
+      user_id: 95002,
+      username: 'andrea.campbell',
+      first_name: 'Andrea',
+      last_name: 'Campbell',
+      full_name: 'Andrea Campbell',
+      status_code: 'A',
+    }, '95002');
+
+    expect(component.recordTitle()).toBe('Andrea Campbell');
+    expect((fixture.nativeElement as HTMLElement).querySelector('h1')?.textContent).toContain('Andrea Campbell');
+    expect((fixture.nativeElement as HTMLElement).querySelector('h1')?.textContent).not.toContain('Users 95002');
   });
 
   it('marks the detail edit gate as passed before navigating to the edit form', () => {

@@ -11,11 +11,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError, connection, transaction
 
+from accounts.models import RbacBridgeGroup
 from accounts.permissions import bridge_codename
 from api.rbac import resolve_roles_and_permissions
 
 
 DMIS_AUTH_APP_LABEL = "dmis"
+BRIDGE_COMBO_GROUP_PREFIX = "DMIS_BRIDGE_COMBO_"
 
 
 @dataclass(frozen=True)
@@ -97,11 +99,31 @@ class Command(BaseCommand):
             resolved_codes_by_role,
             resolved_codes_by_user,
         )
-        permission_counts, permissions_by_codename = self._sync_permissions(desired_specs)
-        group_counts, groups_by_code = self._sync_groups(
-            roles_by_id,
+        desired_group_names = set(roles_by_id.values()) | set(combo_group_permissions)
+        expected_group_permissions = self._expected_group_permission_keys(
+            resolved_codes_by_role,
             combo_group_permissions,
+            permission_parts_by_code,
         )
+        expected_group_user_ids = self._expected_group_user_ids(
+            user_role_codes,
+            combo_groups_by_user_id,
+        )
+        self._bootstrap_existing_bridge_group_markers(
+            desired_group_names,
+            expected_group_permissions,
+            expected_group_user_ids,
+        )
+        bridge_owned_names = self._bridge_owned_group_names()
+        self._validate_group_name_collisions(desired_group_names, bridge_owned_names)
+        permission_counts, permissions_by_codename = self._sync_permissions(
+            desired_specs
+        )
+        group_counts, groups_by_code, bridge_group_ids = self._sync_groups(
+            desired_group_names,
+            bridge_owned_names,
+        )
+        self._remove_dmis_permissions_from_external_groups(bridge_group_ids)
         group_mapping_count = self._sync_group_permissions(
             groups_by_code,
             permissions_by_codename,
@@ -114,6 +136,7 @@ class Command(BaseCommand):
             groups_by_code,
             user_role_codes,
             combo_groups_by_user_id,
+            bridge_group_ids,
         )
 
         return SyncSummary(
@@ -139,6 +162,7 @@ class Command(BaseCommand):
             "user_role",
             user_model.groups.through._meta.db_table,
             user_model.user_permissions.through._meta.db_table,
+            RbacBridgeGroup._meta.db_table,
         }
         existing_tables = {str(name).strip('"') for name in connection.introspection.table_names()}
         missing = sorted(
@@ -309,6 +333,91 @@ class Command(BaseCommand):
             )
         return specs_by_codename
 
+    def _expected_group_permission_keys(
+        self,
+        resolved_codes_by_role,
+        combo_group_permissions,
+        permission_parts_by_code,
+    ):
+        permission_codes_by_group = {
+            **resolved_codes_by_role,
+            **combo_group_permissions,
+        }
+        expected = {}
+        for group_name, permission_codes in permission_codes_by_group.items():
+            permission_keys = set()
+            for code in sorted(permission_codes):
+                resource, action = self._permission_parts_for_code(
+                    code,
+                    permission_parts_by_code,
+                )
+                codename = self._bridge_codename(resource, action, code)
+                permission_keys.add((resource, codename))
+            expected[group_name] = permission_keys
+        return expected
+
+    def _expected_group_user_ids(
+        self,
+        user_role_codes,
+        combo_groups_by_user_id,
+    ):
+        user_model = get_user_model()
+        target_user_ids = set(user_role_codes) | set(combo_groups_by_user_id)
+        existing_user_ids = set(
+            user_model.objects.filter(pk__in=target_user_ids).values_list(
+                user_model._meta.pk.name,
+                flat=True,
+            )
+        )
+        expected = defaultdict(set)
+        for user_id in sorted(existing_user_ids):
+            for group_name in sorted(user_role_codes.get(user_id, set())):
+                expected[group_name].add(user_id)
+            for group_name in sorted(combo_groups_by_user_id.get(user_id, set())):
+                expected[group_name].add(user_id)
+        return expected
+
+    def _bootstrap_existing_bridge_group_markers(
+        self,
+        desired_group_names,
+        expected_group_permissions,
+        expected_group_user_ids,
+    ) -> set[str]:
+        marked_group_ids = set(RbacBridgeGroup.objects.values_list("group_id", flat=True))
+        candidate_groups = Group.objects.filter(name__in=desired_group_names).exclude(
+            id__in=marked_group_ids,
+        )
+        user_model = get_user_model()
+        bootstrapped_names = set()
+        for group in candidate_groups:
+            permissions = list(group.permissions.select_related("content_type"))
+            if any(
+                permission.content_type.app_label != DMIS_AUTH_APP_LABEL
+                for permission in permissions
+            ):
+                continue
+            actual_permission_keys = {
+                (permission.content_type.model, permission.codename)
+                for permission in permissions
+            }
+            expected_permission_keys = expected_group_permissions.get(group.name, set())
+            if actual_permission_keys != expected_permission_keys:
+                continue
+            actual_user_ids = set(
+                user_model.objects.filter(groups=group).values_list(
+                    user_model._meta.pk.name,
+                    flat=True,
+                )
+            )
+            expected_user_ids = expected_group_user_ids.get(group.name, set())
+            if actual_user_ids != expected_user_ids:
+                continue
+            if not actual_permission_keys and not actual_user_ids:
+                continue
+            RbacBridgeGroup.objects.get_or_create(group=group)
+            bootstrapped_names.add(group.name)
+        return bootstrapped_names
+
     def _build_permission_parts_by_code(self, permission_rows):
         permission_parts_by_code = {}
         for _perm_id, resource, action in permission_rows:
@@ -373,10 +482,12 @@ class Command(BaseCommand):
         ).delete()
         return counts, permissions_by_codename
 
-    def _sync_groups(self, roles_by_id, combo_group_permissions):
-        desired_group_names = set(roles_by_id.values()) | set(combo_group_permissions)
-        groups_deleted = Group.objects.exclude(name__in=desired_group_names).count()
-        Group.objects.exclude(name__in=desired_group_names).delete()
+    def _sync_groups(self, desired_group_names, bridge_owned_names):
+        stale_bridge_groups = Group.objects.filter(name__in=bridge_owned_names).exclude(
+            name__in=desired_group_names
+        )
+        groups_deleted = stale_bridge_groups.count()
+        stale_bridge_groups.delete()
 
         counts = {
             "created": 0,
@@ -387,12 +498,49 @@ class Command(BaseCommand):
         groups_by_code = {}
         for group_name in sorted(desired_group_names):
             group, created = Group.objects.get_or_create(name=group_name)
+            RbacBridgeGroup.objects.get_or_create(group=group)
             if created:
                 counts["created"] += 1
             else:
                 counts["unchanged"] += 1
             groups_by_code[group_name] = group
-        return counts, groups_by_code
+        bridge_group_ids = set(
+            Group.objects.filter(name__in=desired_group_names).values_list("id", flat=True)
+        )
+        return counts, groups_by_code, bridge_group_ids
+
+    def _bridge_owned_group_names(self) -> set[str]:
+        bridge_owned_names = set(
+            RbacBridgeGroup.objects.select_related("group").values_list(
+                "group__name",
+                flat=True,
+            )
+        )
+        combo_group_names = Group.objects.filter(
+            name__startswith=BRIDGE_COMBO_GROUP_PREFIX,
+        ).values_list("name", flat=True)
+        return bridge_owned_names | set(combo_group_names)
+
+    def _validate_group_name_collisions(
+        self,
+        desired_group_names,
+        bridge_owned_names,
+    ) -> None:
+        existing_desired_group_names = set(
+            Group.objects.filter(name__in=desired_group_names).values_list(
+                "name",
+                flat=True,
+            )
+        )
+        colliding_names = sorted(existing_desired_group_names - bridge_owned_names)
+        if colliding_names:
+            raise CommandError(
+                "Refusing to take ownership of existing Django Group name(s) "
+                "without a DMIS RBAC bridge marker: "
+                + ", ".join(colliding_names)
+                + ". Rename the external group or clear the collision before running "
+                "the bridge sync."
+            )
 
     def _sync_group_permissions(
         self,
@@ -422,12 +570,25 @@ class Command(BaseCommand):
 
     def _clear_direct_user_permissions(self) -> None:
         user_model = get_user_model()
-        user_model.user_permissions.through.objects.all().delete()
+        user_model.user_permissions.through.objects.filter(
+            permission__content_type__app_label=DMIS_AUTH_APP_LABEL,
+        ).delete()
 
-    def _sync_user_groups(self, groups_by_code, user_role_codes, combo_groups_by_user_id) -> int:
+    def _remove_dmis_permissions_from_external_groups(self, bridge_group_ids) -> None:
+        Group.permissions.through.objects.filter(
+            permission__content_type__app_label=DMIS_AUTH_APP_LABEL,
+        ).exclude(group_id__in=bridge_group_ids).delete()
+
+    def _sync_user_groups(
+        self,
+        groups_by_code,
+        user_role_codes,
+        combo_groups_by_user_id,
+        bridge_group_ids,
+    ) -> int:
         user_model = get_user_model()
         users_with_bridge_groups = set(
-            user_model.objects.filter(groups__isnull=False)
+            user_model.objects.filter(groups__id__in=bridge_group_ids)
             .values_list(user_model._meta.pk.name, flat=True)
             .distinct()
         )
@@ -445,7 +606,8 @@ class Command(BaseCommand):
                 for group_name in sorted(desired_group_names)
                 if group_name in groups_by_code
             ]
-            user.groups.set(desired_groups)
+            preserved_groups = list(user.groups.exclude(id__in=bridge_group_ids))
+            user.groups.set(preserved_groups + desired_groups)
             assignment_count += len(desired_groups)
         return assignment_count
 
@@ -483,7 +645,7 @@ class Command(BaseCommand):
     def _combo_group_name(self, role_codes) -> str:
         normalized = "\x1f".join(sorted(str(role_code) for role_code in role_codes))
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
-        return f"DMIS_BRIDGE_COMBO_{digest}"
+        return f"{BRIDGE_COMBO_GROUP_PREFIX}{digest}"
 
     def _split_permission_code(self, code: str) -> tuple[str, str]:
         cleaned = str(code or "").strip()

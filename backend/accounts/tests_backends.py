@@ -162,6 +162,11 @@ class KeycloakOidcBackendTests(DmisUserTestMixin, TestCase):
         mock_verify.assert_not_called()
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class LocalHarnessBackendTests(DmisUserTestMixin, TestCase):
     def setUp(self) -> None:
         super().setUp()

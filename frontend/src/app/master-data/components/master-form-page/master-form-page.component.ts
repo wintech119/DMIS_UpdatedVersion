@@ -203,11 +203,18 @@ export class MasterFormPageComponent implements OnInit {
   localDraftMode = signal(false);
   ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
+  recordTitle = signal('');
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
 
   readonly formPageTitle = computed(() => {
     const cfg = this.config();
-    return cfg ? `${this.isEdit() ? 'Edit' : 'Create'} ${cfg.displayName}` : '';
+    if (!cfg) {
+      return '';
+    }
+    if (this.isEdit() && this.recordTitle()) {
+      return `Edit ${this.recordTitle()}`;
+    }
+    return `${this.isEdit() ? 'Edit' : 'Create'} ${cfg.displayName}`;
   });
 
   readonly formPageSubtitle = computed(() => (
@@ -510,6 +517,7 @@ export class MasterFormPageComponent implements OnInit {
 
       this.resetStorageAssignmentState();
       this.pk.set(null);
+      this.recordTitle.set('');
       this.isEdit.set(false);
       this.refreshFormModeValidators();
     });
@@ -1842,6 +1850,7 @@ export class MasterFormPageComponent implements OnInit {
         this.replacementMode.set(false);
         this.retireOriginalOnReplacement.set(false);
         this.loadedRecordSnapshot = { ...record };
+        this.recordTitle.set(this.editGate.getRecordTitle(record, cfg, this.pk()));
         this.itemCodeFallbackValue = String(record['item_code'] ?? '').trim() || null;
         this.legacyItemCodeValue = String(record['legacy_item_code'] ?? '').trim() || null;
 
@@ -1914,6 +1923,7 @@ export class MasterFormPageComponent implements OnInit {
         this.maybePromptGovernedEditWarning();
       },
       error: () => {
+        this.recordTitle.set('');
         this.notify.showError('Failed to load record.');
         this.navigateBack();
       },

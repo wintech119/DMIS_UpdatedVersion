@@ -11,7 +11,7 @@ from django.contrib.auth.models import (
     _user_has_perm,
 )
 from django.contrib.auth.validators import UnicodeUsernameValidator
-from django.db import DatabaseError, models, connection
+from django.db import DatabaseError, models, connection, transaction
 from django.utils.functional import cached_property
 from django.utils.itercompat import is_iterable
 from django.utils.translation import gettext_lazy as _
@@ -156,7 +156,8 @@ class DmisUser(AbstractBaseUser):
 
     def _safe_permissions(self, permission_type: str, obj=None):
         try:
-            return _user_get_permissions(self, obj, permission_type)
+            with transaction.atomic():
+                return _user_get_permissions(self, obj, permission_type)
         except DatabaseError:
             return set()
 
@@ -173,11 +174,16 @@ class DmisUser(AbstractBaseUser):
         if not self.is_active:
             return False
         try:
-            if _user_has_perm(self, perm, obj):
-                return True
-            if isinstance(perm, str) and "__" in perm and not perm.startswith("dmis."):
-                return _user_has_perm(self, f"dmis.{perm}", obj)
-            return False
+            with transaction.atomic():
+                if _user_has_perm(self, perm, obj):
+                    return True
+                if (
+                    isinstance(perm, str)
+                    and "__" in perm
+                    and not perm.startswith("dmis.")
+                ):
+                    return _user_has_perm(self, f"dmis.{perm}", obj)
+                return False
         except DatabaseError:
             return False
 
@@ -190,9 +196,24 @@ class DmisUser(AbstractBaseUser):
         if not self.is_active:
             return False
         try:
-            return _user_has_module_perms(self, app_label)
+            with transaction.atomic():
+                return _user_has_module_perms(self, app_label)
         except DatabaseError:
             return False
 
     def __str__(self) -> str:
         return str(self.username or self.email or self.user_id)
+
+
+class RbacBridgeGroup(models.Model):
+    group = models.OneToOneField(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="dmis_rbac_bridge_marker",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "accounts_rbac_bridge_group"
+        verbose_name = "DMIS RBAC bridge group marker"
+        verbose_name_plural = "DMIS RBAC bridge group markers"

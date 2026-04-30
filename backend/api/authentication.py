@@ -197,8 +197,8 @@ def _build_dev_auth_user(request):
     )
     user.bind_auth_context(
         request=request,
-        roles=[role for role in settings.DEV_AUTH_ROLES],
-        permissions=[perm for perm in settings.DEV_AUTH_PERMISSIONS],
+        roles=list(settings.DEV_AUTH_ROLES),
+        permissions=list(settings.DEV_AUTH_PERMISSIONS),
     )
     return user
 

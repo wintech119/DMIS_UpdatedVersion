@@ -18,8 +18,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser) -> None:
         parser.add_argument("username", type=str)
         parser.add_argument("--email", required=True, type=str)
-        parser.add_argument("--tenant-id", type=int, default=None)
-        parser.add_argument("--tenant-code", type=str, default=None)
+        tenant_selector = parser.add_mutually_exclusive_group(required=True)
+        tenant_selector.add_argument("--tenant-id", type=int, default=None)
+        tenant_selector.add_argument("--tenant-code", type=str, default=None)
         parser.add_argument("--password", type=str, default=None)
         parser.add_argument("--actor", type=str, default="system")
 
@@ -34,8 +35,11 @@ class Command(BaseCommand):
             raise CommandError("username is required.")
         if not email:
             raise CommandError("--email is required.")
-        if tenant_id in (None, "") and not tenant_code:
-            raise CommandError("--tenant-id or --tenant-code is required.")
+        tenant_id_provided = tenant_id not in (None, "")
+        tenant_code_provided = bool(tenant_code)
+        if tenant_id_provided == tenant_code_provided:
+            raise CommandError("Exactly one tenant selector is required.")
+
         if password is None:
             password = getpass.getpass("Password: ")
             confirm_password = getpass.getpass("Password (again): ")
@@ -47,7 +51,7 @@ class Command(BaseCommand):
         extra_fields: dict[str, Any] = {
             "actor_id": str(options.get("actor") or "system").strip() or "system",
         }
-        if tenant_id not in (None, ""):
+        if tenant_id_provided:
             extra_fields["tenant_id"] = tenant_id
         else:
             extra_fields["tenant_code"] = tenant_code

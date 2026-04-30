@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
 from django.test import TestCase, override_settings
 from rest_framework.exceptions import AuthenticationFailed
@@ -343,6 +346,17 @@ class AuthParityTests(AuthParityFixtureMixin, TestCase):
         self.assertIn("X-Dev-User", response.json()["detail"])
 
 
+class AuthParitySnapshotCommandTests(TestCase):
+    def test_rejects_sanitized_snapshot_filename_collisions(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            with self.assertRaisesMessage(CommandError, "same snapshot filename"):
+                call_command(
+                    "capture_auth_parity_snapshots",
+                    username=["a/b", "a:b"],
+                    output_dir=tmpdir,
+                )
+
+
 class AuthAuditCompatibilityTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
@@ -368,6 +382,7 @@ class AuthAuditCompatibilityTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=False,
         LOCAL_AUTH_HARNESS_ENABLED=False,
+        TEST_DEV_AUTH_ENABLED=True,
         DEBUG=True,
     )
     @patch("api.authentication.logger.warning")
@@ -388,6 +403,7 @@ class AuthAuditCompatibilityTests(TestCase):
         DEV_AUTH_ENABLED=True,
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=[],
+        TEST_DEV_AUTH_ENABLED=True,
         DEBUG=True,
     )
     @patch("api.authentication.logger.warning")

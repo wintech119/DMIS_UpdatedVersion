@@ -78,11 +78,15 @@ class DmisUserManager(BaseUserManager):
         first_name = str(extra_fields.pop("first_name", "") or "").strip()
         last_name = str(extra_fields.pop("last_name", "") or "").strip()
         full_name = str(extra_fields.pop("full_name", "") or "").strip()
+        user_name = str(extra_fields.pop("user_name", username) or username).strip()
+        if not user_name:
+            user_name = username
         if not full_name:
             full_name = " ".join(part for part in (first_name, last_name) if part) or username
 
         record_data: dict[str, Any] = {
             "username": username,
+            "user_name": user_name[:20],
             "email": email,
             "password_hash": password_hash,
             "first_name": first_name,

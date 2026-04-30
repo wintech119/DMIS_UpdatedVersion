@@ -286,7 +286,9 @@ class CreateUserWithPrimaryTenantTests(TestCase):
                 [self.tenant_id, user_id],
             )
             membership = cursor.fetchone()
-        self.assertEqual(membership, (True, "STANDARD"))
+        self.assertIsNotNone(membership)
+        self.assertTrue(bool(membership[0]))
+        self.assertEqual(membership[1], "STANDARD")
 
     def test_raises_user_create_record_error_when_create_returns_none(self):
         with patch(

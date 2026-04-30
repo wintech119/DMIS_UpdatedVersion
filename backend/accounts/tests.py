@@ -4,11 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management.base import CommandError
 from django.db import IntegrityError, connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from accounts.managers import DmisUserManager
+from accounts.management.commands.create_admin_user import Command as CreateAdminUserCommand
 from accounts.models import DmisUser
 from masterdata.services import iam_data_access
 
@@ -278,6 +280,11 @@ class DmisUserSecurityTests(DmisUserTestMixin, TestCase):
         self.assertFalse(user.has_perm("accounts.anything"))
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class DmisUserManagerTests(DmisUserTestMixin, TestCase):
     def test_create_user_calls_tenant_first_helper(self) -> None:
         self._insert_user(
@@ -297,6 +304,7 @@ class DmisUserManagerTests(DmisUserTestMixin, TestCase):
                 "accounts-create@example.test",
                 "user-pass",
                 tenant_id=self.tenant_id,
+                user_name="ACCOUNTS_CREATE",
             )
 
         helper.assert_called_once()
@@ -304,6 +312,7 @@ class DmisUserManagerTests(DmisUserTestMixin, TestCase):
         self.assertEqual(kwargs["tenant_id"], self.tenant_id)
         self.assertEqual(kwargs["actor_id"], "system")
         self.assertEqual(kwargs["record_data"]["username"], "accounts_create_tst")
+        self.assertEqual(kwargs["record_data"]["user_name"], "ACCOUNTS_CREATE")
         self.assertEqual(kwargs["record_data"]["email"], "accounts-create@example.test")
         self.assertTrue(check_password("user-pass", kwargs["record_data"]["password_hash"]))
         self.assertEqual(user.user_id, 880004)
@@ -364,3 +373,39 @@ class DmisUserManagerTests(DmisUserTestMixin, TestCase):
         insert_params = insert_call.args[1]
         self.assertEqual(insert_params[0], 880005)
         self.assertEqual(insert_params[1], 7)
+
+
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
+class CreateAdminUserCommandTests(TestCase):
+    def test_handle_rejects_dual_tenant_selectors(self) -> None:
+        with self.assertRaisesMessage(CommandError, "Exactly one tenant selector"):
+            CreateAdminUserCommand().handle(
+                username="accounts_admin_cmd_tst",
+                email="accounts-admin-cmd@example.test",
+                password="admin-pass",
+                tenant_id=9902,
+                tenant_code="ODPEM",
+            )
+
+    def test_handle_rejects_invalid_tenant_selectors_before_password_prompt(self) -> None:
+        invalid_selectors = (
+            {"tenant_id": 9902, "tenant_code": "ODPEM"},
+            {"tenant_id": None, "tenant_code": ""},
+        )
+        with patch("accounts.management.commands.create_admin_user.getpass.getpass") as prompt:
+            for selectors in invalid_selectors:
+                with self.subTest(selectors=selectors):
+                    with self.assertRaisesMessage(
+                        CommandError,
+                        "Exactly one tenant selector",
+                    ):
+                        CreateAdminUserCommand().handle(
+                            username="accounts_admin_cmd_tst",
+                            email="accounts-admin-cmd@example.test",
+                            **selectors,
+                        )
+            prompt.assert_not_called()

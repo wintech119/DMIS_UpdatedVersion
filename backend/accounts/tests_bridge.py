@@ -7,10 +7,14 @@ from unittest.mock import patch
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
-from accounts.models import DmisUser
+from accounts.models import DmisUser, RbacBridgeGroup
+from accounts.management.commands.sync_rbac_to_django_auth import (
+    BRIDGE_COMBO_GROUP_PREFIX,
+)
 from accounts.permissions import bridge_codename
 from accounts.tests import DmisUserTestMixin
 from api import checks as api_checks
@@ -22,11 +26,13 @@ BRIDGE_AUTH_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
 
 
 @override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
     AUTHENTICATION_BACKENDS=BRIDGE_AUTH_BACKENDS,
     AUTH_USE_DB_RBAC=True,
-    DEV_AUTH_ENABLED=False,
 )
-class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
+class RbacBridgeSyncTests(DmisUserTestMixin, TestCase):
     role_codes = {
         501: "BRIDGE_LOGISTICS",
         502: "BRIDGE_VIEWER",
@@ -70,6 +76,10 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
         self._clear_bridge_state()
         super().tearDown()
 
+    def _fixture_teardown(self) -> None:
+        self._clear_bridge_state()
+        super()._fixture_teardown()
+
     def test_sync_creates_groups_and_permissions(self) -> None:
         self._run_sync()
 
@@ -77,7 +87,7 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
         combo_groups = {
             group_name
             for group_name in group_names
-            if group_name.startswith("DMIS_BRIDGE_COMBO_")
+            if group_name.startswith(BRIDGE_COMBO_GROUP_PREFIX)
         }
         self.assertTrue(set(self.role_codes.values()).issubset(group_names))
         self.assertEqual(len(combo_groups), 1)
@@ -126,7 +136,7 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
             combo_groups = {
                 group_name
                 for group_name in group_names
-                if group_name.startswith("DMIS_BRIDGE_COMBO_")
+                if group_name.startswith(BRIDGE_COMBO_GROUP_PREFIX)
             }
 
             self.assertTrue(expected_roles.issubset(group_names))
@@ -152,9 +162,10 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
                 self.assertTrue(user.has_perm(f"dmis.{codename}"))
                 self.assertTrue(user.has_perm(codename))
 
-    def test_sync_clears_direct_user_permissions(self) -> None:
+    def test_sync_clears_direct_dmis_user_permissions(self) -> None:
         self._run_sync()
         viewer = DmisUser.objects.get(pk=881002)
+        external_permission = self._create_external_permission()
         resource, action = self._permission_parts_for_code(rbac.PERM_TENANT_FEATURE_VIEW)
         stale_permission = Permission.objects.get(
             content_type__app_label="dmis",
@@ -163,13 +174,21 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
         )
 
         viewer.user_permissions.add(stale_permission)
+        viewer.user_permissions.add(external_permission)
         self.assertTrue(viewer.has_perm(bridge_codename(resource, action)))
+        self.assertTrue(viewer.has_perm("external_app.external_manage"))
 
         self._run_sync()
         viewer = DmisUser.objects.get(pk=881002)
 
-        self.assertFalse(viewer.user_permissions.exists())
+        self.assertFalse(
+            viewer.user_permissions.filter(pk=stale_permission.pk).exists()
+        )
+        self.assertTrue(
+            viewer.user_permissions.filter(pk=external_permission.pk).exists()
+        )
         self.assertFalse(viewer.has_perm(bridge_codename(resource, action)))
+        self.assertTrue(viewer.has_perm("external_app.external_manage"))
 
     def test_sync_is_idempotent(self) -> None:
         self._run_sync()
@@ -180,7 +199,35 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
         self.assertIn("Groups: 0 created, 0 updated", output)
         self.assertEqual(self._bridge_state(), first_state)
 
-    def test_sync_deletes_orphans(self) -> None:
+    def test_sync_bootstraps_unmarked_matching_legacy_bridge_group(self) -> None:
+        self._run_sync()
+        bridge_group = Group.objects.get(name="BRIDGE_VIEWER")
+        RbacBridgeGroup.objects.filter(group=bridge_group).delete()
+        dmis_permission_ids = set(bridge_group.permissions.values_list("id", flat=True))
+
+        self._run_sync()
+
+        bridge_group = Group.objects.get(name="BRIDGE_VIEWER")
+        self.assertEqual(
+            set(bridge_group.permissions.values_list("id", flat=True)),
+            dmis_permission_ids,
+        )
+        self.assertTrue(RbacBridgeGroup.objects.filter(group=bridge_group).exists())
+
+    def test_sync_rejects_empty_unmarked_group_name_collision(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO role (id, code, name) VALUES (%s, %s, %s)",
+                [504, "BRIDGE_EMPTY", "Bridge Empty"],
+            )
+        external_group = Group.objects.create(name="BRIDGE_EMPTY")
+
+        with self.assertRaises(CommandError):
+            self._run_sync()
+
+        self.assertFalse(RbacBridgeGroup.objects.filter(group=external_group).exists())
+
+    def test_sync_deletes_bridge_orphans(self) -> None:
         orphan_content_type = ContentType.objects.create(
             app_label="dmis",
             model="removed.resource",
@@ -190,14 +237,151 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
             codename="removed.resource__view",
             name="DMIS removed.resource.view",
         )
-        Group.objects.create(name="REMOVED_ROLE")
+        Group.objects.create(name=f"{BRIDGE_COMBO_GROUP_PREFIX}removed")
 
         self._run_sync()
 
-        self.assertFalse(Group.objects.filter(name="REMOVED_ROLE").exists())
+        self.assertFalse(
+            Group.objects.filter(name=f"{BRIDGE_COMBO_GROUP_PREFIX}removed").exists()
+        )
         self.assertFalse(
             Permission.objects.filter(codename="removed.resource__view").exists()
         )
+
+    def test_sync_removes_stale_bridge_role_memberships(self) -> None:
+        stale_content_type = ContentType.objects.create(
+            app_label="dmis",
+            model="removed.role",
+        )
+        stale_permission = Permission.objects.create(
+            content_type=stale_content_type,
+            codename="removed.role__view",
+            name="DMIS removed.role.view",
+        )
+        stale_group = Group.objects.create(name="REMOVED_ROLE")
+        stale_group.permissions.add(stale_permission)
+        RbacBridgeGroup.objects.create(group=stale_group)
+        user = DmisUser.objects.get(pk=881001)
+        user.groups.add(stale_group)
+
+        self._run_sync()
+
+        user = DmisUser.objects.get(pk=881001)
+        self.assertFalse(Group.objects.filter(name="REMOVED_ROLE").exists())
+        self.assertFalse(user.groups.filter(name="REMOVED_ROLE").exists())
+        self.assertFalse(
+            Permission.objects.filter(pk=stale_permission.pk).exists()
+        )
+
+    def test_sync_preserves_external_groups_and_memberships(self) -> None:
+        external_permission = self._create_external_permission()
+        external_group = Group.objects.create(name="EXTERNAL_OPS")
+        external_group.permissions.add(external_permission)
+        user = DmisUser.objects.get(pk=881001)
+        user.groups.add(external_group)
+
+        self._run_sync()
+
+        user = DmisUser.objects.get(pk=881001)
+        self.assertTrue(Group.objects.filter(name="EXTERNAL_OPS").exists())
+        self.assertTrue(user.groups.filter(name="EXTERNAL_OPS").exists())
+        self.assertTrue(user.groups.filter(name="BRIDGE_LOGISTICS").exists())
+        self.assertTrue(user.has_perm("external_app.external_manage"))
+
+    def test_sync_rejects_unmarked_group_name_collision(self) -> None:
+        external_permission = self._create_external_permission()
+        bridge_group = Group.objects.create(name="BRIDGE_VIEWER")
+        bridge_group.permissions.add(external_permission)
+        viewer = DmisUser.objects.get(pk=881002)
+        viewer.groups.add(bridge_group)
+        self.assertTrue(viewer.has_perm("external_app.external_manage"))
+
+        with self.assertRaises(CommandError):
+            self._run_sync()
+
+        viewer = DmisUser.objects.get(pk=881002)
+        bridge_group = Group.objects.get(name="BRIDGE_VIEWER")
+        self.assertTrue(
+            bridge_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+        self.assertTrue(viewer.groups.filter(name="BRIDGE_VIEWER").exists())
+        self.assertTrue(viewer.has_perm("external_app.external_manage"))
+        self.assertFalse(RbacBridgeGroup.objects.filter(group=bridge_group).exists())
+
+    def test_sync_resets_marked_bridge_group_permissions_to_derived_set(self) -> None:
+        self._run_sync()
+        external_permission = self._create_external_permission()
+        bridge_group = Group.objects.get(name="BRIDGE_VIEWER")
+        bridge_group.permissions.add(external_permission)
+        viewer = DmisUser.objects.get(pk=881002)
+        self.assertTrue(viewer.has_perm("external_app.external_manage"))
+
+        self._run_sync()
+
+        viewer = DmisUser.objects.get(pk=881002)
+        bridge_group = Group.objects.get(name="BRIDGE_VIEWER")
+        self.assertFalse(
+            bridge_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+        self.assertFalse(viewer.has_perm("external_app.external_manage"))
+        self.assertTrue(
+            bridge_group.permissions.filter(
+                content_type__app_label="dmis",
+            ).exists()
+        )
+
+    def test_sync_strips_stale_dmis_permissions_from_external_groups(self) -> None:
+        stale_content_type = ContentType.objects.create(
+            app_label="dmis",
+            model="stale.resource",
+        )
+        stale_permission = Permission.objects.create(
+            content_type=stale_content_type,
+            codename="stale.resource__view",
+            name="DMIS stale.resource.view",
+        )
+        external_permission = self._create_external_permission()
+        external_group = Group.objects.create(name="EXTERNAL_WITH_STALE_DMIS")
+        external_group.permissions.add(stale_permission, external_permission)
+
+        self._run_sync()
+
+        external_group = Group.objects.get(name="EXTERNAL_WITH_STALE_DMIS")
+        self.assertFalse(
+            external_group.permissions.filter(pk=stale_permission.pk).exists()
+        )
+        self.assertTrue(
+            external_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+
+    def test_sync_preserves_external_membership_with_stale_dmis_permission(self) -> None:
+        stale_content_type = ContentType.objects.create(
+            app_label="dmis",
+            model="mixed.external",
+        )
+        stale_permission = Permission.objects.create(
+            content_type=stale_content_type,
+            codename="mixed.external__view",
+            name="DMIS mixed.external.view",
+        )
+        external_permission = self._create_external_permission()
+        external_group = Group.objects.create(name="EXTERNAL_MIXED")
+        external_group.permissions.add(stale_permission, external_permission)
+        user = DmisUser.objects.get(pk=881001)
+        user.groups.add(external_group)
+
+        self._run_sync()
+
+        user = DmisUser.objects.get(pk=881001)
+        external_group = Group.objects.get(name="EXTERNAL_MIXED")
+        self.assertTrue(user.groups.filter(name="EXTERNAL_MIXED").exists())
+        self.assertFalse(
+            external_group.permissions.filter(pk=stale_permission.pk).exists()
+        )
+        self.assertTrue(
+            external_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+        self.assertTrue(user.has_perm("external_app.external_manage"))
 
     def _run_sync(self) -> str:
         output = StringIO()
@@ -236,6 +420,9 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
                     schema_editor.create_model(through_model)
 
     def _clear_bridge_state(self) -> None:
+        RbacBridgeGroup.objects.all().delete()
+        DmisUser.groups.through.objects.all().delete()
+        DmisUser.user_permissions.through.objects.all().delete()
         Group.objects.all().delete()
         Permission.objects.filter(content_type__app_label="dmis").delete()
         ContentType.objects.filter(app_label="dmis").delete()
@@ -336,6 +523,18 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TransactionTestCase):
     def _bridge_permission_string(self, code: str) -> str:
         resource, action = self._permission_parts_for_code(code)
         return f"dmis.{bridge_codename(resource, action)}"
+
+    def _create_external_permission(self) -> Permission:
+        content_type, _created = ContentType.objects.get_or_create(
+            app_label="external_app",
+            model="external_model",
+        )
+        permission, _created = Permission.objects.get_or_create(
+            content_type=content_type,
+            codename="external_manage",
+            defaults={"name": "External manage"},
+        )
+        return permission
 
     def _bridge_state(self):
         group_names = tuple(sorted(Group.objects.values_list("name", flat=True)))

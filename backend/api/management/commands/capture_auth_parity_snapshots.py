@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -45,36 +47,46 @@ class Command(BaseCommand):
 
         output_dir = self._output_dir(options.get("output_dir"))
         output_dir.mkdir(parents=True, exist_ok=True)
+        output_paths = self._output_paths(output_dir, usernames)
 
-        client = Client()
-        written_files: list[Path] = []
-        with override_settings(
-            AUTH_ENABLED=False,
-            DEV_AUTH_ENABLED=True,
-            TEST_DEV_AUTH_ENABLED=True,
-            LOCAL_AUTH_HARNESS_ENABLED=True,
-            LOCAL_AUTH_HARNESS_USERNAMES=usernames,
-            DEBUG=True,
-            ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"],
-        ):
-            for username in usernames:
-                response = client.get(
-                    "/api/v1/auth/whoami/",
-                    HTTP_X_DMIS_LOCAL_USER=username,
-                )
-                if response.status_code != 200:
-                    body = response.content.decode("utf-8", errors="replace")
-                    raise CommandError(
-                        f"whoami capture failed for {username}: "
-                        f"HTTP {response.status_code}: {body}"
+        previous_runtime_env = os.environ.get("DMIS_RUNTIME_ENV")
+        os.environ["DMIS_RUNTIME_ENV"] = "local-harness"
+        try:
+            client = Client()
+            written_files: list[Path] = []
+            with override_settings(
+                AUTH_ENABLED=False,
+                DEV_AUTH_ENABLED=True,
+                TEST_DEV_AUTH_ENABLED=True,
+                DMIS_RUNTIME_ENV="local-harness",
+                LOCAL_AUTH_HARNESS_ENABLED=True,
+                LOCAL_AUTH_HARNESS_USERNAMES=usernames,
+                DEBUG=True,
+                ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"],
+            ):
+                for username in usernames:
+                    response = client.get(
+                        "/api/v1/auth/whoami/",
+                        HTTP_X_DMIS_LOCAL_USER=username,
                     )
-                payload = response.json()
-                output_path = output_dir / f"whoami_{username}.json"
-                output_path.write_text(
-                    json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                )
-                written_files.append(output_path)
+                    if response.status_code != 200:
+                        body = response.content.decode("utf-8", errors="replace")
+                        raise CommandError(
+                            f"whoami capture failed for {username}: "
+                            f"HTTP {response.status_code}: {body}"
+                        )
+                    payload = response.json()
+                    output_path = output_paths[username]
+                    output_path.write_text(
+                        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    written_files.append(output_path)
+        finally:
+            if previous_runtime_env is None:
+                os.environ.pop("DMIS_RUNTIME_ENV", None)
+            else:
+                os.environ["DMIS_RUNTIME_ENV"] = previous_runtime_env
 
         self.stdout.write(self.style.SUCCESS(f"Wrote {len(written_files)} auth parity snapshots."))
         for path in written_files:
@@ -96,3 +108,23 @@ class Command(BaseCommand):
             seen.add(key)
             usernames.append(username)
         return usernames
+
+    def _safe_username(self, username: str) -> str:
+        safe_username = re.sub(r"[^A-Za-z0-9._-]", "_", username).lstrip(".")
+        return safe_username or "unknown"
+
+    def _output_paths(self, output_dir: Path, usernames: list[str]) -> dict[str, Path]:
+        output_paths: dict[str, Path] = {}
+        usernames_by_filename: dict[str, str] = {}
+        for username in usernames:
+            filename = f"whoami_{self._safe_username(username)}.json"
+            filename_key = filename.casefold()
+            previous_username = usernames_by_filename.get(filename_key)
+            if previous_username is not None:
+                raise CommandError(
+                    f"Usernames {previous_username!r} and {username!r} sanitize "
+                    f"to the same snapshot filename {filename!r}."
+                )
+            usernames_by_filename[filename_key] = username
+            output_paths[username] = output_dir / filename
+        return output_paths
