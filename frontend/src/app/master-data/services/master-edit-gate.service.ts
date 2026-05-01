@@ -161,22 +161,39 @@ export class MasterEditGateService {
       return '';
     }
 
+    if (config.tableKey === 'user') {
+      const firstName = this.trimRecordValue(record['first_name']);
+      const lastName = this.trimRecordValue(record['last_name']);
+      const fullName = this.trimRecordValue(record['full_name']) || [firstName, lastName].filter(Boolean).join(' ');
+      const userTitle = fullName
+        || this.trimRecordValue(record['user_name'])
+        || this.trimRecordValue(record['username'])
+        || this.trimRecordValue(record['email']);
+      if (userTitle) {
+        return userTitle;
+      }
+    }
+
     const nameFields = [
       'item_name', 'warehouse_name', 'agency_name', 'event_name',
       'donor_name', 'supplier_name', 'custodian_name', 'country_name',
       'currency_name', 'parish_name', 'family_label', 'reference_desc',
-      'category_desc', 'uom_desc', 'description', 'name',
+      'category_desc', 'uom_desc', 'full_name', 'description', 'name',
       'item_code', 'category_code', 'uom_code', 'warehouse_code',
     ];
 
     for (const field of nameFields) {
-      const value = record[field];
-      if (value != null && String(value).trim()) {
-        return String(value).trim();
+      const value = this.trimRecordValue(record[field]);
+      if (value) {
+        return value;
       }
     }
 
     return `${config.displayName} ${pk}`;
+  }
+
+  private trimRecordValue(value: unknown): string {
+    return value == null ? '' : String(value).trim();
   }
 
   buildDialogData(options: {

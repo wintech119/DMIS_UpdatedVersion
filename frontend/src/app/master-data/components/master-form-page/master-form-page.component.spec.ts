@@ -534,6 +534,18 @@ describe('MasterFormPageComponent', () => {
     expect(payload['agency_id']).toBeNull();
   });
 
+  it('uses the user full name in the edit form title', () => {
+    const { component, fixture } = setup('users', { pk: '42' });
+
+    fixture.detectChanges();
+
+    expect(component.formPageTitle()).toBe('Edit Field Admin');
+    const titleText = (fixture.nativeElement as HTMLElement).querySelector('h1')?.textContent ?? '';
+    expect(titleText).toContain('Edit Field Admin');
+    expect(titleText).not.toContain('Edit Users 42');
+    expect(titleText).not.toContain('Edit Users');
+  });
+
   it('uses Managing Tenant as the required warehouse owner field', () => {
     const { component } = setup('warehouses');
     const cfg = component.config()!;

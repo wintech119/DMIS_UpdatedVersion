@@ -383,6 +383,25 @@ DMIS-10 completed the Flask decommission:
 - keep active docs and CI aligned to Angular + Django as the only supported platform
 - treat any proposal to reintroduce a parallel runtime as an architecture review trigger
 
+## ADR-Lite: Django Auth Adapter And RBAC Bridge
+
+### Decision
+
+DMIS adopts Django's auth adapter surface on top of the existing legacy `"user"` table. `accounts.DmisUser` remains bound to that table, while `sync_rbac_to_django_auth` mirrors the custom `role`, `permission`, `role_permission`, and `user_role` source-of-truth tables into Django `auth.Group`, `auth.Permission`, group-permission rows, and the custom-user group M2M. The bridge is derived, read-only with respect to custom RBAC, and production runs it as an explicit release step rather than request-time work.
+
+### Alternatives considered
+
+- Full migration to Django-owned auth tables was rejected as too risky for the current adapter scope because it would affect 109 known consumer sites and bypass the tenant-first user creation hardening.
+- Claim-only RBAC was rejected because backend authorization must remain authoritative and database-auditable instead of relying only on identity-provider claims.
+
+### Sunset condition
+
+The bridge can be retired after all permission checks have moved from string membership such as `'masterdata.view' in user.permissions` to Django checks such as `user.has_perm(...)`. That is Phase 4 territory and is outside this migration phase.
+
+### Traceability
+
+See `tasks/django-auth-adapter-plan.md` for the approved phased migration plan and architecture review.
+
 ## Architecture Decision Rules
 
 ### Prefer

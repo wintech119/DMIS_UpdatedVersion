@@ -55,6 +55,12 @@ from masterdata.permissions import (
 from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.throttling import MasterDataWriteThrottle
 from masterdata.services import iam_data_access
+from masterdata.services.iam_data_access import (
+    UserCreateRecordError,
+    UserPrimaryTenantMembershipError,
+    create_user_with_primary_tenant,
+    verify_user_primary_tenant_membership,
+)
 from masterdata.services.data_access import (
     BASELINE_TENANT_TYPE_CODES,
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
@@ -117,15 +123,6 @@ _IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
 _IFRC_RESPONSE_CANDIDATE_LIMIT = 5
 _SCALAR_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(KG|MG|G|L|ML|KVA|KW|CM|MM|M2)$")
 _DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*(M2|FT)$")
-
-
-class UserCreateRecordError(Exception):
-    def __init__(self, warnings: list[str]):
-        self.warnings = warnings
-
-
-class UserPrimaryTenantMembershipError(Exception):
-    pass
 
 
 def _actor_id(request) -> str:
@@ -275,17 +272,6 @@ def _extract_required_user_create_tenant(data: dict[str, Any]) -> tuple[int | No
     return tenant_id, errors, []
 
 
-def _verify_user_primary_tenant_membership(tenant_id: int, user_id: int) -> None:
-    if not iam_data_access.has_active_primary_tenant_membership(tenant_id, user_id):
-        raise UserPrimaryTenantMembershipError(
-            "Primary tenant membership verification found no active row."
-        )
-    if iam_data_access.count_active_primary_tenant_memberships(user_id) != 1:
-        raise UserPrimaryTenantMembershipError(
-            "Primary tenant membership verification did not find exactly one active primary row."
-        )
-
-
 def _validate_user_assigned_warehouse_tenant(
     data: dict[str, Any],
     tenant_id: int,
@@ -334,7 +320,7 @@ def _validate_user_update_assigned_warehouse_tenant(
             )
         }, []
     try:
-        _verify_user_primary_tenant_membership(primary_tenant_id, user_id)
+        verify_user_primary_tenant_membership(primary_tenant_id, user_id)
     except UserPrimaryTenantMembershipError:
         return {
             "assigned_warehouse_id": (
@@ -1563,24 +1549,12 @@ def _handle_user_create(request, cfg):
     pk_val: int | None = None
     warnings: list[str] = []
     try:
-        with transaction.atomic():
-            raw_pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
-            if raw_pk_val is None:
-                raise UserCreateRecordError(warnings)
-
-            pk_val = int(raw_pk_val)
-            membership_created = iam_data_access.assign_tenant_user(
-                tenant_id,
-                pk_val,
-                "STANDARD",
-                _actor_id(request),
-                is_primary_tenant=True,
-            )
-            if not membership_created:
-                raise UserPrimaryTenantMembershipError(
-                    "Primary tenant membership insert did not create a row."
-                )
-            _verify_user_primary_tenant_membership(tenant_id, pk_val)
+        pk_val, warnings = create_user_with_primary_tenant(
+            tenant_id=tenant_id,
+            record_data=data,
+            actor_id=_actor_id(request),
+            data_access_create_record=create_record,
+        )
     except UserCreateRecordError as exc:
         warnings = exc.warnings
         if "db_unique_violation" in warnings:

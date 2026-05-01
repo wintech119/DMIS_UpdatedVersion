@@ -1,0 +1,47 @@
+{
+  "operations_capabilities": {
+    "allowed_origin_modes": [
+      "self",
+      "for_subordinate"
+    ],
+    "can_create_relief_request": true,
+    "can_create_relief_request_on_behalf": true,
+    "default_requesting_tenant_id": 19,
+    "relief_request_submission_mode": "self"
+  },
+  "permissions": [
+    "operations.notification.receive",
+    "operations.queue.view",
+    "operations.receipt.confirm",
+    "operations.request.cancel",
+    "operations.request.create.for_subordinate",
+    "operations.request.create.self",
+    "operations.request.edit.draft",
+    "operations.request.submit",
+    "operations.waybill.view"
+  ],
+  "roles": [
+    "AGENCY_DISTRIBUTOR"
+  ],
+  "tenant_context": {
+    "active_tenant_code": "JRC",
+    "active_tenant_id": 19,
+    "active_tenant_type": "NGO",
+    "can_act_cross_tenant": false,
+    "can_read_all_tenants": false,
+    "is_neoc": false,
+    "memberships": [
+      {
+        "access_level": "FULL",
+        "is_primary": true,
+        "tenant_code": "JRC",
+        "tenant_id": 19,
+        "tenant_name": "JAMAICA RED CROSS",
+        "tenant_type": "NGO"
+      }
+    ],
+    "requested_tenant_id": null
+  },
+  "user_id": "11",
+  "username": "relief_jrc_requester_tst"
+}

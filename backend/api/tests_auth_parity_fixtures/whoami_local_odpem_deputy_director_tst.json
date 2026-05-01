@@ -1,0 +1,66 @@
+{
+  "operations_capabilities": {
+    "allowed_origin_modes": [],
+    "can_create_relief_request": false,
+    "can_create_relief_request_on_behalf": false,
+    "default_requesting_tenant_id": 1,
+    "relief_request_submission_mode": null
+  },
+  "permissions": [
+    "masterdata.view",
+    "national.read_all_tenants",
+    "operations.eligibility.approve",
+    "operations.eligibility.reject",
+    "operations.eligibility.review",
+    "operations.notification.receive",
+    "operations.partial_release.approve",
+    "operations.queue.view",
+    "replenishment.criticality_hazard.view",
+    "replenishment.criticality_override.view",
+    "replenishment.needs_list.approve",
+    "replenishment.needs_list.escalate",
+    "replenishment.needs_list.preview",
+    "replenishment.needs_list.reject",
+    "replenishment.needs_list.return",
+    "replenishment.needs_list.review_comments",
+    "replenishment.phase_window.manage",
+    "replenishment.phase_window.view",
+    "replenishment.procurement.approve",
+    "replenishment.procurement.reject",
+    "replenishment.procurement.view",
+    "tenant.approval_policy.view",
+    "tenant.feature.view"
+  ],
+  "roles": [
+    "ODPEM_DDG"
+  ],
+  "tenant_context": {
+    "active_tenant_code": "ODPEM-HQ",
+    "active_tenant_id": 1,
+    "active_tenant_type": "NATIONAL",
+    "can_act_cross_tenant": false,
+    "can_read_all_tenants": true,
+    "is_neoc": false,
+    "memberships": [
+      {
+        "access_level": "FULL",
+        "is_primary": true,
+        "tenant_code": "ODPEM-HQ",
+        "tenant_id": 1,
+        "tenant_name": "OFFICE OF DISASTER PREPAREDNESS AND EMERGENCY MANAGEMENT - HQ",
+        "tenant_type": "NATIONAL"
+      },
+      {
+        "access_level": "FULL",
+        "is_primary": false,
+        "tenant_code": "ODPEM-NEOC",
+        "tenant_id": 2,
+        "tenant_name": "ODPEM - NATIONAL EMERGENCY OPERATIONS CENTRE",
+        "tenant_type": "NATIONAL"
+      }
+    ],
+    "requested_tenant_id": null
+  },
+  "user_id": "18",
+  "username": "local_odpem_deputy_director_tst"
+}

@@ -1,5 +1,40 @@
 # Current Task Plan
 
+## Django Auth Adapter Phase 3 - 2026-04-30
+
+Risk score: 8 / Medium using the approved auth-adapter architecture review.
+Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 0, operational impact 1.
+Pre-plan architecture gate: Conditionally Aligned; required controls are custom RBAC as source of truth, idempotent bridge sync, no `auth_user` population, dev/test-only post-migrate autorun, W002 scoped to `auth_user`, and parity between `user.has_perm()` and `resolve_roles_and_permissions()`.
+
+1. Completed: re-read the Phase 3 brief, full adapter plan, coding standards, backend rules, RBAC resolver, W002 check, schema, ADR conventions, and Phase 1/2 accounts output.
+2. Completed: implemented the read-only RBAC-to-Django auth bridge command, permission codename helper, migration-backed custom-user group M2M support, and dev/test post-migrate signal.
+3. Completed: added bridge, idempotency, orphan cleanup, `has_perm` parity, and W002 regression tests.
+4. Completed: appended the ADR-lite documenting the adapter decision, rejected alternatives, and bridge sunset condition.
+5. Completed with local caveats: focused accounts, API, and auth parity suites pass; direct Postgres-backed sync/migrate gates remain blocked by missing local PostgreSQL credentials and the unseeded legacy RBAC schema.
+
+## Django Auth Adapter Phase 2 - 2026-04-30
+
+Risk score: 8 / Medium using the approved auth-adapter architecture review.
+Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 0, operational impact 1.
+Pre-plan architecture gate: Conditionally Aligned; required controls are parity snapshots, preserved auth audit emissions, local login throttling, unchanged runtime-env validation, and no `auth_user` rows.
+
+1. Completed: re-read the Phase 2 brief, full adapter plan, coding standards, backend rules, current auth implementation, RBAC resolver, Phase 1 accounts app, and parity fixtures.
+2. Completed: split Keycloak/OIDC and local-harness authentication into Django backends while keeping `LegacyCompatAuthentication` as the DRF dispatcher.
+3. Completed: added `DmisUser` Principal-shape role/permission properties and cache behavior without changing `resolve_roles_and_permissions`.
+4. Completed: added backend and parity tests covering JWT, local harness allowlist/rejection, audit events, throttle wiring, and byte-for-byte snapshot stability.
+5. Completed with local caveat: `check`, `accounts`, `api.tests_auth_parity`, and `api.tests` pass; full `manage.py test` is blocked locally by missing PostgreSQL credentials, while SQLite fallback reaches pre-existing PostgreSQL-specific operations/replenishment failures.
+
+## Django Auth Adapter Phase 1 - 2026-04-30
+
+Risk score: 8 / Medium using the approved auth-adapter architecture review.
+Axes: blast radius 2, data sensitivity 2, authority change 2, reversibility 1, external surface 0, operational impact 1.
+
+1. Completed: re-read the amended Brief 1 and inspected the existing auth, master-data, RBAC, and command patterns before implementation.
+2. Completed: extracted the tenant-first user creation helper into `masterdata.services.iam_data_access` and kept the bounded `masterdata.views` refactor behavior-neutral.
+3. Completed: added the unmanaged `accounts.DmisUser` adapter, manager, no-op state migration, and `create_admin_user` management command.
+4. Completed: added service, accounts, and parity-snapshot coverage plus generated whoami fixture JSON.
+5. Completed with environment caveat: ran `manage.py check`, focused tests, masterdata tests, and attempted the full backend suite; PostgreSQL-only gates were blocked by missing local DB configuration.
+
 ## OIDC Advanced Assignment Actor Fix - 2026-04-29
 
 Risk score: 4 / Low-Medium using the architecture-review handoff rubric.
