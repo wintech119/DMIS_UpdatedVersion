@@ -4,7 +4,7 @@
 > The receiving model has no prior context — everything it needs is in this file.
 >
 > **Authoritative reference plan (do not paste into Claude Design — for human reviewers only):**
-> `C:/Users/wbowe/.claude/plans/c-users-wbowe-onedrive-desktop-project-velvet-sky.md`
+> [`docs/implementation/sprint_11_ep03_inventory_implementation_plan.md`](sprint_11_ep03_inventory_implementation_plan.md)
 
 ---
 

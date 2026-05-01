@@ -4,7 +4,7 @@
 > The receiving model has no prior conversation context — everything it needs is referenced inline below.
 >
 > **Required reading before any code is written:**
-> 1. `C:/Users/wbowe/.claude/plans/c-users-wbowe-onedrive-desktop-project-velvet-sky.md` — the approved EP-03 plan (authoritative)
+> 1. [`docs/implementation/sprint_11_ep03_inventory_implementation_plan.md`](sprint_11_ep03_inventory_implementation_plan.md) — the approved EP-03 plan (authoritative)
 > 2. `.claude/CLAUDE.md` — project guardrails, regression rules, secrets policy, rate limits, IDOR rules, mandatory architecture review
 > 3. `backend/AGENTS.md` — backend-local rules (raw SQL discipline, ORM-only for new tables, tenancy enforcement)
 > 4. `docs/adr/system_application_architecture.md` — canonical architecture
@@ -19,7 +19,7 @@
 ```
 You are implementing the BACKEND for DMIS EP-03 (Stockpile/Warehouse Operations) Sprint 1, the inventory-accuracy backbone for Jamaica's ODPEM disaster response system. The complete design is the approved plan at:
 
-  C:/Users/wbowe/.claude/plans/c-users-wbowe-onedrive-desktop-project-velvet-sky.md
+  docs/implementation/sprint_11_ep03_inventory_implementation_plan.md
 
 Read that plan in full BEFORE writing any code. It is the authoritative source of truth for: scope (60 Must-Have FRs across Phase 1+2 minus Sage minus location hierarchy), data model, service-layer chokepoint, RBAC, URL surface, migration plan, day-by-day sequencing, test plan, and verification.
 
