@@ -749,7 +749,18 @@ INSTALLED_APPS = [
     "operations",
     "replenishment",
     "masterdata",
+    "inventory",
 ]
+
+# Inventory module configuration (EP-03)
+DMIS_INVENTORY_ENABLED = _get_bool_env("DMIS_INVENTORY_ENABLED", True)
+INVENTORY_BULK_DAILY_LINE_CAP = _get_int_env("INVENTORY_BULK_DAILY_LINE_CAP", 50_000)
+INVENTORY_EVIDENCE_MAX_BYTES = _get_int_env("INVENTORY_EVIDENCE_MAX_BYTES", 25 * 1024 * 1024)
+INVENTORY_AUDIT_PAYLOAD_MAX_BYTES = _get_int_env("INVENTORY_AUDIT_PAYLOAD_MAX_BYTES", 64 * 1024)
+STOCK_EVIDENCE_STORAGE_PATH = os.getenv(
+    "STOCK_EVIDENCE_STORAGE_PATH",
+    str(BASE_DIR / "stock_evidence"),
+)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
