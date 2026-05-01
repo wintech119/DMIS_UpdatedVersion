@@ -1832,6 +1832,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private loadRecord(): void {
+    this.recordTitle.set('');
     const cfg = this.config();
     if (!cfg || !this.pk()) return;
 

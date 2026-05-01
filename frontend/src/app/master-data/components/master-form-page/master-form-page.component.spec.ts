@@ -540,7 +540,10 @@ describe('MasterFormPageComponent', () => {
     fixture.detectChanges();
 
     expect(component.formPageTitle()).toBe('Edit Field Admin');
-    expect((fixture.nativeElement as HTMLElement).querySelector('h1')?.textContent).toContain('Edit Field Admin');
+    const titleText = (fixture.nativeElement as HTMLElement).querySelector('h1')?.textContent ?? '';
+    expect(titleText).toContain('Edit Field Admin');
+    expect(titleText).not.toContain('Edit Users 42');
+    expect(titleText).not.toContain('Edit Users');
   });
 
   it('uses Managing Tenant as the required warehouse owner field', () => {

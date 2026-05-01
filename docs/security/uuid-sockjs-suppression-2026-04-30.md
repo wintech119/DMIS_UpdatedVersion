@@ -14,7 +14,7 @@ Status: Active suppression - re-evaluate on sunset condition below.
 
 ## 2. Dependency path
 
-```
+```text
 @angular-devkit/build-angular@21.2.9
   -> webpack-dev-server@5.2.3
       -> sockjs@0.3.24

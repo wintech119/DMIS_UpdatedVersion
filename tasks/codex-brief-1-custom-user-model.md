@@ -11,7 +11,7 @@
 
 Introduce a custom Django `AUTH_USER_MODEL = 'accounts.DmisUser'` that maps onto the existing PostgreSQL `"user"` table without altering any column or creating any migration that touches that table.
 
-After this phase, `request.user` is **still** a `Principal` (do **not** change auth flow yet); but Django ORM can now load users from the custom table via `accounts.DmisUser.objects.get(...)`.
+After this phase, Django ORM can load users from the custom table via `accounts.DmisUser.objects.get(...)`, and the authentication adapter surface may return `accounts.DmisUser` on Django-auth paths while preserving the Principal-compatible roles/permissions shape expected by existing DRF/local-harness flows.
 
 ---
 
@@ -19,7 +19,7 @@ After this phase, `request.user` is **still** a `Principal` (do **not** change a
 
 - Django 4.2 LTS + DRF, Python 3.11+, PostgreSQL 16+. Backend is `backend/`. `manage.py` lives at `backend/manage.py`.
 - DMIS does **not** use Django's `auth_user` table. There is a custom `"user"` table in PostgreSQL (note the literal double quotes around `user` because `user` is a reserved word in some SQL contexts). It is fully populated. `auth_user` is empty. A system check `W002` in `backend/api/checks.py:134-184` warns if `auth_user` has rows — it must keep passing.
-- `request.user` today is a `Principal` dataclass instance (defined `backend/api/authentication.py:20-26`), not a Django User. About 109 call sites read `request.user.user_id`, `.username`, `.roles`, `.permissions`, `.is_authenticated`. **Phase 1 must not change this.** You are only adding a Django ORM model that points at the same `"user"` table; you are not touching authentication flow yet.
+- `request.user` compatibility remains critical: existing call sites read `request.user.user_id`, `.username`, `.roles`, `.permissions`, `.is_authenticated`. Phase 1 now includes the auth adapter/local-harness compatibility work needed to preserve that shape while introducing `accounts.DmisUser`. The actual scope includes `backend/api/authentication.py` and the local-harness auth flow, not only the ORM model.
 - The custom `"user"` table columns (per `backend/DMIS_latest_schema_pgadmin.sql` lines 5231–5262) include at least: `user_id` (PK, integer, generated), `email`, `username`, `user_name`, `password_hash`, `password_algo`, `mfa_enabled`, `is_active`, `status_code` ('A'|'I'|'L'), `version_nbr`, `login_count`, plus audit columns (`create_by_id`, `create_dtime`, `update_by_id`, `update_dtime`). Inspect the SQL file to confirm exact column types and any columns omitted; mirror them faithfully.
 - Tenant-first user creation was just hardened in commits `3ade06b0`, `7243aab3`, `9a189f57`, `292b5ada`, `57efc4a0`. The canonical tenant-first user creation helper lives in `backend/masterdata/services/data_access.py` (and is called from `backend/masterdata/views.py`). You **must** call this helper from `DmisUserManager.create_user`. If you cannot find a clean entry point, **stop and document the question** in your summary — do not bypass it.
 
@@ -265,8 +265,8 @@ Implement the chosen option and explain why.
 
 ## Constraints (HARD — do not violate)
 
-- **Do not** modify `backend/api/authentication.py`, `backend/api/rbac.py`, `backend/api/permissions.py`, `backend/api/tenancy.py`, or any auth-related view.
-- **The ONLY allowed view edit** in this phase is `backend/masterdata/views.py` for the structural refactor described in **Task 0** (move exceptions and verification function into `iam_data_access.py`; replace the inline atomic block at lines 1566–1583 with a call to `create_user_with_primary_tenant`; update the call site at line 337). **Zero behavior change.** If any existing masterdata test fails after this edit, the refactor is wrong — fix the refactor, do not modify the test.
+- Auth-layer edits are limited to adapter/local-harness compatibility in `backend/api/authentication.py`; do not modify `backend/api/rbac.py`, `backend/api/permissions.py`, `backend/api/tenancy.py`, or auth-related views unless a later phase brief explicitly requires it.
+- The allowed view edit in this phase is `backend/masterdata/views.py` for the structural refactor described in **Task 0** (move exceptions and verification function into `iam_data_access.py`; replace the inline atomic block at lines 1566–1583 with a call to `create_user_with_primary_tenant`; update the call site at line 337). **Zero behavior change.** If any existing masterdata test fails after this edit, the refactor is wrong — fix the refactor, do not modify the test.
 - **Do not** add or alter columns on the `"user"` table. No DDL.
 - **Do not** create rows in `auth_user`. The W002 check (`backend/api/checks.py:134-184`) must keep passing.
 - **Do not** touch tenancy code or the `tenant_user` schema.

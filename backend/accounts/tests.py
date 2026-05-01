@@ -20,6 +20,7 @@ class DmisUserTestMixin:
 
     def setUp(self) -> None:
         self._ensure_tables()
+        self._ensure_fixture_tenant()
         self._delete_test_users()
 
     def tearDown(self) -> None:
@@ -139,6 +140,26 @@ class DmisUserTestMixin:
                     PRIMARY KEY (user_id, role_id)
                 )
                 """
+            )
+    def _ensure_fixture_tenant(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO tenant (
+                    tenant_id,
+                    tenant_code,
+                    tenant_name,
+                    tenant_type,
+                    status_code
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (tenant_id) DO UPDATE
+                SET tenant_code = EXCLUDED.tenant_code,
+                    tenant_name = EXCLUDED.tenant_name,
+                    tenant_type = EXCLUDED.tenant_type,
+                    status_code = EXCLUDED.status_code
+                """,
+                [self.tenant_id, "ODPEM", "ODPEM", "NATIONAL", "A"],
             )
 
     def _delete_test_users(self) -> None:
@@ -317,6 +338,84 @@ class DmisUserManagerTests(DmisUserTestMixin, TestCase):
         self.assertTrue(check_password("user-pass", kwargs["record_data"]["password_hash"]))
         self.assertEqual(user.user_id, 880004)
         self.assertTrue(user.check_password("user-pass"))
+
+    def test_create_user_rejects_inactive_tenant_id(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE tenant SET status_code = %s WHERE tenant_id = %s",
+                ["I", self.tenant_id],
+            )
+
+        with patch("accounts.managers.create_user_with_primary_tenant") as helper:
+            with self.assertRaisesMessage(
+                ImproperlyConfigured,
+                "tenant_id does not resolve to an active tenant.",
+            ):
+                DmisUser.objects.create_user(
+                    "accounts_inactive_tenant_tst",
+                    "accounts-inactive-tenant@example.test",
+                    "user-pass",
+                    tenant_id=self.tenant_id,
+                )
+
+        helper.assert_not_called()
+
+    def test_create_user_validates_assigned_warehouse_tenant(self) -> None:
+        with (
+            patch(
+                "accounts.managers.check_warehouse_managed_by_tenant",
+                return_value=(False, []),
+            ) as warehouse_validator,
+            patch("accounts.managers.create_user_with_primary_tenant") as helper,
+        ):
+            with self.assertRaisesMessage(
+                ImproperlyConfigured,
+                "assigned_warehouse_id does not resolve",
+            ):
+                DmisUser.objects.create_user(
+                    "accounts_bad_warehouse_tst",
+                    "accounts-bad-warehouse@example.test",
+                    "user-pass",
+                    tenant_id=self.tenant_id,
+                    assigned_warehouse_id=7701,
+                )
+
+        warehouse_validator.assert_called_once_with(7701, self.tenant_id)
+        helper.assert_not_called()
+
+    def test_create_user_passes_valid_assigned_warehouse_id(self) -> None:
+        self._insert_user(
+            user_id=880006,
+            username="accounts_warehouse_tst",
+            email="accounts-warehouse@example.test",
+            password_hash="",
+            full_name="Warehouse Placeholder",
+        )
+
+        with (
+            patch(
+                "accounts.managers.check_warehouse_managed_by_tenant",
+                return_value=(True, []),
+            ) as warehouse_validator,
+            patch(
+                "accounts.managers.create_user_with_primary_tenant",
+                return_value=(880006, []),
+            ) as helper,
+        ):
+            DmisUser.objects.create_user(
+                "accounts_warehouse_tst",
+                "accounts-warehouse@example.test",
+                "user-pass",
+                tenant_id=self.tenant_id,
+                assigned_warehouse_id="7702",
+            )
+
+        warehouse_validator.assert_called_once_with(7702, self.tenant_id)
+        helper.assert_called_once()
+        self.assertEqual(
+            helper.call_args.kwargs["record_data"]["assigned_warehouse_id"],
+            7702,
+        )
 
     def test_create_user_requires_tenant(self) -> None:
         with self.assertRaises(ImproperlyConfigured):

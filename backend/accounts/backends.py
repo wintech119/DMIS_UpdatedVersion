@@ -263,8 +263,15 @@ class LocalHarnessBackend(ModelBackend):
 
     def _record_login_failure(self, request, username: str) -> None:
         key = self._cache_key(request, username)
-        attempts = int(cache.get(key, 0) or 0) + 1
-        cache.set(key, attempts, timeout=LOGIN_THROTTLE_WINDOW_SECONDS)
+        if cache.add(key, 1, timeout=LOGIN_THROTTLE_WINDOW_SECONDS):
+            return
+        try:
+            cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, timeout=LOGIN_THROTTLE_WINDOW_SECONDS)
+        except NotImplementedError:
+            attempts = int(cache.get(key, 0) or 0) + 1
+            cache.set(key, attempts, timeout=LOGIN_THROTTLE_WINDOW_SECONDS)
 
     def _reset_login_throttle(self, request, username: str) -> None:
         cache.delete(self._cache_key(request, username))

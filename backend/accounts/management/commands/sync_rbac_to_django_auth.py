@@ -510,16 +510,12 @@ class Command(BaseCommand):
         return counts, groups_by_code, bridge_group_ids
 
     def _bridge_owned_group_names(self) -> set[str]:
-        bridge_owned_names = set(
+        return set(
             RbacBridgeGroup.objects.select_related("group").values_list(
                 "group__name",
                 flat=True,
             )
         )
-        combo_group_names = Group.objects.filter(
-            name__startswith=BRIDGE_COMBO_GROUP_PREFIX,
-        ).values_list("name", flat=True)
-        return bridge_owned_names | set(combo_group_names)
 
     def _validate_group_name_collisions(
         self,

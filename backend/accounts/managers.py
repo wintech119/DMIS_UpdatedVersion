@@ -5,8 +5,9 @@ from typing import Any
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ImproperlyConfigured
-from django.db import IntegrityError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 
+from masterdata.services.data_access import check_warehouse_managed_by_tenant
 from masterdata.services.iam_data_access import (
     UserCreateRecordError,
     UserPrimaryTenantMembershipError,
@@ -44,6 +45,10 @@ class DmisUserManager(BaseUserManager):
                 raise ImproperlyConfigured("tenant_id must be a positive integer.") from exc
             if tenant_id <= 0:
                 raise ImproperlyConfigured("tenant_id must be a positive integer.")
+            if not self._active_tenant_exists(tenant_id):
+                raise ImproperlyConfigured(
+                    "tenant_id does not resolve to an active tenant."
+                )
             return tenant_id
 
         tenant_code = str(raw_tenant_code or "").strip().upper()
@@ -67,12 +72,85 @@ class DmisUserManager(BaseUserManager):
             raise ImproperlyConfigured("tenant_code does not resolve to an active tenant.")
         return int(row[0])
 
+    def _active_tenant_exists(self, tenant_id: int) -> bool:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM tenant
+                WHERE tenant_id = %s
+                  AND COALESCE(status_code, 'A') = 'A'
+                LIMIT 1
+                """,
+                [tenant_id],
+            )
+            return cursor.fetchone() is not None
+
+    def _validate_assigned_warehouse_tenant(
+        self,
+        tenant_id: int,
+        raw_warehouse_id: Any,
+    ) -> int | None:
+        if raw_warehouse_id in (None, ""):
+            return None
+        try:
+            warehouse_id = int(raw_warehouse_id)
+        except (TypeError, ValueError) as exc:
+            raise ImproperlyConfigured(
+                "assigned_warehouse_id must be a positive integer."
+            ) from exc
+        if warehouse_id <= 0:
+            raise ImproperlyConfigured(
+                "assigned_warehouse_id must be a positive integer."
+            )
+
+        is_managed_by_tenant, warnings = check_warehouse_managed_by_tenant(
+            warehouse_id,
+            tenant_id,
+        )
+        if warnings:
+            is_managed_by_tenant = self._warehouse_managed_by_tenant_direct(
+                warehouse_id,
+                tenant_id,
+            )
+        if not is_managed_by_tenant:
+            raise ImproperlyConfigured(
+                "assigned_warehouse_id does not resolve to an active warehouse "
+                "managed by the selected tenant."
+            )
+        return warehouse_id
+
+    def _warehouse_managed_by_tenant_direct(
+        self,
+        warehouse_id: int,
+        tenant_id: int,
+    ) -> bool:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT 1
+                    FROM warehouse
+                    WHERE warehouse_id = %s
+                      AND tenant_id = %s
+                      AND status_code = %s
+                    LIMIT 1
+                    """,
+                    [warehouse_id, tenant_id, "A"],
+                )
+                return cursor.fetchone() is not None
+        except DatabaseError as exc:
+            raise ImproperlyConfigured(
+                "assigned_warehouse_id could not be validated."
+            ) from exc
+
     def _record_data(
         self,
         *,
         username: str,
         email: str,
         password_hash: str,
+        tenant_id: int,
         extra_fields: dict[str, Any],
     ) -> dict[str, Any]:
         first_name = str(extra_fields.pop("first_name", "") or "").strip()
@@ -98,11 +176,14 @@ class DmisUserManager(BaseUserManager):
             "language": str(extra_fields.pop("language", "en") or "en").strip(),
         }
 
-        optional_fields = (
-            "assigned_warehouse_id",
-            "agency_id",
-            "phone",
-        )
+        if "assigned_warehouse_id" in extra_fields:
+            assigned_warehouse_id = self._validate_assigned_warehouse_tenant(
+                tenant_id,
+                extra_fields.pop("assigned_warehouse_id"),
+            )
+            record_data["assigned_warehouse_id"] = assigned_warehouse_id
+
+        optional_fields = ("agency_id", "phone")
         for field_name in optional_fields:
             if field_name in extra_fields:
                 record_data[field_name] = extra_fields.pop(field_name)
@@ -126,6 +207,7 @@ class DmisUserManager(BaseUserManager):
             username=username,
             email=email,
             password_hash=password_hash,
+            tenant_id=tenant_id,
             extra_fields=working_fields,
         )
 

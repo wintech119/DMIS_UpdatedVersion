@@ -14,6 +14,7 @@ from django.test import TestCase, override_settings
 from accounts.models import DmisUser, RbacBridgeGroup
 from accounts.management.commands.sync_rbac_to_django_auth import (
     BRIDGE_COMBO_GROUP_PREFIX,
+    Command as SyncRbacCommand,
 )
 from accounts.permissions import bridge_codename
 from accounts.tests import DmisUserTestMixin
@@ -237,7 +238,8 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TestCase):
             codename="removed.resource__view",
             name="DMIS removed.resource.view",
         )
-        Group.objects.create(name=f"{BRIDGE_COMBO_GROUP_PREFIX}removed")
+        orphan_group = Group.objects.create(name=f"{BRIDGE_COMBO_GROUP_PREFIX}removed")
+        RbacBridgeGroup.objects.create(group=orphan_group)
 
         self._run_sync()
 
@@ -307,6 +309,42 @@ class RbacBridgeSyncTests(DmisUserTestMixin, TestCase):
         self.assertTrue(viewer.groups.filter(name="BRIDGE_VIEWER").exists())
         self.assertTrue(viewer.has_perm("external_app.external_manage"))
         self.assertFalse(RbacBridgeGroup.objects.filter(group=bridge_group).exists())
+
+    def test_sync_preserves_unmarked_manual_combo_prefix_group(self) -> None:
+        external_permission = self._create_external_permission()
+        external_group = Group.objects.create(name=f"{BRIDGE_COMBO_GROUP_PREFIX}manual")
+        external_group.permissions.add(external_permission)
+        user = DmisUser.objects.get(pk=881001)
+        user.groups.add(external_group)
+
+        self._run_sync()
+
+        user = DmisUser.objects.get(pk=881001)
+        external_group = Group.objects.get(name=f"{BRIDGE_COMBO_GROUP_PREFIX}manual")
+        self.assertTrue(user.groups.filter(pk=external_group.pk).exists())
+        self.assertTrue(
+            external_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+        self.assertFalse(RbacBridgeGroup.objects.filter(group=external_group).exists())
+
+    def test_sync_rejects_unmarked_combo_group_name_collision(self) -> None:
+        external_permission = self._create_external_permission()
+        combo_name = SyncRbacCommand()._combo_group_name(self.user_roles[881003])
+        combo_group = Group.objects.create(name=combo_name)
+        combo_group.permissions.add(external_permission)
+        combo_user = DmisUser.objects.get(pk=881003)
+        combo_user.groups.add(combo_group)
+
+        with self.assertRaises(CommandError):
+            self._run_sync()
+
+        combo_user = DmisUser.objects.get(pk=881003)
+        combo_group = Group.objects.get(name=combo_name)
+        self.assertTrue(combo_user.groups.filter(pk=combo_group.pk).exists())
+        self.assertTrue(
+            combo_group.permissions.filter(pk=external_permission.pk).exists()
+        )
+        self.assertFalse(RbacBridgeGroup.objects.filter(group=combo_group).exists())
 
     def test_sync_resets_marked_bridge_group_permissions_to_derived_set(self) -> None:
         self._run_sync()
