@@ -465,7 +465,7 @@ export class AuthSessionService {
       this.writeStoredSession(storedSession);
       this.clearPendingLogin();
       await this.bootstrapPrincipal();
-      await this.router.navigateByUrl(pendingLogin.returnUrl || DEFAULT_AUTH_RETURN_URL, {
+      await this.router.navigateByUrl(normalizeReturnUrl(pendingLogin.returnUrl), {
         replaceUrl: true,
       });
     } catch {
